@@ -107,14 +107,15 @@ EOF
 # Upstream requires an explicit --mode/--yolo at spawn: firstmate resolves them
 # at intake rather than the spawn re-reading the registry, so the caller says so.
 run_base_spawn() {
-  local id=$1 mode=${2:-no-mistakes}
+  local id=$1 mode=${2:-no-mistakes} kind=${3:-ship} modeflags
   FM_ROOT_OVERRIDE='' FM_HOME="$HOME_DIR" \
     FM_STATE_OVERRIDE="$HOME_DIR/state" FM_DATA_OVERRIDE="$HOME_DIR/data" \
     FM_PROJECTS_OVERRIDE="$HOME_DIR/projects" FM_CONFIG_OVERRIDE="$HOME_DIR/config" \
     FM_SPAWN_NO_GUARD=1 TMUX="fake,1,0" \
     FM_FAKE_PANE_PATH="$WT_DIR" \
     PATH="$FAKEBIN_DIR:$PATH" \
-    "$SPAWN" "$id" "$PROJ_DIR" --mode "$mode" --yolo off 2>&1
+    "$SPAWN" "$id" "$PROJ_DIR" ${kind:+$([ "$kind" = scout ] && echo --scout)} \
+      $([ "$kind" = scout ] || echo "--mode $mode --yolo off") 2>&1
 }
 
 head_sha() { git -C "$1" rev-parse HEAD; }
@@ -228,6 +229,24 @@ test_local_only_prefers_local_branch() {
   pass "a local-only project starts the worker from the local default branch"
 }
 
+# A scout audits the same tree a ship would build on, so the recorded base must
+# apply to it too. It regressed once because the project name was resolved only
+# on the ship path.
+test_scout_also_starts_from_the_recorded_base() {
+  local rec id out status
+  id=base-scout-b7
+  rec=$(make_base_case base-scout "$id" main \
+    '- base-scout [no-mistakes base=develop] - develop-based (added 2026-09-10)')
+  read_base_record "$rec"
+
+  out=$(run_base_spawn "$id" no-mistakes scout)
+  status=$?
+  expect_code 0 "$status" "a scout should spawn on a develop-based project: $out"
+  [ "$(head_sha "$WT_DIR")" = "$(git -C "$PROJ_DIR" rev-parse origin/develop)" ] \
+    || fail "scout did not start from the recorded base branch (HEAD $(head_sha "$WT_DIR"))"
+  pass "a scout also starts from the project's recorded base branch"
+}
+
 # The registry parse: base= is readable alongside the delivery mode, and every
 # pre-existing line shape keeps parsing to exactly the same two words.
 test_registry_parse_is_backward_compatible() {
@@ -284,3 +303,4 @@ test_missing_base_branch_is_refused
 test_local_only_prefers_local_branch
 
 echo "# all fm-spawn-base-branch tests passed"
+test_scout_also_starts_from_the_recorded_base
