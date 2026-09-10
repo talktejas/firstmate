@@ -232,6 +232,7 @@ a { color: inherit; text-decoration: none; }
 .bb-freeform { width: 100%; font-family: var(--font-sans); font-size: var(--fs-sm); color: var(--text-strong);
   background: var(--surface-card); border: 1.5px solid var(--border-default); border-radius: var(--radius-sm); padding: 8px 11px; }
 .bb-freeform:focus { outline: none; border-color: var(--rust-400); box-shadow: var(--focus-ring); }
+.bb-opt--own .bb-freeform { margin: -2px 0; }
 
 /* ---- compact rows (Underway / Landed / Charted) ---- */
 .bb-rows { display: flex; flex-direction: column; }
@@ -521,14 +522,25 @@ __FM_BEARINGS_BOARD_DATA__
       }
       opts.appendChild(lab);
     });
-    form.appendChild(opts);
-
     if (item.allow_freeform) {
+      /* the write-your-own is an OPTION ROW carrying its own radio, never a
+         box below the list: the captain must be able to pick it like any
+         other answer, including after changing his mind about one. */
+      var ownLab = el("label", "bb-opt bb-opt--own");
+      var ownRadio = document.createElement("input");
+      ownRadio.type = "radio"; ownRadio.name = "answer"; ownRadio.value = "own";
+      ownLab.appendChild(ownRadio);
+      var ownBody = el("span", "bb-opt__body");
       var ff = document.createElement("input");
       ff.type = "text"; ff.name = "note"; ff.className = "bb-freeform";
-      ff.placeholder = item.freeform_hint || "or answer in your own words…";
-      form.appendChild(ff);
+      ff.placeholder = item.freeform_hint || "None of these \u2014 write your own answer here";
+      ff.addEventListener("focus", function () { ownRadio.checked = true; });
+      ff.addEventListener("input", function () { if (ff.value.trim()) ownRadio.checked = true; });
+      ownBody.appendChild(ff);
+      ownLab.appendChild(ownBody);
+      opts.appendChild(ownLab);
     }
+    form.appendChild(opts);
 
     var foot = el("div", "bb-decision__foot");
     var btn = el("button", "fm-btn fm-btn--sm " + (item.type === "merge" ? "fm-btn--gold" : "fm-btn--primary"), "Queue answer");
@@ -548,7 +560,9 @@ __FM_BEARINGS_BOARD_DATA__
       var fd = new FormData(form);
       var value = fd.get("answer");
       var note = (fd.get("note") || "").trim();
-      var displayAnswer = value ? (note ? value + " - " + note : value) : note;
+      /* picked option, optionally annotated; a bare note is itself the answer */
+      /* "own" is the write-your-own row: the note IS the answer, unprefixed */
+      var displayAnswer = value === "own" ? note : (value ? (note ? value + " - " + note : value) : note);
       if (!displayAnswer) return;
       if (utf8ByteLength(displayAnswer) > 512) {
         answerLimit.textContent = "Answer is too long to queue (512 bytes maximum).";

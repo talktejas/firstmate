@@ -158,8 +158,65 @@ test_an_omitted_kind_keeps_the_existing_queued_rendering() {
   pass "an omitted kind renders exactly as queued work always did"
 }
 
+
+# Build a board carrying one Captain's Call card and return what the renderer
+# produced for its answer rows.
+render_call() {  # <home> <call-json>
+  local home=$1 call=$2 data="$1/call-payload.json"
+  jq -n --argjson call "$call" '{
+    schema:"fm-bearings-board.v1", home:"render-home", generated:"2026-08-26T00:00Z",
+    prs_live:false, captains_call:$call, underway:[], landed:[],
+    charted:[], charted_more:0, charted_warning_more:0}' > "$data"
+  PATH="$home/fakebin:$PATH" FM_HOME="$home" \
+    FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
+    FM_PROCEVENT_CLAIM_ROOT="$home/procevent-claims" \
+    "$BOARD" build "$data" >/dev/null || fail "the board did not build"
+  node "$HARNESS" "$home/.lavish/bearings-board.html" \
+    || fail "the built board could not be rendered"
+}
+
+test_the_write_your_own_answer_is_a_pickable_option_row() {
+  local home out
+  home=$(make_home freeform-option)
+  out=$(render_call "$home" '[{
+    "key":"q-shape","type":"decision","repo":"sample","title":"Which shape?",
+    "options":[{"value":"a","label":"Shape A"},{"value":"b","label":"Shape B"}],
+    "allow_freeform":true,"freeform_hint":"None of these - write your own answer here"
+  }]')
+  printf '%s' "$out" | jq -e '.error == ""' >/dev/null \
+    || fail "the board rendered its fail-closed error instead of the card: $out"
+  # The captain must be able to PICK the write-your-own, not just type beside the
+  # options, so it is a row in the same radio group carrying its own field.
+  # build injects its own standard rows (the reserved reconcile choice), so
+  # assert the write-your-own contract rather than a fixed option count.
+  printf '%s' "$out" | jq -e '
+    ([.call_options[] | .value] | index("a")) != null
+      and ([.call_options[] | .value] | index("b")) != null
+      and (.call_options[-1] | .own == true and .has_radio == true and .has_field == true
+        and .placeholder == "None of these - write your own answer here")
+      and ([.call_options[] | select(.own | not) | .has_field] | unique) == [false]
+  ' >/dev/null || fail "the write-your-own answer did not render as a pickable option row: $out"
+  pass "the write-your-own answer is a pickable option row carrying its own field"
+}
+
+test_a_card_without_freeform_renders_only_its_options() {
+  local home out
+  home=$(make_home freeform-absent)
+  out=$(render_call "$home" '[{
+    "key":"q-plain","type":"decision","repo":"sample","title":"Plain",
+    "options":[{"value":"a","label":"Only A"}]
+  }]')
+  printf '%s' "$out" | jq -e '
+    ([.call_options[] | .value] | index("a")) != null
+      and ([.call_options[] | .own] | any) == false
+  ' >/dev/null || fail "a card without freeform grew an answer row: $out"
+  pass "a card without freeform renders only its own options"
+}
+
 test_a_warning_row_reads_as_a_repair_not_as_queued_work
 test_warnings_are_excluded_from_the_charted_next_count
 test_a_board_of_only_warnings_still_reports_nothing_queued
 test_omitted_warnings_never_count_as_more_queued
 test_an_omitted_kind_keeps_the_existing_queued_rendering
+test_the_write_your_own_answer_is_a_pickable_option_row
+test_a_card_without_freeform_renders_only_its_options

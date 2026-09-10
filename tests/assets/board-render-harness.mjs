@@ -24,6 +24,16 @@ class Node {
     this.checked = false;
     this.classList = {
       add: (c) => { this.className = (this.className + " " + c).trim(); },
+      remove: (c) => {
+        this.className = this.className.split(/\s+/).filter((x) => x && x !== c).join(" ");
+      },
+      toggle: (c, on) => {
+        const has = this.className.split(/\s+/).includes(c);
+        const want = on === undefined ? !has : Boolean(on);
+        if (want && !has) this.classList.add(c);
+        if (!want && has) this.classList.remove(c);
+        return want;
+      },
       contains: (c) => this.className.split(/\s+/).includes(c),
     };
   }
@@ -114,4 +124,27 @@ const errorText = [...byId.entries()]
 const empty = ch.children.filter((c) => c.className.includes("bb-empty")).map((c) => c.textContent);
 const more = ch.children.filter((c) => c.className.includes("bb-morechip")).map((c) => c.textContent);
 
-process.stdout.write(JSON.stringify({ stats, charted, empty, more, error: errorText }) + "\n");
+// Captain's Call answer rows, so the write-your-own option is asserted through
+// the real renderer rather than by reading the template's source.
+const cc = byId.get("bb-call") || new Node("div");
+const collect = (node, out) => {
+  for (const c of node.children) {
+    if (c.className.split(/\s+/).includes("bb-opt")) out.push(c);
+    collect(c, out);
+  }
+  return out;
+};
+const call_options = collect(cc, []).map((lab) => {
+  const radio = lab.children.find((c) => c.tagName === "input" && c.type === "radio");
+  const body = lab.children.find((c) => c.className.includes("bb-opt__body"));
+  const field = body ? body.children.find((c) => c.tagName === "input" && c.type === "text") : undefined;
+  return {
+    value: radio ? radio.value : null,
+    own: lab.className.split(/\s+/).includes("bb-opt--own"),
+    has_radio: Boolean(radio),
+    has_field: Boolean(field),
+    placeholder: field ? (field.attributes.placeholder ?? field.placeholder ?? "") : "",
+  };
+});
+
+process.stdout.write(JSON.stringify({ stats, charted, empty, more, call_options, error: errorText }) + "\n");
