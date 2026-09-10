@@ -2431,7 +2431,7 @@ spawn_worktree_has_origin_config() {  # <worktree>
 }
 
 freshen_spawn_worktree_base() {  # <worktree>
-  local worktree=$1 default target expected actual status
+  local worktree=$1 default base_source target expected actual status
   status=$(git -C "$worktree" -c core.quotePath=false status --porcelain) || {
     echo "error: could not inspect pooled worktree '$worktree' before refreshing its base" >&2
     return 1
@@ -2455,14 +2455,31 @@ freshen_spawn_worktree_base() {  # <worktree>
     echo "error: could not resolve origin's current default branch for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
     return 1
   fi
-  default=$(default_branch "$worktree") || {
-    echo "error: could not determine origin's default branch for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
-    return 1
-  }
-  target="origin/$default"
-  if ! git -C "$worktree" fetch --quiet origin "+refs/heads/$default:refs/remotes/origin/$default"; then
-    echo "error: could not fetch '$target' for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
-    return 1
+  # A freshly allocated pool slot lands on the repo's DEFAULT branch, which is
+  # silently the wrong base for a project that develops elsewhere: a task once
+  # audited a tree 1036 commits behind origin/develop and correctly reported
+  # that nothing in its brief existed. The project's base= record in
+  # data/projects.md names the right branch; absent one, the default stands.
+  default=$("$FM_ROOT/bin/fm-project-mode.sh" --base "$PROJ_NAME" 2>/dev/null || true)
+  base_source=recorded
+  if [ -z "$default" ]; then
+    base_source=default
+    default=$(default_branch "$worktree") || {
+      echo "error: could not determine origin's default branch for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
+      return 1
+    }
+  fi
+  # origin/<branch> is the fetched truth for a shared clone. A local-only project
+  # inverts that: it lands with bin/fm-merge-local.sh, which fast-forwards the
+  # LOCAL branch and never pushes, so there origin/<branch> is the stale one.
+  if [ "$MODE" = local-only ]; then
+    target=$default
+  else
+    target="origin/$default"
+    if ! git -C "$worktree" fetch --quiet origin "+refs/heads/$default:refs/remotes/origin/$default"; then
+      echo "error: could not fetch '$target' for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
+      return 1
+    fi
   fi
   expected=$(git -C "$worktree" rev-parse --verify --quiet "$target^{commit}" 2>/dev/null) || {
     echo "error: '$target' is not a commit for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
@@ -2474,7 +2491,7 @@ freshen_spawn_worktree_base() {  # <worktree>
   fi
   actual=$(git -C "$worktree" rev-parse --verify --quiet HEAD 2>/dev/null || true)
   if [ "$actual" != "$expected" ]; then
-    echo "error: pooled worktree '$worktree' is at '${actual:-unknown}', not current '$target' ('$expected'); refusing to launch" >&2
+    echo "error: pooled worktree '$worktree' is at '${actual:-unknown}', not current $base_source base '$target' ('$expected'); refusing to launch" >&2
     return 1
   fi
 }
