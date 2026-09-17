@@ -1,0 +1,32 @@
+=== ADVERSARIAL 1: a clone deliberately parked on another branch is never moved ===
+parked: STUCK: on branch captain-parked, 2 commits behind origin/develop - needs attention
+$ HEAD after sync:
+captain-parked
+(clone commit unchanged: 7874eb5beb0cae75a9f88eacbc5d3e8652e68829)
+
+=== ADVERSARIAL 2: a declaration naming a branch origin does not have ===
+ghosted: declared branch ghost not on origin, falling back to main
+ghosted: synced 4872786..7384423 (declared branch ghost not on origin)
+--- run again ---
+ghosted: declared branch ghost not on origin, falling back to main
+ghosted: already current (declared branch ghost not on origin)
+$ HEAD:
+main
+
+=== CONTROL: a project that declares nothing behaves exactly as before ===
+plainproj: synced 4872786..48501ee
+$ HEAD:
+main
+
+=== ADVERSARIAL 3: a malformed declaration must never reach git ===
+$ cat projects/deepwater/.firstmate-base
+--upload-pack=touch /tmp/fm-pwned
+$ bin/fm-project-base.sh projects/deepwater
+develop
+$ cat projects/deepwater/.firstmate-base
+develop; rm -rf /tmp/fm-victim
+$ bin/fm-project-base.sh projects/deepwater
+develop
+$ bin/fm-fleet-sync.sh projects/deepwater  (with the malformed file in the tree)
+deepwater: STUCK: on branch develop with uncommitted changes, 0 commits behind origin/develop - needs attention
+side effects: /tmp/fm-pwned exists? no; /tmp/fm-victim still present? yes

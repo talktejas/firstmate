@@ -1,0 +1,3 @@
+$ jq --version: jq-1.8.1
+$ bash tests/fm-fleet-snapshot-view.test.sh | grep -c '^ok - '  (CI pins this at 20)
+20

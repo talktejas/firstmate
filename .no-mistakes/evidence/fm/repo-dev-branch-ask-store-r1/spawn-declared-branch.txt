@@ -1,0 +1,12 @@
+=== fm-spawn: a project that COMMITTED .firstmate-base, with NO registry record in this home ===
+(the clone sits on the repo default main; develop carries the declaration and 3 commits main never saw)
+$ cold pool slot HEAD before spawn:
+843e1c2 C0
+
+$ bin/fm-spawn.sh t-declared-spawn projects/declproj --mode no-mistakes --yolo off
+warning: /tmp/fmspawn.Lt72SJ/home/data/t-declared-spawn/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+spawned t-declared-spawn harness=codex kind=ship mode=no-mistakes yolo=off window=firstmate:fm-t-declared-spawn worktree=/tmp/fmspawn.Lt72SJ/cold-slot
+
+$ worker worktree after spawn:
+1ecfab9 develop 3
+RESULT: the worker starts from origin/develop, the branch the repo itself declares

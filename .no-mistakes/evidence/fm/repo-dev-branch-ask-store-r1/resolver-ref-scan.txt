@@ -1,0 +1,18 @@
+=== ref-scan ceiling: two branches declare DIFFERENT values, newest committerdate wins ===
+2026-09-17 20:24:36 +0700 refs/heads/develop
+2026-09-17 20:24:35 +0700 refs/heads/main
+2026-09-17 20:24:35 +0700 refs/heads/old-release
+$ bin/fm-project-base.sh <repo>
+develop
+
+=== same repo with the newer develop declaration removed: the older, newline-less blob still parses ===
+$ bin/fm-project-base.sh <repo>
+release
+
+=== 60 refs carrying no declaration: scan exhausts and prints nothing (callers keep the repo default) ===
+$ time bin/fm-project-base.sh <repo>
+
+real	0m0.042s
+user	0m0.024s
+sys	0m0.031s
+(empty output above = no declaration)

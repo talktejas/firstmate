@@ -1,0 +1,20 @@
+=== The captain's clone of a develop-based project ===
+$ git -C projects/deepwater symbolic-ref --short HEAD
+main
+$ git -C projects/deepwater status -sb | head -1
+## main...origin/main
+(the clone looks perfectly current against origin/main, and knows nothing of develop yet)
+
+=== fm-fleet-sync.sh (what the captain actually runs) ===
+$ bin/fm-fleet-sync.sh projects/deepwater
+deepwater: recovered: moved onto develop (already current)
+
+$ git -C projects/deepwater symbolic-ref --short HEAD
+develop
+$ git -C projects/deepwater rev-list --count HEAD..origin/develop   # commits behind the development branch
+0
+$ git -C projects/deepwater log --oneline -1
+741ebe4 develop work 3
+
+=== a second run is quiet and current ===
+deepwater: already current

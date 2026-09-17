@@ -1,0 +1,26 @@
+=== the board fixture's jq program under jq 1.7.1 (what CI runs), before and after the fix ===
+--- BEFORE (base commit, bare + concatenation as an object value) ---
+REJECTED:
+Unable to find image 'ghcr.io/jqlang/jq:1.7.1' locally
+1.7.1: Pulling from jqlang/jq
+2e5a8bb8c775: Pulling fs layer
+365ab692e933: Pulling fs layer
+2e5a8bb8c775: Download complete
+365ab692e933: Download complete
+2e5a8bb8c775: Pull complete
+365ab692e933: Pull complete
+Digest: sha256:096b83865ad59b5b02841f103f83f45c51318394331bf1995e187ea3be937432
+Status: Downloaded newer image for ghcr.io/jqlang/jq:1.7.1
+jq: error: syntax error, unexpected '+', expecting '}' (Unix shell quoting issues?) at <top-level>, line 12:
+        + ([range(0;2) | call_item(.; "jt2627s"; "merge")])        
+jq: error: May need parentheses around object key expression at <top-level>, line 8:
+      schema:"fm-bearings-board.v1", home:"filter-home", generated:"2026-08-26T00:00Z",      
+jq: error: syntax error, unexpected ']', expecting end of file (Unix shell quoting issues?) at <top-level>, line 16:
+            options:[{value:"yes",label:"Yes"}]}],                                                
+jq: 3 compile errors
+--- AFTER (this change, parenthesised) ---
+parsed OK
+--- fixture data is unchanged: cards produced, and identical to jq 1.8 output ---
+13
+["call-jt2627s-decision-0","call-jt2627s-decision-1","call-jt2627s-decision-2","call-jt2627s-decision-3","call-jt2627s-decision-4","call-jt2627s-decision-5","call-jt2627s-merge-0","call-jt2627s-merge-1","call-jt2627s-credential-0","call-interactp-decision-0","call-interactp-decision-1","call-interactp-decision-2","call-norepo-1"]
+jq 1.7.1 and jq 1.8.1 produce identical fixture data
