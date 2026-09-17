@@ -27,6 +27,37 @@ Collect completed per-script measurements for every member before calculating a 
 A cancelled lane's elapsed duration is only a lower bound; its unfinished scripts have no completed duration for that invocation.
 The complete historical run supplies tail-script hints, not a completion time for any later cancelled invocation or for the rebalanced jobs.
 
+## Growth since the 2026-08-20 proof
+
+Rebalancing buys room; it does not explain why several of these scripts grew far past ordinary test-count growth. The two worst - a lifecycle test at 284s and a lint test at 164s - are a symptom worth naming, not just repacking around. Root-causing that growth is a separate, already-filed piece of work; this table exists so the next person sees it rather than only the new packing.
+
+| growth | script | 2026-08-20 duration_ms | 2026-09-17 duration_ms |
+|---:|---|---:|---:|
+| 16.84x | `tests/fm-lint.test.sh` | 9766 | 164477 |
+| 11.98x | `tests/fm-pr-merge.test.sh` | 6290 | 75351 |
+| 8.09x | `tests/fm-captain-hold-lifecycle.test.sh` | 35095 | 283819 |
+| 4.20x | `tests/fm-test-run.test.sh` | 20922 | 87956 |
+| 2.76x | `tests/fm-pi-primary-types.test.sh` | 598 | 1652 |
+| 1.59x | `tests/fm-spawn-batch.test.sh` | 975 | 1546 |
+| 1.23x | `tests/fm-review-diff.test.sh` | 2166 | 2673 |
+| 1.20x | `tests/fm-ensure-agents-md.test.sh` | 513 | 617 |
+| 1.18x | `tests/fm-brief.test.sh` | 1315 | 1549 |
+| 0.94x | `tests/fm-cd-pretool-check.test.sh` | 16582 | 15605 |
+| 0.93x | `tests/fm-grok-harness.test.sh` | 6768 | 6308 |
+| 0.89x | `tests/fm-transition-lib.test.sh` | 99 | 88 |
+| 0.88x | `tests/fm-composer-lib.test.sh` | 3544 | 3128 |
+| 0.85x | `tests/fm-send-strict.test.sh` | 3025 | 2560 |
+| 0.77x | `tests/fm-send-popup-settle.test.sh` | 4563 | 3510 |
+| 0.74x | `tests/fm-x-mode.test.sh` | 35415 | 26335 |
+| 0.72x | `tests/fm-arm-pretool-check.test.sh` | 27529 | 19844 |
+| 0.61x | `tests/fm-herdr-lab.test.sh` | 9562 | 5834 |
+| 0.59x | `tests/fm-supervision-instructions.test.sh` | 331 | 194 |
+| 0.49x | `tests/fm-tmux-submit-busy.test.sh` | 4021 | 1989 |
+| 0.49x | `tests/fm-crew-state.test.sh` | 17558 | 8678 |
+| 0.49x | `tests/fm-send-settle.test.sh` | 2753 | 1339 |
+| 0.41x | `tests/fm-backend-herdr.test.sh` | 45356 | 18713 |
+| 0.35x | `tests/fm-composer-ghost.test.sh` | 5569 | 1937 |
+
 ## Parallel lanes
 
 The two parallel lanes use longest-processing-time assignment over those hints.
