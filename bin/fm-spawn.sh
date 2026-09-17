@@ -3172,8 +3172,15 @@ elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
   # the active client's window, which would misread firstmate's OWN pane path as
   # the worktree and tangle a hook into the primary checkout. The window id never
   # lies.
+  # Enter the copy in a SUBSHELL, the same process shape `treehouse get` left
+  # behind: the pane's own top-level shell stays in the project, and only the
+  # foreground shell sits in the worktree. A plain top-level `cd` would put the
+  # pane's shell itself inside the worktree, where bin/fm-teardown.sh's
+  # leaked-process reaper would end it as a stray worktree process instead of
+  # letting the backend close its pane - which on Herdr skips the projection's
+  # own confirmed close and leaves its presentation journal quarantined.
   spawn_cd_path=${WT//\'/\'\\\'\'}
-  spawn_send_text_line "$WT_TARGET" "cd -- '$spawn_cd_path'" || {
+  spawn_send_text_line "$WT_TARGET" "(cd -- '$spawn_cd_path' && exec \"\${SHELL:-/bin/sh}\")" || {
     echo "error: could not tell window $T to enter its leased worktree '$WT'; nothing was launched" >&2
     exit 1
   }

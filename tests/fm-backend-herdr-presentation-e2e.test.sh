@@ -208,8 +208,12 @@ set -u
   done
   printf '\n'
 } >> "$TREEHOUSE_CALL_LOG"
+# Arm the post-create abort: the worktree claim is taken after the task pane
+# exists, so refusing it aborts the spawn exactly where this fixture needs it,
+# without involving the real pool or the arrival wait.
 if [ -d "$POST_CREATE_ABORT_CONTROL" ] && [ "${1:-}" = get ]; then
-  exit 0
+  echo "treehouse: no worktree available (post-create abort fixture)" >&2
+  exit 1
 fi
 # Treehouse's pool allocator is outside the Herdr concurrency contract under
 # test. Serialize its calls so simultaneous recovery spawns cannot race for
@@ -412,10 +416,18 @@ spawn_task() {  # <id> <home> <project>
     "$ROOT/bin/fm-spawn.sh" "$id" "$project" "sh -c 'while :; do sleep 60; done'" --mode no-mistakes --yolo off --backend herdr
 }
 
+# A concurrent spawn can lose either serialization race before it does any
+# projected work: the home's task-set lock, or the project's pool-slot lock that
+# the worktree claim is taken under. Both mean "not my turn yet", so both retry.
+concurrent_spawn_lost_a_lock() {  # <stderr>
+  grep -F "task set is locked" "$1" >/dev/null 2>&1 \
+    || grep -F "Treehouse slot allocation or return is in progress" "$1" >/dev/null 2>&1
+}
+
 finish_concurrent_spawn() {  # <id> <status> <stdout> <stderr>
   local id=$1 status=$2 out=$3 err=$4
   [ "$status" -ne 0 ] || return 0
-  grep -F "task set is locked" "$err" >/dev/null 2>&1 \
+  concurrent_spawn_lost_a_lock "$err" \
     || fail "concurrent projected spawn $id failed unexpectedly: $(cat "$err")"
   spawn_task "$id" "$HOME_DIR" "$PROJECT_DIR" > "$out" 2> "$err" \
     || fail "projected spawn $id retry failed after task-set publication completed: $(cat "$err")"
@@ -424,7 +436,7 @@ finish_concurrent_spawn() {  # <id> <status> <stdout> <stderr>
 finish_concurrent_expected_abort() {  # <id> <status> <stdout> <stderr>
   local id=$1 status=$2 out=$3 err=$4
   [ "$status" -ne 0 ] || fail "post-create abort fixture $id unexpectedly succeeded"
-  if grep -F "task set is locked" "$err" >/dev/null 2>&1; then
+  if concurrent_spawn_lost_a_lock "$err"; then
     if spawn_task "$id" "$HOME_DIR" "$PROJECT_DIR" > "$out" 2> "$err"; then
       fail "post-create abort fixture $id unexpectedly succeeded after task-set publication completed"
     fi
@@ -869,20 +881,31 @@ if wait "$ABORT_A_PID"; then ABORT_A_STATUS=0; else ABORT_A_STATUS=$?; fi
 if wait "$ABORT_B_PID"; then ABORT_B_STATUS=0; else ABORT_B_STATUS=$?; fi
 finish_concurrent_expected_abort abort-a "$ABORT_A_STATUS" "$TMP_ROOT/abort-a.out" "$TMP_ROOT/abort-a.err"
 finish_concurrent_expected_abort abort-b "$ABORT_B_STATUS" "$TMP_ROOT/abort-b.out" "$TMP_ROOT/abort-b.err"
-# The forced foreground_cwd is a plain non-git directory, which the discovery
-# poll now screens out on every read rather than adopting, so the armed failure
-# arrives as the poll's own deadline refusal naming that path.
-grep -F "did not yield an isolated worktree" "$TMP_ROOT/abort-a.err" >/dev/null 2>&1 \
+# The armed failure is the refused worktree claim, which the spawn takes after
+# the task pane exists - so both spawns abort post-create, as this fixture needs.
+grep -F "could not lease a worktree" "$TMP_ROOT/abort-a.err" >/dev/null 2>&1 \
   || fail "post-create abort fixture A did not reach the armed validation failure"
-grep -F "did not yield an isolated worktree" "$TMP_ROOT/abort-b.err" >/dev/null 2>&1 \
+grep -F "could not lease a worktree" "$TMP_ROOT/abort-b.err" >/dev/null 2>&1 \
   || fail "post-create abort fixture B did not reach the armed validation failure"
 ABORT_A_PANE=$(cat "$POST_CREATE_ABORT_CONTROL/abort-a/task-pane")
 ABORT_B_PANE=$(cat "$POST_CREATE_ABORT_CONTROL/abort-b/task-pane")
-ABORT_SEQUENCE=$(sed -n "$((ABORT_FOCUS_START + 1)),\$p" "$FOCUS_AUDIT_LOG" | awk -F '\t' -v a="$ABORT_A_PANE" -v b="$ABORT_B_PANE" '
-  $1 == "workspace-create" && $4 ~ /^└ abort-a · p:/ { print "create-a" }
-  $1 == "workspace-create" && $4 ~ /^└ abort-b · p:/ { print "create-b" }
-  $1 == "pane-close" && $4 == a { print "close-a" }
-  $1 == "pane-close" && $4 == b { print "close-b" }
+# Read the interleaving from the ordered CLI call log rather than the focus
+# audit: an aborted spawn's projected pane is a bare idle shell, so the
+# focus-preserving close ends that shell instead of calling `pane close`, and
+# only the call log records both mechanisms in one order. Either one is that
+# task's cleanup; what must hold is that one task's create-then-cleanup does not
+# interleave with the other's.
+ABORT_SEQUENCE=$(sed -n "$((ABORT_START + 1)),\$p" "$HERDR_CALL_LOG" | awk -F '\t' -v a="$ABORT_A_PANE" -v b="$ABORT_B_PANE" '
+  $1 == "workspace" && $2 == "create" { for (i = 3; i <= NF; i++) {
+    if ($i ~ /^└ abort-a · p:/) { print "create-a" }
+    if ($i ~ /^└ abort-b · p:/) { print "create-b" }
+  } }
+  $1 == "pane" && ($2 == "close" || $2 == "process-info") {
+    for (i = 3; i <= NF; i++) {
+      if ($i == a && !seen_a) { print "close-a"; seen_a = 1 }
+      if ($i == b && !seen_b) { print "close-b"; seen_b = 1 }
+    }
+  }
 ')
 case "$ABORT_SEQUENCE" in
   $'create-a\nclose-a\ncreate-b\nclose-b'|$'create-b\nclose-b\ncreate-a\nclose-a') ;;
