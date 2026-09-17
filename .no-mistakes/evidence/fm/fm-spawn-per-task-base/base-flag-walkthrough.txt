@@ -1,0 +1,40 @@
+Registry (shared, captain's standing base):
+- acme [no-mistakes base=main] - ships off main (added 2026-09-17)
+Repo default branch: main   Effort branch: integration/multicurrency (3 commits ahead)
+
+──────── 1. Part one of the effort: dispatch a ship spawn onto the integration branch
+$ fm-spawn.sh mc-part-1 <proj> --mode no-mistakes --yolo off --base integration/multicurrency
+warning: /tmp/fm-base-demo.ssLPgo/case/home/data/mc-part-1/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+spawned mc-part-1 harness=codex kind=ship mode=no-mistakes yolo=off window=firstmate:fm-mc-part-1 worktree=/tmp/fm-base-demo.ssLPgo/case/cold-slot
+worktree HEAD      -> cd0fa4f  effort part 3
+origin/integration -> cd0fa4f
+recorded in state/mc-part-1.meta -> base=integration/multicurrency
+registry line now  -> - acme [no-mistakes base=main] - ships off main (added 2026-09-17)   (UNTOUCHED)
+
+──────── 2. An unrelated fix dispatched right after: no --base, so the standing registry base still governs
+$ fm-spawn.sh hotfix-1 <proj> --mode no-mistakes --yolo off
+warning: /tmp/fm-base-demo.ssLPgo/case/home/data/hotfix-1/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+spawned hotfix-1 harness=codex kind=ship mode=no-mistakes yolo=off window=firstmate:fm-hotfix-1 worktree=/tmp/fm-base-demo.ssLPgo/case/cold-slot
+worktree HEAD -> 0f7471d  initial
+origin/main   -> 0f7471d
+recorded base -> base=main
+
+──────── 3. Adversarial: a typo'd integration branch must refuse, not fall back to main
+$ fm-spawn.sh mc-part-2 <proj> --mode no-mistakes --yolo off --base integration/multicurency
+warning: /tmp/fm-base-demo.ssLPgo/case/home/data/mc-part-2/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+fatal: couldn't find remote ref refs/heads/integration/multicurency
+error: could not fetch explicit base 'origin/integration/multicurency' for pooled worktree '/tmp/fm-base-demo.ssLPgo/case/cold-slot'; refusing to launch rather than falling back to another base
+exit=1
+worktree HEAD -> 0f7471d (still the untouched slot, no worker launched)
+state/mc-part-2.meta exists? no
+
+──────── 4. Adversarial: --relaunch may not be handed a different base
+$ fm-spawn.sh mc-part-1 --relaunch --base main
+error: --relaunch reuses the task's recorded base branch; --base cannot override it
+exit=1
+mc-part-1 still recorded as -> base=integration/multicurrency
+
+──────── 5. Adversarial: a secondmate has no task worktree, so the flag is refused
+$ fm-spawn.sh sm-1 --secondmate --base integration/multicurrency
+error: --base applies only to ship and scout spawns; a secondmate launches in its own home, not a task worktree
+exit=1

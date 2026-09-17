@@ -1,0 +1,17 @@
+ok - base= parses alongside the delivery mode without changing any existing line's mode
+ok - a cold slot for a develop-based project starts the worker on develop
+ok - a project with no base record still starts from the repo default branch
+ok - a project whose default branch is the right base passes the assertion
+ok - an unregistered project falls back to the default branch and spawns as today
+ok - a base= record naming a branch the repo does not have is refused
+ok - a local-only project starts the worker from the local default branch
+ok - a scout also starts from the project's recorded base branch
+ok - an explicit --base wins over the project's registry base record
+ok - an explicit --base is never written back to the shared registry
+ok - the registry base still applies when --base is absent
+ok - an explicit base the project cannot resolve refuses instead of falling back
+ok - a scout also starts from an explicit --base
+ok - a scout on a local-only project starts from the local base branch
+ok - --relaunch refuses --base and keeps the task's own recorded base
+ok - --secondmate refuses --base
+# all fm-spawn-base-branch tests passed

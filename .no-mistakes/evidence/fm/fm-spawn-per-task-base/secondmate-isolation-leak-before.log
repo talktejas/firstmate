@@ -1,0 +1,8 @@
+=== PRE-FIX (284be65) secondmate invocation: no FM_HOME/FM_STATE isolation ===
+$ ./bin/fm-spawn.sh sm-base-b14 --secondmate --base develop
+error: --base applies only to ship and scout spawns; a secondmate launches in its own home, not a task worktree
+exit=1
+
+--- ambient home (FM_ROOT = this checkout) state/ afterwards ---
+.
+..
