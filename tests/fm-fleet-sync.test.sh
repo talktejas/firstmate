@@ -103,6 +103,17 @@ declare_develop() {
   git -C "$work" checkout -q main
 }
 
+# declare_missing <home> <name> <branch>: push a .firstmate-base on <name>'s main
+# naming a branch origin does not have - a stale or renamed declaration.
+declare_missing() {
+  local home=$1 name=$2 branch=$3 work
+  work="$home/work-$name"
+  printf '%s\n' "$branch" > "$work/.firstmate-base"
+  git -C "$work" add .firstmate-base
+  git -C "$work" commit -qm "declare $branch"
+  git -C "$work" push -q origin main
+}
+
 head_sha() { git -C "$1" rev-parse HEAD; }
 
 # run_sync <home> [args...]: run fleet-sync against an isolated home, stdout only.
@@ -757,6 +768,43 @@ test_non_signature_fetch_failure_is_not_retried() {
   pass "a non-packed-refs.lock fetch failure keeps today's behavior (no retry)"
 }
 
+test_unfetchable_declared_branch_falls_back_loudly() {
+  local home clone out again
+  home=$(new_home)
+  clone=$(build_pair "$home" ghosted)
+  declare_missing "$home" ghosted ghost
+
+  out=$(run_sync "$home" "$clone")
+
+  assert_contains "$out" "ghosted: declared branch ghost not on origin, falling back to main" \
+    "the fallback must name both the missing declaration and the branch used instead"
+  assert_contains "$out" "ghosted: synced" "the clone must still sync against the repository default"
+  [ "$(git -C "$clone" symbolic-ref --short HEAD)" = main ] || fail "clone left the repository default"
+  [ "$(head_sha "$clone")" = "$(git -C "$clone" rev-parse origin/main)" ] \
+    || fail "clone was not brought current against origin/main"
+
+  again=$(run_sync "$home" "$clone")
+
+  printf '%s\n' "$again" | grep -Fxq "ghosted: already current" \
+    && fail "a clone with a missing declaration must not read as plainly current"
+  assert_contains "$again" "already current (declared branch ghost not on origin)" \
+    "the verdict itself must carry the missing declaration"
+  pass "a declared branch origin does not have falls back to the repository default, loudly"
+}
+
+test_resolvable_declared_branch_prints_no_fallback_notice() {
+  local home clone out
+  home=$(new_home)
+  clone=$(build_pair "$home" resolvable)
+  declare_develop "$home" resolvable
+
+  out=$(run_sync "$home" "$clone")
+
+  assert_not_contains "$out" "not on origin" "the notice must never fire when the declaration resolves"
+  assert_contains "$out" "moved onto develop" "a resolvable declaration still moves the clone"
+  pass "a project whose declared branch resolves prints no fallback notice"
+}
+
 test_detached_clean_ancestor_recovers
 test_detached_unique_commit_is_stuck_untouched
 test_detached_clean_ancestor_with_diverged_local_default_is_stuck_untouched
@@ -785,3 +833,5 @@ test_symlinked_clone_still_syncs
 test_declared_development_branch_is_what_the_clone_tracks
 test_undeclared_project_still_tracks_the_repo_default
 test_parked_feature_branch_is_still_stuck_untouched
+test_unfetchable_declared_branch_falls_back_loudly
+test_resolvable_declared_branch_prints_no_fallback_notice

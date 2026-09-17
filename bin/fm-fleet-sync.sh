@@ -138,16 +138,30 @@ repo_default_branch() {
 # commits behind origin/develop under a "0 commits behind origin/main" verdict.
 # bin/fm-project-base.sh owns the declaration; an undeclared or unfetchable
 # branch falls back to the repository default, so nothing changes for a project
-# that develops on it.
+# that develops on it. Sets $DEFAULT, and sets $MISSING_DECLARED to a declared
+# branch origin does not have so the fallback is never silent.
 default_branch() {
   local declared
+  MISSING_DECLARED=""
   declared=$("$FM_ROOT/bin/fm-project-base.sh" "$PROJ" "$label" 2>/dev/null || true)
   if [ -n "$declared" ] \
       && git -C "$PROJ" rev-parse --verify --quiet "refs/remotes/origin/$declared^{commit}" >/dev/null 2>&1; then
-    echo "$declared"
+    DEFAULT=$declared
     return 0
   fi
-  repo_default_branch
+  [ -z "$declared" ] || MISSING_DECLARED=$declared
+  DEFAULT=$(repo_default_branch) || return 1
+  return 0
+}
+
+# One outcome line for a clone we did sync, qualified when its declared branch is
+# missing so that clone can never read as plainly current.
+report_outcome() {
+  if [ -n "$MISSING_DECLARED" ]; then
+    echo "$label: $1 (declared branch $MISSING_DECLARED not on origin)"
+  else
+    echo "$label: $1"
+  fi
 }
 
 first_line() {
@@ -272,8 +286,9 @@ prune_gone_branches() {
 }
 
 # True when some worktree of $PROJ has $DEFAULT checked out (so we cannot attach
-# to it here). The current worktree is detached when this is consulted, so any
-# match is necessarily another worktree.
+# to it here). This is only ever consulted from inside [ "$cur" != "$DEFAULT" ],
+# so the current worktree cannot self-match on $DEFAULT and any match is
+# necessarily another worktree.
 default_checked_out_elsewhere() {
   git -C "$PROJ" worktree list --porcelain 2>/dev/null \
     | sed -n 's#^branch refs/heads/##p' \
@@ -365,10 +380,15 @@ sync_project() {
 
   prune_gone_branches || true
 
-  DEFAULT=$(default_branch) || {
+  default_branch || {
     echo "$label: skipped: cannot determine default branch"
     return 0
   }
+  if [ -n "$MISSING_DECLARED" ]; then
+    # Stdout, not stderr: a session-start refresh relays only stdout, and this is
+    # the one place a stale declaration has to be read.
+    echo "$label: declared branch $MISSING_DECLARED not on origin, falling back to $DEFAULT"
+  fi
   BASE="origin/$DEFAULT"
   if ! git -C "$PROJ" rev-parse --verify --quiet "$BASE^{commit}" >/dev/null; then
     echo "$label: skipped: $BASE does not exist"
@@ -442,9 +462,9 @@ sync_project() {
   }
   if [ "$local_rev" = "$remote_rev" ]; then
     if [ "$recovered" = yes ]; then
-      echo "$label: recovered: $recovery_verb $DEFAULT (already current)"
+      report_outcome "recovered: $recovery_verb $DEFAULT (already current)"
     else
-      echo "$label: already current"
+      report_outcome "already current"
     fi
     return 0
   fi
@@ -470,9 +490,9 @@ sync_project() {
     return 0
   }
   if [ "$recovered" = yes ]; then
-    echo "$label: recovered: $recovery_verb $DEFAULT, synced $before..$after"
+    report_outcome "recovered: $recovery_verb $DEFAULT, synced $before..$after"
   else
-    echo "$label: synced $before..$after"
+    report_outcome "synced $before..$after"
   fi
   return 0
 }
