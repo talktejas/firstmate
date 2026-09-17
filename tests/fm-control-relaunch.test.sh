@@ -417,6 +417,7 @@ test_relaunch_preserves_durable_task_metadata() {
     printf '%s\n' 'pr_head=feature/relaunch'
     printf '%s\n' 'x_request=request-19'
     printf '%s\n' 'decisions_reviewed=1'
+    printf '%s\n' 'base=integration/multicurrency'
   } >> "$dir/home/state/rl19.meta"
 
   out=$(run_control "$dir" rl19 relaunch --note "continuing review work"); rc=$?
@@ -429,6 +430,10 @@ test_relaunch_preserves_durable_task_metadata() {
     || fail "the task X request must survive relaunch"
   [ "$(meta_field "$dir" rl19 decisions_reviewed)" = 1 ] \
     || fail "the task decision state must survive relaunch"
+  # A replacement worker must keep the branch the task was created against: a
+  # relaunch resolves no base of its own and never re-reads the project registry.
+  [ "$(meta_field "$dir" rl19 base)" = "integration/multicurrency" ] \
+    || fail "the task base branch must survive relaunch"
   pass "fm-control relaunch: durable task metadata survives replacement launch publication"
 }
 
