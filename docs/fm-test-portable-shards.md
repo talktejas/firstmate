@@ -30,11 +30,11 @@ The complete historical run supplies tail-script hints, not a completion time fo
 ## Growth since the 2026-08-20 proof
 
 Rebalancing buys room; it does not explain why several of these scripts grew far past ordinary test-count growth.
-Against their 2026-08-20 isolation-proof durations, four of the 24 candidates grew more than fourfold: `tests/fm-lint.test.sh` 16.8x, `tests/fm-pr-merge.test.sh` 12.0x, `tests/fm-captain-hold-lifecycle.test.sh` 8.1x, and `tests/fm-test-run.test.sh` 4.2x.
-The two worst in absolute terms - the lifecycle test and the lint test - now dominate their shards on their own.
-Every other candidate stayed within 2.8x, and most shrank.
+Dividing each hint in `portable_parallel_weight_hints` in [`bin/fm-test-run.sh`](../bin/fm-test-run.sh) - the one authoritative source of per-script durations - by the same script's duration in [fm-test-isolation-proof.json](fm-test-isolation-proof.json), five of the 24 candidates grew more than fourfold: `tests/fm-pr-merge.test.sh` 17.7x, `tests/fm-lint.test.sh` 16.8x, `tests/fm-pi-primary-types.test.sh` 14.4x, `tests/fm-captain-hold-lifecycle.test.sh` 8.4x, and `tests/fm-test-run.test.sh` 4.4x.
+Every other candidate stayed within 2.4x, and eight shrank.
+Those two sources are different measurement batches - a concurrent isolation proof against the slowest retained serial CI run - so read the ratios as the order of the growth, not as an exact multiple.
+The two worst in absolute terms, the lifecycle test at ~296s and the lint test at ~164s, now dominate their shards on their own.
 Root-causing that growth is a separate, already-filed piece of work; this note exists so the next person sees it rather than only the new packing.
-The per-script durations themselves live once, in `portable_parallel_weight_hints` in [`bin/fm-test-run.sh`](../bin/fm-test-run.sh); read them there rather than from a copied table.
 
 ## Parallel lanes
 
