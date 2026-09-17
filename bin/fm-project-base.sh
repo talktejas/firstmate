@@ -68,20 +68,24 @@ if git -C "$DIR" rev-parse --git-dir >/dev/null 2>&1; then
   # One for-each-ref feeding one cat-file --batch: a per-ref `git show` costs a
   # process per ref, and the scan runs to exhaustion on every project that has
   # not adopted the file - which is the common case, on the session-start path.
-  while read -r _oid type size; do
-    if [ "$type" != blob ]; then
-      continue
-    fi
-    blob=""
-    IFS= read -r -N "$size" blob || true
-    IFS= read -r _ || true
-    if emit_if_valid "$(printf '%s' "$blob" | read_first_line)"; then
+  while IFS= read -r candidate; do
+    if emit_if_valid "$(printf '%s\n' "$candidate" | read_first_line)"; then
       exit 0
     fi
   done < <(git -C "$DIR" for-each-ref --sort=-committerdate --format='%(refname)' refs/remotes refs/heads 2>/dev/null \
     | grep -v '/HEAD$' \
     | sed "s|\$|:$FILE|" \
-    | git -C "$DIR" cat-file --batch 2>/dev/null || true)
+    | git -C "$DIR" cat-file --batch 2>/dev/null \
+    | LC_ALL=C awk '
+        need == 0 {
+          if (NF == 3) { need = $3 + 1; consumed = 0; first = ($2 == "blob") }
+          next
+        }
+        {
+          consumed += length($0) + 1
+          if (first) { print; first = 0 }
+          if (consumed >= need) { need = 0 }
+        }' || true)
 fi
 
 if [ -n "$NAME" ]; then
