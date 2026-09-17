@@ -53,6 +53,7 @@ Default it off for every project and every posture, and enable it only on the ca
 `AGENTS.md` section 7 owns the merge-authority contract.
 
 Record the project's base branch in the same registry entry whenever the project is developed off a branch other than its repository default, so a freshly allocated task worktree does not start a worker on a stale tree.
+That entry is the project's standing base, so never edit it to redirect one effort: `bin/fm-spawn.sh --base <branch>` names the base for a single spawn, which is how an effort accumulating on one integration branch leaves the shared registry untouched.
 
 ## Add or clone an existing project
 
