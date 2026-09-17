@@ -252,8 +252,8 @@ multi_repo_payload() {
         + [{key:"call-norepo-1", type:"decision", repo:null, title:"No-repo card",
             options:[{value:"yes",label:"Yes"}]}]),
       underway:
-        [{id:"uw-jt-1", repo:"jt2627s", state:"working", doing:"Doing jt work", kind:"ship"},
-         {id:"uw-ip-1", repo:"interactp", state:"working", doing:"Doing ip work", kind:"ship"}],
+        [{id:"uw-jt-1", repo:"jt2627s", name:"jt work", state:"working", doing:"Doing jt work", kind:"ship"},
+         {id:"uw-ip-1", repo:"interactp", name:"ip work", state:"working", doing:"Doing ip work", kind:"ship"}],
       landed:
         [{id:"ld-jt-1", repo:"jt2627s", what:"Landed jt work", owner:"main"}],
       charted:
