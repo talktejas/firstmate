@@ -65,14 +65,23 @@ if [ -f "$DIR/$FILE" ] && [ ! -L "$DIR/$FILE" ]; then
 fi
 
 if git -C "$DIR" rev-parse --git-dir >/dev/null 2>&1; then
-  while IFS= read -r ref; do
-    [ -n "$ref" ] || continue
-    case $ref in */HEAD) continue ;; esac
-    value=$(git -C "$DIR" show "$ref:$FILE" 2>/dev/null | read_first_line) || continue
-    if emit_if_valid "$value"; then
+  # One for-each-ref feeding one cat-file --batch: a per-ref `git show` costs a
+  # process per ref, and the scan runs to exhaustion on every project that has
+  # not adopted the file - which is the common case, on the session-start path.
+  while read -r _oid type size; do
+    if [ "$type" != blob ]; then
+      continue
+    fi
+    blob=""
+    IFS= read -r -N "$size" blob || true
+    IFS= read -r _ || true
+    if emit_if_valid "$(printf '%s' "$blob" | read_first_line)"; then
       exit 0
     fi
-  done < <(git -C "$DIR" for-each-ref --sort=-committerdate --format='%(refname)' refs/remotes refs/heads 2>/dev/null || true)
+  done < <(git -C "$DIR" for-each-ref --sort=-committerdate --format='%(refname)' refs/remotes refs/heads 2>/dev/null \
+    | grep -v '/HEAD$' \
+    | sed "s|\$|:$FILE|" \
+    | git -C "$DIR" cat-file --batch 2>/dev/null || true)
 fi
 
 if [ -n "$NAME" ]; then
