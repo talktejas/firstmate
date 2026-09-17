@@ -112,6 +112,25 @@ test_copy_another_task_record_claims_is_refused_by_name() {
   pass "a copy another task record claims is refused by name, and stays claimed"
 }
 
+# The record's own claim is also what says it does not need this defence: a task
+# holding a lease cannot have had its copy offered, so its record must not block
+# a spawn the pool did allocate.
+test_a_record_holding_its_own_claim_does_not_block_a_spawn() {
+  local id out status
+  id=lease-claimed-neighbour-w4
+  make_lease_case lease-claimed-neighbour "$id"
+  fm_write_meta "$LEASE_HOME/state/other-task-w4.meta" \
+    "worktree=$LEASE_WT" "worktree_lease=fm:other-task-w4@$LEASE_HOME/state" \
+    "project=$LEASE_PROJ" "kind=ship" "backend=tmux"
+
+  out=$(run_lease_spawn "$id" "$LEASE_WT")
+  status=$?
+  expect_code 0 "$status" "spawn was blocked by a record that holds its own claim"$'\n'"$out"
+  assert_grep "worktree_lease=fm:$id@$LEASE_HOME/state" "$LEASE_HOME/state/$id.meta" \
+    "meta did not record the claim this task holds on its copy"
+  pass "a record holding its own claim does not block a spawn the pool allocated"
+}
+
 # The guarantee the whole fix rests on, checked against the real pool rather
 # than assumed: a leased slot is not handed to a later `treehouse get`, with no
 # process running inside it.
@@ -141,6 +160,7 @@ test_real_pool_does_not_hand_out_a_leased_slot() {
 test_spawn_claims_the_slot_with_a_labelled_lease
 test_aborted_spawn_returns_its_claim
 test_copy_another_task_record_claims_is_refused_by_name
+test_a_record_holding_its_own_claim_does_not_block_a_spawn
 test_real_pool_does_not_hand_out_a_leased_slot
 
 echo "# all fm-spawn-worktree-lease tests passed"

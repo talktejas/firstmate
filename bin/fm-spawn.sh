@@ -3135,10 +3135,13 @@ elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
   validate_spawn_worktree "treehouse get --lease" "$T"
 
   # Second line of defence, for a copy the pool offered that a live task record
-  # in this home still names: a task spawned before leases existed holds its
-  # slot with nothing but its processes, and that is exactly the copy the pool
-  # cannot see a claim on. Refuse rather than launch into it, and name the task
-  # that holds it so the operator knows who to ask instead of going hunting.
+  # in this home still names WITHOUT a claim of its own: a task spawned before
+  # leases existed holds its slot with nothing but its processes, and that is
+  # exactly the copy the pool cannot see a claim on. Refuse rather than launch
+  # into it, and name the task that holds it so the operator knows who to ask
+  # instead of going hunting. A record that does carry its own worktree_lease=
+  # is not that case - the pool would not have offered its copy - so it is left
+  # to the ordinary slot-ownership reconciliation rather than blocking a spawn.
   # The lease is deliberately NOT returned here: releasing it would hand the
   # same copy to the next spawn, which would refuse again, and the pool would
   # deadlock on it forever. Holding it quarantines that one slot instead - the
@@ -3151,6 +3154,7 @@ elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
     [ "$spawn_other_id" != "$ID" ] || continue
     spawn_other_wt=$(fm_meta_get "$spawn_other_meta" worktree)
     [ -n "$spawn_other_wt" ] || continue
+    [ -z "$(fm_meta_get "$spawn_other_meta" worktree_lease)" ] || continue
     [ "$(real_path_or_raw "$spawn_other_wt")" = "$spawn_wt_claim" ] || continue
     SPAWN_TREEHOUSE_LEASE_PENDING=0
     echo "error: the pool offered '$WT', which task $spawn_other_id's own record still names as its working copy; refusing to launch task $ID into it and reset another worker's work" >&2
@@ -3687,6 +3691,11 @@ preserve_relaunch_meta() {
   echo "window=$META_WINDOW"
   echo "endpoint_task_id=$ID"
   echo "worktree=$WT"
+  # The pool claim this task holds on that copy, so the record itself says how
+  # to release it: treehouse return --force --if-lease-holder <this> <worktree>.
+  # Deliberately absent from the relaunch-owned key list above, so a relaunch
+  # carries the original claim forward rather than dropping it.
+  [ -z "$SPAWN_TREEHOUSE_LEASE_HOLDER" ] || echo "worktree_lease=$SPAWN_TREEHOUSE_LEASE_HOLDER"
   echo "project=$PROJ_ABS"
   echo "harness=$HARNESS"
   echo "kind=$KIND"
