@@ -1,0 +1,14 @@
+=== $ fm-bootstrap.sh (primary AGENTS.md changed; fm-sm-instr idle) ===
+BOOTSTRAP_INFO: nudged fm-sm-instr with 'firstmate was updated to the latest - please re-read your AGENTS.md to pick up the new instructions.'
+
+=== inbox record delivered to secondmate sm-instr ===
+schema=fm-task-inbox.v1
+at=2026-09-17T12:57:44Z
+--
+[fm-from-firstmate]⁣corr=da5f89e71e8bea96 firstmate was updated to the latest - please re-read your AGENTS.md to pick up the new instructions.
+=== pending-reply expectations held by the parent ===
+da5f89e71e8bea96
+
+=== text actually typed into the mate's session (fake tmux log) ===
+send-keys -t firstmate:fm-sm-instr -l : Firstmate instruction waiting: list '/tmp/fm-secondmate-sync.NQjNM8/manual-drive-32542/home/state/sm-instr.inbox'/*.msg and, in numeric order, read and act on each, then mv each handled file to '/tmp/fm-secondmate-sync.NQjNM8/manual-drive-32542/home/state/sm-i
+rc=0

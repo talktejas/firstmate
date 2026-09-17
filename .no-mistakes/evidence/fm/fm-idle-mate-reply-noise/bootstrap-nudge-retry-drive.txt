@@ -1,0 +1,15 @@
+=== run 1: the steer record cannot be written ===
+NUDGE_SECONDMATES: secondmate sm-instr: send failed: mkdir: Not a directory
+retry marker: sm-instr.pending
+pending-replies: (none)
+
+=== run 2: inbox writable again, bootstrap retries the pending nudge ===
+BOOTSTRAP_INFO: nudged fm-sm-instr with 'firstmate was updated to the latest - please re-read your AGENTS.md to pick up the new instructions.'
+retry marker after retry: 
+pending-replies after retry: (none)
+record delivered on retry:
+schema=fm-task-inbox.v1
+at=2026-09-17T12:57:30Z
+delivery=fire-and-forget
+--
+[fm-from-firstmate]⁣delivery=dc932d2020711db3 firstmate was updated to the latest - please re-read your AGENTS.md to pick up the new instructions.
