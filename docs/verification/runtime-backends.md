@@ -1094,6 +1094,28 @@ Observed guarantees: `fm-afk-launch.sh start` refused on the Pi primary and `con
 The fixture captures submitted input through Pi's `input` extension hook, so the lab agent directory needs no provider credentials.
 The daemon injection transport into a live composer keeps its coverage in `tests/fm-afk-inject-herdr-e2e.test.sh` for the harnesses that still run the daemon, and the dedicated Herdr daemon workspace topology is covered by `tests/fm-afk-launch.test.sh` and preserves the captain tab's pane count.
 
+## Treehouse worktree pool
+
+The pool claim `bin/fm-spawn.sh` takes on a task worktree was verified on 2026-09-17 with treehouse v2.1.0 on Linux (WSL2).
+A task whose agent is not currently running leaves no process inside its copy, and a lease is what keeps that idle-looking copy from being handed to the next spawn and reset.
+
+```sh
+treehouse get --lease --lease-holder 'fm:demo-task@/home/fm/state'
+treehouse status --json
+printf 'pwd -P\nexit\n' | treehouse get
+```
+
+Observed output, with the pool root shortened:
+
+```text
+.treehouse/repo-b871d3/1/repo
+[{"name":"1","path":".../1/repo","status":"leased","lease_id":"84cf5022d6c3160e356d7a09de20d763","lease_holder":"fm:demo-task@/home/fm/state","leased_at":"2026-09-17T18:37:42.418019618+07:00","processes":[]}]
+.treehouse/repo-b871d3/2/repo
+```
+
+The leased slot carries no process and is still not handed to the later plain `get`, which allocates a different slot, and the holder label is readable back from the pool's own status.
+[`tests/fm-spawn-worktree-lease.test.sh`](../../tests/fm-spawn-worktree-lease.test.sh) is the command that refreshes this record; it skips when treehouse is not installed.
+
 ## Zellij
 
 The current compatibility floor and latest verification are Zellij 0.44.0 with `jq` on macOS aarch64.

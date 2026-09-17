@@ -40,6 +40,7 @@ exit 0
 SH
   chmod +x "$fakebin/tmux"
   fm_fake_exit0 "$fakebin" treehouse
+  fm_test_fake_treehouse_lease "$fakebin"
   printf '%s\n' "$fakebin"
 }
 
@@ -107,15 +108,20 @@ EOF
 # Upstream requires an explicit --mode/--yolo at spawn: firstmate resolves them
 # at intake rather than the spawn re-reading the registry, so the caller says so.
 run_base_spawn() {
-  local id=$1 mode=${2:-no-mistakes} kind=${3:-ship} modeflags
+  local id=$1 mode=${2:-no-mistakes} kind=${3:-ship}
+  local -a kindflags
+  if [ "$kind" = scout ]; then
+    kindflags=(--scout)
+  else
+    kindflags=(--mode "$mode" --yolo off)
+  fi
   FM_ROOT_OVERRIDE='' FM_HOME="$HOME_DIR" \
     FM_STATE_OVERRIDE="$HOME_DIR/state" FM_DATA_OVERRIDE="$HOME_DIR/data" \
     FM_PROJECTS_OVERRIDE="$HOME_DIR/projects" FM_CONFIG_OVERRIDE="$HOME_DIR/config" \
     FM_SPAWN_NO_GUARD=1 TMUX="fake,1,0" \
     FM_FAKE_PANE_PATH="$WT_DIR" \
     PATH="$FAKEBIN_DIR:$PATH" \
-    "$SPAWN" "$id" "$PROJ_DIR" ${kind:+$([ "$kind" = scout ] && echo --scout)} \
-      $([ "$kind" = scout ] || echo "--mode $mode --yolo off") 2>&1
+    "$SPAWN" "$id" "$PROJ_DIR" "${kindflags[@]}" 2>&1
 }
 
 head_sha() { git -C "$1" rev-parse HEAD; }

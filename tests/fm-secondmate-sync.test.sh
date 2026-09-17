@@ -1242,6 +1242,7 @@ test_bootstrap_syncs_remote_home_to_primary_commit() {
 
   fakebin=$(make_remote_leg_ssh_stub "$w")
   fm_fake_exit0 "$fakebin" gh treehouse tmux node
+  fm_test_fake_treehouse_lease "$fakebin"
   out=$(PATH="$fakebin:$BASE_PATH" \
     FM_HOME="$home" FM_ROOT_OVERRIDE="$w/main" \
     FM_BOOTSTRAP_NETWORK=only \
@@ -1280,6 +1281,7 @@ test_bootstrap_reports_outdated_host_actionably() {
 
   fakebin=$(make_remote_leg_ssh_stub "$w")
   fm_fake_exit0 "$fakebin" gh treehouse tmux node
+  fm_test_fake_treehouse_lease "$fakebin"
   out=$(PATH="$fakebin:$BASE_PATH" \
     FM_HOME="$home" FM_ROOT_OVERRIDE="$w/main" \
     FM_BOOTSTRAP_NETWORK=only \
@@ -1321,6 +1323,7 @@ test_remote_launch_does_not_retarget_host_copy() {
     "$w/herdr.sendfail" "$w/herdr.sock"
   cp "$herdrbin/bin/herdr" "$fakebin/herdr"
   fm_fake_exit0 "$fakebin" gh treehouse tmux node
+  fm_test_fake_treehouse_lease "$fakebin"
 
   # The real launch leg, exactly as the parent invokes it after its own sync.
   launch_out=$(PATH="$fakebin:$BASE_PATH" \

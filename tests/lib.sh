@@ -345,6 +345,42 @@ SH
   done
 }
 
+# fm_test_fake_treehouse_lease <fakebin>
+# Stands in for the pool: `treehouse get --lease` prints the leased worktree
+# (FM_FAKE_LEASE_PATH, defaulting to the path the fake pane will report), every
+# call is appended to FM_TREEHOUSE_LOG when set, and everything else exits 0.
+# FM_FAKE_LEASE_FAIL=1 makes the acquire fail the way an exhausted pool does.
+fm_test_fake_treehouse_lease() {
+  local fakebin=$1
+  cat > "$fakebin/treehouse" <<'SH'
+#!/usr/bin/env bash
+set -u
+if [ -n "${FM_TREEHOUSE_LOG:-}" ]; then
+  { printf 'treehouse'; for a in "$@"; do printf '\x1f%s' "$a"; done; printf '\n'; } >> "$FM_TREEHOUSE_LOG"
+fi
+case "${1:-}" in
+  get)
+    case " $* " in
+      *" --help "*|*" -h "*)
+        printf '%s\n' 'Usage: treehouse get [--lease] [--lease-holder string]'
+        exit 0
+        ;;
+      *" --lease "*)
+        if [ "${FM_FAKE_LEASE_FAIL:-0}" = 1 ]; then
+          echo "treehouse: no worktree available" >&2
+          exit 1
+        fi
+        printf '%s\n' "${FM_FAKE_LEASE_PATH:-${FM_FAKE_PANE_PATH:-}}"
+        exit 0
+        ;;
+    esac
+    ;;
+esac
+exit 0
+SH
+  chmod +x "$fakebin/treehouse"
+}
+
 # fm_fake_crash_injector <fakebin>
 # Drops an `fm-crash-inject <pid>` shim that a PATH fake calls to simulate a
 # hard crash of the process under test. It SIGKILLs <pid> and then returns only
