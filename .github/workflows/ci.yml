@@ -426,8 +426,9 @@ jobs:
           snapshot_output=$(/bin/bash tests/fm-fleet-snapshot-view.test.sh)
           printf '%s\n' "$snapshot_output"
           snapshot_count=$(printf '%s\n' "$snapshot_output" | grep -c '^ok - ')
-          [ "$snapshot_count" -eq 18 ] || {
-            echo "::error::expected 18 snapshot/fleet-view tests, got $snapshot_count"
+          snapshot_expected=$(grep -cE '^test_[A-Za-z0-9_]+$' tests/fm-fleet-snapshot-view.test.sh)
+          [ "$snapshot_count" -eq "$snapshot_expected" ] || {
+            echo "::error::expected $snapshot_expected snapshot/fleet-view tests, got $snapshot_count"
             exit 1
           }
 
