@@ -1,0 +1,34 @@
+FM_TEST_BEGIN 2026-09-17T16:01:01Z tests/fm-captain-hold-lifecycle.test.sh family=pure-contract-unit expected_gate_skip=none
+FM_TEST_END 2026-09-17T16:08:34Z tests/fm-captain-hold-lifecycle.test.sh exit=0 duration_ms=453026 gate_skip=false
+FM_TEST_BEGIN 2026-09-17T16:08:34Z tests/fm-x-mode.test.sh family=pr-forge expected_gate_skip=none
+FM_TEST_END 2026-09-17T16:09:24Z tests/fm-x-mode.test.sh exit=0 duration_ms=49664 gate_skip=false
+FM_TEST_BEGIN 2026-09-17T16:09:24Z tests/fm-arm-pretool-check.test.sh family=pure-contract-unit expected_gate_skip=none
+FM_TEST_END 2026-09-17T16:10:10Z tests/fm-arm-pretool-check.test.sh exit=0 duration_ms=45611 gate_skip=false
+FM_TEST_BEGIN 2026-09-17T16:10:10Z tests/fm-cd-pretool-check.test.sh family=pure-contract-unit expected_gate_skip=none
+FM_TEST_END 2026-09-17T16:10:33Z tests/fm-cd-pretool-check.test.sh exit=0 duration_ms=23374 gate_skip=false
+FM_TEST_BEGIN 2026-09-17T16:10:33Z tests/fm-crew-state.test.sh family=pure-contract-unit expected_gate_skip=none
+FM_TEST_END 2026-09-17T16:11:05Z tests/fm-crew-state.test.sh exit=0 duration_ms=31884 gate_skip=false
+FM_TEST_BEGIN 2026-09-17T16:11:05Z tests/fm-send-popup-settle.test.sh family=pure-contract-unit expected_gate_skip=none
+FM_TEST_END 2026-09-17T16:11:10Z tests/fm-send-popup-settle.test.sh exit=0 duration_ms=4589 gate_skip=false
+FM_TEST_BEGIN 2026-09-17T16:11:10Z tests/fm-composer-lib.test.sh family=pure-contract-unit expected_gate_skip=none
+FM_TEST_END 2026-09-17T16:11:17Z tests/fm-composer-lib.test.sh exit=0 duration_ms=6264 gate_skip=false
+FM_TEST_BEGIN 2026-09-17T16:11:17Z tests/fm-send-strict.test.sh family=backend-dispatch expected_gate_skip=none
+FM_TEST_END 2026-09-17T16:11:20Z tests/fm-send-strict.test.sh exit=0 duration_ms=3291 gate_skip=false
+FM_TEST_BEGIN 2026-09-17T16:11:20Z tests/fm-pi-primary-types.test.sh family=pure-contract-unit expected_gate_skip=none
+FM_TEST_END 2026-09-17T16:11:20Z tests/fm-pi-primary-types.test.sh exit=0 duration_ms=102 gate_skip=true
+FM_TEST_BEGIN 2026-09-17T16:11:20Z tests/fm-brief.test.sh family=pure-contract-unit expected_gate_skip=none
+FM_TEST_END 2026-09-17T16:11:23Z tests/fm-brief.test.sh exit=0 duration_ms=2714 gate_skip=false
+FM_TEST_BEGIN 2026-09-17T16:11:23Z tests/fm-send-settle.test.sh family=pure-contract-unit expected_gate_skip=none
+FM_TEST_END 2026-09-17T16:11:25Z tests/fm-send-settle.test.sh exit=0 duration_ms=1783 gate_skip=false
+FM_TEST_SUMMARY total=11 failed=0 skipped_gate=1 duration_ms=624129
+FM_TEST_SLOWEST rank=1 script=tests/fm-captain-hold-lifecycle.test.sh duration_ms=453026
+FM_TEST_SLOWEST rank=2 script=tests/fm-x-mode.test.sh duration_ms=49664
+FM_TEST_SLOWEST rank=3 script=tests/fm-arm-pretool-check.test.sh duration_ms=45611
+FM_TEST_SLOWEST rank=4 script=tests/fm-crew-state.test.sh duration_ms=31884
+FM_TEST_SLOWEST rank=5 script=tests/fm-cd-pretool-check.test.sh duration_ms=23374
+FM_TEST_SLOWEST rank=6 script=tests/fm-composer-lib.test.sh duration_ms=6264
+FM_TEST_SLOWEST rank=7 script=tests/fm-send-popup-settle.test.sh duration_ms=4589
+FM_TEST_SLOWEST rank=8 script=tests/fm-send-strict.test.sh duration_ms=3291
+FM_TEST_SLOWEST rank=9 script=tests/fm-brief.test.sh duration_ms=2714
+FM_TEST_SLOWEST rank=10 script=tests/fm-send-settle.test.sh duration_ms=1783
+FM_TEST_SLOWEST rank=11 script=tests/fm-pi-primary-types.test.sh duration_ms=102

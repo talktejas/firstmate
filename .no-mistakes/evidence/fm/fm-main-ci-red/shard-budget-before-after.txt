@@ -1,0 +1,12 @@
+before shard1= 592399 ms (98% of cap) shard2= 143303 ms (23% of cap) imbalance=449096 ms
+  FAIL shard1 has under 20% headroom below the cap
+  ok   shard2 fits with 456697 ms headroom
+after  shard1= 368019 ms (61% of cap) shard2= 367683 ms (61% of cap) imbalance=336 ms
+  ok   shard1 fits with 231981 ms headroom
+  ok   shard2 fits with 232317 ms headroom
+
+Cap source: .github/workflows/ci.yml timeout-minutes: 10 (unchanged by this branch).
+Durations: docs/fm-test-portable-shards.md table, sourced from the CI timing
+artifacts fm-test-timing-portable-parallel-1/-2 of run 35234928976.
+Memberships read live from `bin/fm-test-run.sh --list --lane <lane>` at
+4b31524 (before) and 8150a09 (after).

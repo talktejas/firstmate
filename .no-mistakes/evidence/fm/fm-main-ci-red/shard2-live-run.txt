@@ -1,0 +1,28 @@
+FM_TEST_BEGIN 2026-09-17T16:01:05Z tests/fm-lint.test.sh family=pure-contract-unit expected_gate_skip=none
+FM_TEST_END 2026-09-17T16:04:39Z tests/fm-lint.test.sh exit=0 duration_ms=214598 gate_skip=false
+FM_TEST_BEGIN 2026-09-17T16:04:39Z tests/fm-test-run.test.sh family=pure-contract-unit expected_gate_skip=none
+not ok - ruby is required to parse .github/workflows/ci.yml as YAML
+FM_TEST_END 2026-09-17T16:08:15Z tests/fm-test-run.test.sh exit=1 duration_ms=215231 gate_skip=false
+FM_TEST_BEGIN 2026-09-17T16:08:15Z tests/fm-pr-merge.test.sh family=pr-forge expected_gate_skip=none
+FM_TEST_END 2026-09-17T16:10:34Z tests/fm-pr-merge.test.sh exit=0 duration_ms=139630 gate_skip=false
+FM_TEST_BEGIN 2026-09-17T16:10:35Z tests/fm-backend-herdr.test.sh family=backend-dispatch expected_gate_skip=none
+FM_TEST_END 2026-09-17T16:15:51Z tests/fm-backend-herdr.test.sh exit=0 duration_ms=316572 gate_skip=false
+FM_TEST_BEGIN 2026-09-17T16:15:51Z tests/fm-grok-harness.test.sh family=pure-contract-unit expected_gate_skip=none
+FM_TEST_END 2026-09-17T16:16:13Z tests/fm-grok-harness.test.sh exit=0 duration_ms=21213 gate_skip=false
+FM_TEST_BEGIN 2026-09-17T16:16:13Z tests/fm-herdr-lab.test.sh family=pure-contract-unit expected_gate_skip=none
+FM_TEST_END 2026-09-17T16:16:45Z tests/fm-herdr-lab.test.sh exit=0 duration_ms=31405 gate_skip=false
+FM_TEST_BEGIN 2026-09-17T16:16:45Z tests/fm-review-diff.test.sh family=pr-forge expected_gate_skip=none
+FM_TEST_END 2026-09-17T16:16:52Z tests/fm-review-diff.test.sh exit=0 duration_ms=6629 gate_skip=false
+FM_TEST_BEGIN 2026-09-17T16:16:52Z tests/fm-tmux-submit-busy.test.sh family=pure-contract-unit expected_gate_skip=none
+FM_TEST_END 2026-09-17T16:17:03Z tests/fm-tmux-submit-busy.test.sh exit=0 duration_ms=10507 gate_skip=false
+FM_TEST_BEGIN 2026-09-17T16:17:03Z tests/fm-composer-ghost.test.sh family=pure-contract-unit expected_gate_skip=none
+FM_TEST_END 2026-09-17T16:17:15Z tests/fm-composer-ghost.test.sh exit=0 duration_ms=11886 gate_skip=false
+FM_TEST_BEGIN 2026-09-17T16:17:15Z tests/fm-spawn-batch.test.sh family=backend-dispatch expected_gate_skip=none
+FM_TEST_END 2026-09-17T16:17:26Z tests/fm-spawn-batch.test.sh exit=0 duration_ms=10272 gate_skip=false
+FM_TEST_BEGIN 2026-09-17T16:17:26Z tests/fm-ensure-agents-md.test.sh family=pure-contract-unit expected_gate_skip=none
+FM_TEST_END 2026-09-17T16:17:38Z tests/fm-ensure-agents-md.test.sh exit=0 duration_ms=11566 gate_skip=false
+FM_TEST_BEGIN 2026-09-17T16:17:38Z tests/fm-supervision-instructions.test.sh family=pure-contract-unit expected_gate_skip=none
+FM_TEST_END 2026-09-17T16:17:43Z tests/fm-supervision-instructions.test.sh exit=0 duration_ms=4633 gate_skip=false
+FM_TEST_BEGIN 2026-09-17T16:17:43Z tests/fm-transition-lib.test.sh family=pure-contract-unit expected_gate_skip=none
+FM_TEST_END 2026-09-17T16:17:46Z tests/fm-transition-lib.test.sh exit=0 duration_ms=2904 gate_skip=false
+FM_TEST_SUMMARY total=13 failed=1 skipped_gate=0 duration_ms=1001836

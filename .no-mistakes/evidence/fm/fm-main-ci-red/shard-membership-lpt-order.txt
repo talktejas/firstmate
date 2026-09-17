@@ -1,0 +1,27 @@
+# portable-parallel-1 (LPT order, CI-measured ms)
+  283819  tests/fm-captain-hold-lifecycle.test.sh
+   26335  tests/fm-x-mode.test.sh
+   19844  tests/fm-arm-pretool-check.test.sh
+   15605  tests/fm-cd-pretool-check.test.sh
+    8678  tests/fm-crew-state.test.sh
+    3510  tests/fm-send-popup-settle.test.sh
+    3128  tests/fm-composer-lib.test.sh
+    2560  tests/fm-send-strict.test.sh
+    1652  tests/fm-pi-primary-types.test.sh
+    1549  tests/fm-brief.test.sh
+    1339  tests/fm-send-settle.test.sh
+
+# portable-parallel-2
+  164477  tests/fm-lint.test.sh
+   87956  tests/fm-test-run.test.sh
+   75351  tests/fm-pr-merge.test.sh
+   18713  tests/fm-backend-herdr.test.sh
+    6308  tests/fm-grok-harness.test.sh
+    5834  tests/fm-herdr-lab.test.sh
+    2673  tests/fm-review-diff.test.sh
+    1989  tests/fm-tmux-submit-busy.test.sh
+    1937  tests/fm-composer-ghost.test.sh
+    1546  tests/fm-spawn-batch.test.sh
+     617  tests/fm-ensure-agents-md.test.sh
+     194  tests/fm-supervision-instructions.test.sh
+      88  tests/fm-transition-lib.test.sh
