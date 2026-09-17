@@ -280,7 +280,7 @@ test_spawn_tmux_window_construction() {
 
   # Bug 2 fix (b): the move into the leased worktree and the arrival wait loop
   # both target the stable id.
-  assert_grep "send-keys -t @spawnwid cd -- " "$rec" \
+  assert_grep "send-keys -t @spawnwid (cd -- " "$rec" \
     "the move into the leased worktree must be sent to the stable window id"
   assert_grep "display-message -p -t @spawnwid #{pane_current_path}" "$rec" \
     "the worktree wait loop must query the stable window id, not the name"
