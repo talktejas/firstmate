@@ -231,7 +231,23 @@ const uw = byId.get("bb-underway") || new Node("div");
 const underway = rowsOf(uw);
 
 const ch = byId.get("bb-charted") || new Node("div");
-const charted = rowsOf(ch);
+const charted = ch.children
+  .filter((r) => r.className.split(/\s+/).includes("bb-row"))
+  .map((row) => {
+    // Charted rows are a <details>/<summary> disclosure: the pick and main
+    // content live one level deeper, inside the summary, so this looks
+    // through the whole row rather than only its direct children.
+    const main = row.querySelectorAll(".bb-row__main")[0];
+    const pick = row.querySelectorAll(".bb-pick")[0];
+    return {
+      title: main?.children.find((c) => c.className.includes("bb-row__title"))?.textContent ?? "",
+      sub: main?.children.find((c) => c.className.includes("bb-row__sub"))?.textContent ?? "",
+      badges: badgesOf(row.querySelectorAll(".bb-row__summary")[0] || row),
+      pickable: !!pick,
+      checked: !!pick && !!pick.checked,
+      hidden: !!row.hidden,
+    };
+  });
 // A fail-closed render replaces the page body instead of the board sections, so
 // surface it rather than reporting an empty board as a successful render.
 const errorText = [...byId.entries()]
