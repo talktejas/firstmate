@@ -1,0 +1,10 @@
+hints matched to proof: 24 of 24 parallel candidates
+   17.7x tests/fm-pr-merge.test.sh hint=111145ms proof=6290ms
+   16.8x tests/fm-lint.test.sh hint=164262ms proof=9766ms
+   14.4x tests/fm-pi-primary-types.test.sh hint=8624ms proof=598ms
+    8.4x tests/fm-captain-hold-lifecycle.test.sh hint=296481ms proof=35095ms
+    4.4x tests/fm-test-run.test.sh hint=92944ms proof=20922ms
+    2.3x tests/fm-spawn-batch.test.sh hint=2265ms proof=975ms
+candidates above 4x: 5
+largest of the remainder: 2.3x
+candidates that shrank (<1x): 8

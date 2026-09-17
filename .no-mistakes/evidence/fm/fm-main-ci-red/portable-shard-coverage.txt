@@ -1,0 +1,7 @@
+portable-serial-1of5: 35 scripts
+portable-serial-2of5: 36 scripts
+portable-serial-3of5: 35 scripts
+portable-serial-4of5: 35 scripts
+portable-serial-5of5: 35 scripts
+shard 1 head: tests/fm-lint.test.sh
+FM_TEST_COVERAGE ok total=216 parallel=24 parallel_max_ms=417163 parallel_imbalance_ms=2894 parallel_unhinted=0 serial=176 serial_shards=5 serial_unhinted=0 herdr=16
