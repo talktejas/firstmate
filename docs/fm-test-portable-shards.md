@@ -29,34 +29,12 @@ The complete historical run supplies tail-script hints, not a completion time fo
 
 ## Growth since the 2026-08-20 proof
 
-Rebalancing buys room; it does not explain why several of these scripts grew far past ordinary test-count growth. The two worst - a lifecycle test at 284s and a lint test at 164s - are a symptom worth naming, not just repacking around. Root-causing that growth is a separate, already-filed piece of work; this table exists so the next person sees it rather than only the new packing.
-
-| growth | script | 2026-08-20 duration_ms | 2026-09-17 duration_ms |
-|---:|---|---:|---:|
-| 16.84x | `tests/fm-lint.test.sh` | 9766 | 164477 |
-| 11.98x | `tests/fm-pr-merge.test.sh` | 6290 | 75351 |
-| 8.09x | `tests/fm-captain-hold-lifecycle.test.sh` | 35095 | 283819 |
-| 4.20x | `tests/fm-test-run.test.sh` | 20922 | 87956 |
-| 2.76x | `tests/fm-pi-primary-types.test.sh` | 598 | 1652 |
-| 1.59x | `tests/fm-spawn-batch.test.sh` | 975 | 1546 |
-| 1.23x | `tests/fm-review-diff.test.sh` | 2166 | 2673 |
-| 1.20x | `tests/fm-ensure-agents-md.test.sh` | 513 | 617 |
-| 1.18x | `tests/fm-brief.test.sh` | 1315 | 1549 |
-| 0.94x | `tests/fm-cd-pretool-check.test.sh` | 16582 | 15605 |
-| 0.93x | `tests/fm-grok-harness.test.sh` | 6768 | 6308 |
-| 0.89x | `tests/fm-transition-lib.test.sh` | 99 | 88 |
-| 0.88x | `tests/fm-composer-lib.test.sh` | 3544 | 3128 |
-| 0.85x | `tests/fm-send-strict.test.sh` | 3025 | 2560 |
-| 0.77x | `tests/fm-send-popup-settle.test.sh` | 4563 | 3510 |
-| 0.74x | `tests/fm-x-mode.test.sh` | 35415 | 26335 |
-| 0.72x | `tests/fm-arm-pretool-check.test.sh` | 27529 | 19844 |
-| 0.61x | `tests/fm-herdr-lab.test.sh` | 9562 | 5834 |
-| 0.59x | `tests/fm-supervision-instructions.test.sh` | 331 | 194 |
-| 0.49x | `tests/fm-tmux-submit-busy.test.sh` | 4021 | 1989 |
-| 0.49x | `tests/fm-crew-state.test.sh` | 17558 | 8678 |
-| 0.49x | `tests/fm-send-settle.test.sh` | 2753 | 1339 |
-| 0.41x | `tests/fm-backend-herdr.test.sh` | 45356 | 18713 |
-| 0.35x | `tests/fm-composer-ghost.test.sh` | 5569 | 1937 |
+Rebalancing buys room; it does not explain why several of these scripts grew far past ordinary test-count growth.
+Against their 2026-08-20 isolation-proof durations, four of the 24 candidates grew more than fourfold: `tests/fm-lint.test.sh` 16.8x, `tests/fm-pr-merge.test.sh` 12.0x, `tests/fm-captain-hold-lifecycle.test.sh` 8.1x, and `tests/fm-test-run.test.sh` 4.2x.
+The two worst in absolute terms - the lifecycle test and the lint test - now dominate their shards on their own.
+Every other candidate stayed within 2.8x, and most shrank.
+Root-causing that growth is a separate, already-filed piece of work; this note exists so the next person sees it rather than only the new packing.
+The per-script durations themselves live once, in `portable_parallel_weight_hints` in [`bin/fm-test-run.sh`](../bin/fm-test-run.sh); read them there rather than from a copied table.
 
 ## Parallel lanes
 
@@ -89,6 +67,8 @@ Each shard is still strictly serial in itself, and separate runners mean no two 
 
 Assignment is longest-processing-time bin packing over per-script duration hints embedded in `bin/fm-test-run.sh`.
 The embedded hints include the slowest measurements retained from the `fm-test-timing-portable-serial-*` artifacts of three green CI runs on 2026-09-01, [33558082172](https://github.com/kunchenguid/firstmate/actions/runs/33558082172), [33523597838](https://github.com/kunchenguid/firstmate/actions/runs/33523597838), and [33463326167](https://github.com/kunchenguid/firstmate/actions/runs/33463326167), the completed-script measurements from [run 34342484144](https://github.com/kunchenguid/firstmate/actions/runs/34342484144), plus the 5121 ms native-Windows focused runner measurement for `tests/fm-pi-windows-shell-invocation.test.sh` from 2026-09-06T21:02Z.
+The 27 hints added on 2026-09-18 for previously unhinted serial scripts are the exception: they were measured locally, not on `ubuntu-latest`, so they are estimates that establish a weight rather than a CI-proven one, and the caveat above applies to them in full - replace them from `fm-test-timing-portable-serial-*` artifacts at the next refresh.
+A reader seeing `serial_unhinted=0` should therefore read it as "every script carries a weight", not as "every weight came from CI".
 Taking the slowest of several CI runs rather than a single run keeps the balance honest on a slow runner.
 A script with no hint gets the conservative `PORTABLE_SERIAL_DEFAULT_WEIGHT_MS` default.
 Hints only affect balance: the coverage guard keeps the partition complete and disjoint whatever they say, so a stale hint costs a slower shard rather than lost coverage.

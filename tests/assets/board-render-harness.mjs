@@ -16,7 +16,8 @@
 //   without going through its own click handler), optionally followed by
 //   {"fire":"input"} to dispatch that event the way typing would.
 // Prints one JSON document: { stats:[{n,label}], charted:[{title,sub,badges,pickable}],
-// filterbar:{chips,clearHidden}, deck:{...}, sections:{...} }
+// filterbar:{chips,clearHidden}, deck:{...},
+// sections:{underway|landed|charted:{rows:[{repo,hidden,title,sub,badges}],empty}} }
 import { readFileSync } from "node:fs";
 
 const html = readFileSync(process.argv[2], "utf8");
@@ -317,14 +318,24 @@ const deck = {
   focused: focused ? focused.className : null,
 };
 
-// The three project-scoped rows sections: repo tag + hidden flag per row,
-// plus whatever empty-state message is currently showing (if any).
+// The three project-scoped rows sections: repo tag, hidden flag and the
+// title/sub/badges each row actually renders, plus whatever empty-state
+// message is currently showing (if any).
 function sectionState(id) {
   const node = byId.get(id) || new Node("div");
   return {
     rows: node.children
       .filter((c) => c.className.split(/\s+/).includes("bb-row"))
-      .map((c) => ({ repo: c.dataset.repo, hidden: !!c.hidden })),
+      .map((c) => {
+        const main = c.querySelectorAll(".bb-row__main")[0];
+        return {
+          repo: c.dataset.repo,
+          hidden: !!c.hidden,
+          title: main?.children.find((x) => x.className.includes("bb-row__title"))?.textContent ?? "",
+          sub: main?.children.find((x) => x.className.includes("bb-row__sub"))?.textContent ?? "",
+          badges: badgesOf(c.querySelectorAll(".bb-row__summary")[0] || c),
+        };
+      }),
     empty: node.children.filter((c) => c.className.includes("bb-empty")).map((c) => c.textContent),
   };
 }
