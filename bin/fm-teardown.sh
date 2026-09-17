@@ -93,6 +93,9 @@
 # through metadata publication, closing the publication
 # gap; forced secondmate teardown takes it and runs the same checks for every
 # descendant Treehouse slot before touching any child.
+# A task worktree is claimed with a durable Treehouse lease at spawn
+# (bin/fm-spawn.sh owns the claim), and the return below releases that lease with
+# the slot, so an ordinary teardown is also what frees the claim.
 # This refusal is not relaxed by --force: --force authorizes discarding THIS
 # task's unlanded work, never another task's live work. Reconcile whichever
 # record is wrong and re-run. Orca is not a pool slot and proves its path through
