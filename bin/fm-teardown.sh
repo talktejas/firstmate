@@ -128,6 +128,9 @@
 # through metadata publication, closing the publication
 # gap; forced secondmate teardown takes it and runs the same checks for every
 # descendant Treehouse slot before touching any child.
+# A task worktree is also claimed with a durable Treehouse lease at spawn
+# (bin/fm-spawn.sh owns the claim), and the return below releases that lease with
+# the slot, so an ordinary teardown is what frees the claim.
 # These refusals are not relaxed by --force: --force authorizes discarding THIS
 # task's unlanded work, never another task's live work. Nothing of this task's
 # own is removed by a refusal; reconcile whichever record is wrong and re-run.

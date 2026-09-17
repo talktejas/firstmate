@@ -87,6 +87,31 @@ test_aborted_spawn_returns_its_claim() {
   pass "an aborted spawn returns its claim, matched on the holder that took it"
 }
 
+# A copy the pool still offers although a live task record names it - the shape
+# a task spawned before leases existed leaves behind - must be refused, and the
+# refusal must name the holder. The claim is kept so the same copy is not
+# offered to the next spawn, which would refuse again and deadlock the pool.
+test_copy_another_task_record_claims_is_refused_by_name() {
+  local id out status log
+  id=lease-conflict-w3
+  make_lease_case lease-conflict "$id"
+  fm_write_meta "$LEASE_HOME/state/other-task-w3.meta" \
+    "worktree=$LEASE_WT" "project=$LEASE_PROJ" "kind=ship" "backend=tmux"
+
+  out=$(run_lease_spawn "$id" "$LEASE_WT")
+  status=$?
+  [ "$status" -ne 0 ] || fail "spawn launched into a copy another task record claims"$'\n'"$out"
+  assert_contains "$out" "task other-task-w3's own record still names as its working copy" \
+    "the refusal did not name the task holding the copy"
+  assert_contains "$out" "--if-lease-holder 'fm:$id@$LEASE_HOME/state'" \
+    "the refusal did not say how to release the copy it is holding"
+  [ ! -e "$LEASE_HOME/state/$id.meta" ] || fail "refused spawn published task metadata"
+  log=$(cat "$LEASE_LOG")
+  assert_not_contains "$log" "return" \
+    "the refusal returned the claim, so the next spawn would be offered the same copy again"
+  pass "a copy another task record claims is refused by name, and stays claimed"
+}
+
 # The guarantee the whole fix rests on, checked against the real pool rather
 # than assumed: a leased slot is not handed to a later `treehouse get`, with no
 # process running inside it.
@@ -115,6 +140,7 @@ test_real_pool_does_not_hand_out_a_leased_slot() {
 
 test_spawn_claims_the_slot_with_a_labelled_lease
 test_aborted_spawn_returns_its_claim
+test_copy_another_task_record_claims_is_refused_by_name
 test_real_pool_does_not_hand_out_a_leased_slot
 
 echo "# all fm-spawn-worktree-lease tests passed"

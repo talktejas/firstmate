@@ -3667,6 +3667,31 @@ elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
   SPAWN_TREEHOUSE_LEASE_PENDING=1
   validate_spawn_worktree "treehouse get --lease" "$T"
 
+  # Second line of defence, for a copy the pool offered that a live task record
+  # in this home still names: a task spawned before leases existed holds its
+  # slot with nothing but its processes, and that is exactly the copy the pool
+  # cannot see a claim on. Refuse rather than launch into it, and name the task
+  # that holds it so the operator knows who to ask instead of going hunting.
+  # The lease is deliberately NOT returned here: releasing it would hand the
+  # same copy to the next spawn, which would refuse again, and the pool would
+  # deadlock on it forever. Holding it quarantines that one slot instead - the
+  # next spawn is given a different copy and proceeds - and the label below is
+  # what releases it once the records are reconciled.
+  spawn_wt_claim=$(real_path_or_raw "$WT")
+  for spawn_other_meta in "$STATE"/*.meta; do
+    [ -f "$spawn_other_meta" ] && [ ! -L "$spawn_other_meta" ] || continue
+    spawn_other_id=$(basename "$spawn_other_meta" .meta)
+    [ "$spawn_other_id" != "$ID" ] || continue
+    spawn_other_wt=$(fm_meta_get "$spawn_other_meta" worktree)
+    [ -n "$spawn_other_wt" ] || continue
+    [ "$(real_path_or_raw "$spawn_other_wt")" = "$spawn_wt_claim" ] || continue
+    SPAWN_TREEHOUSE_LEASE_PENDING=0
+    echo "error: the pool offered '$WT', which task $spawn_other_id's own record still names as its working copy; refusing to launch task $ID into it and reset another worker's work" >&2
+    echo "That copy is now held under '$SPAWN_TREEHOUSE_LEASE_HOLDER' so it is not offered again; reconcile whichever record is wrong (bin/fm-crew-state.sh $spawn_other_id), then release it with: treehouse return --force --if-lease-holder '$SPAWN_TREEHOUSE_LEASE_HOLDER' '$WT'" >&2
+    echo "Re-running this spawn is safe: it is given a different copy." >&2
+    exit 1
+  done
+
   # Move the pane into the leased copy and prove it arrived, the same way the
   # relaunch path above does: the lease already fixes WHICH copy this task owns,
   # so nothing here has to discover it from the pane, and a pane that reports a
