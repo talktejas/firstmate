@@ -880,14 +880,13 @@ test_grok_adapter_missing_jq_and_no_supervision_allow() {
 # Claude-only Stop auto-arm ran synchronously under Grok, foregrounded the
 # watcher, and wedged the Grok turn for its declared 28800-second timeout.
 #
-# bin/fm-subagent-pretool-check.sh and bin/fm-delegate-pretool-check.sh are the
-# deliberate exceptions: Grok has no counterpart registration for the subagent
-# surface at all, and the delegate guard's Grok counterpart matches the shell
-# tool only while the Claude-shaped entry also reaches Grok's compatibility
-# mapping for the read and write tools, so guarding either would SHRINK the
-# guard under Grok rather than deduplicate it. The delegate guard holds no
-# state, so a duplicated shell evaluation reaches the same verdict
-# (docs/subagent-guard.md and docs/delegate-guard.md "Known residual gap").
+# bin/fm-subagent-pretool-check.sh is the one deliberate exception: Grok has no
+# counterpart registration for that event, so guarding it would REMOVE the guard
+# from Grok rather than deduplicate it (docs/subagent-guard.md "Known residual
+# gap"). bin/fm-delegate-pretool-check.sh now has a Grok registration of its own
+# for the shell surface, so its tracked entry is marker-guarded like every other
+# duplicated event; Grok's read and write tools stay unwired until a Grok
+# registration covers them (docs/delegate-guard.md "Known residual gap").
 # They are asserted to stay unguarded so the exception cannot be closed silently.
 test_tracked_claude_entries_inert_under_grok() {
   local dir cmd script target guarded=0 unguarded=0
@@ -919,7 +918,7 @@ test_tracked_claude_entries_inert_under_grok() {
       -u GROK_WORKSPACE_ROOT \
       || fail "tracked entry for $target did not run under a native Claude environment"
 
-    if [ "$target" = fm-subagent-pretool-check.sh ] || [ "$target" = fm-delegate-pretool-check.sh ]; then
+    if [ "$target" = fm-subagent-pretool-check.sh ]; then
       unguarded=$((unguarded + 1))
       ran_under -u GROK_AGENT GROK_HOOK_EVENT=pre_tool_use GROK_SESSION_ID=grok-test-session \
         || fail "the documented $target exception must stay unguarded; Grok has no counterpart to fall back to"
@@ -937,9 +936,9 @@ test_tracked_claude_entries_inert_under_grok() {
       || fail "tracked entry for $target ran under a legacy GROK_AGENT environment"
   done < <(jq -r '.hooks[][].hooks[].command' "$ROOT/.claude/settings.json")
 
-  [ "$guarded" -eq 5 ] || fail "expected 5 grok-guarded tracked entries, saw $guarded"
-  [ "$unguarded" -eq 2 ] || fail "expected 2 documented unguarded tracked entries, saw $unguarded"
-  pass "tracked .claude/settings.json entries: $guarded inert under grok, the documented subagent and delegate exceptions still armed, all live under Claude"
+  [ "$guarded" -eq 6 ] || fail "expected 6 grok-guarded tracked entries, saw $guarded"
+  [ "$unguarded" -eq 1 ] || fail "expected 1 documented unguarded tracked entry, saw $unguarded"
+  pass "tracked .claude/settings.json entries: $guarded inert under grok, the documented subagent exception still armed, all live under Claude"
 }
 
 test_codex_hook_uses_process_pwd_when_payload_cwd_is_outside_root() {

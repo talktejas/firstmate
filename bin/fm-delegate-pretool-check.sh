@@ -23,6 +23,11 @@
 # home clone - a secondmate home, a pool or treehouse home - carries the home
 # contract (AGENTS.md plus the bin dispatch scripts) and is the primary's own
 # supervision territory, so it classifies with the home and not as a project.
+# A narrow set of project-runtime verbs denies without a path at all: container
+# tooling, database clients, and an http request aimed at a loopback address are
+# work on a project's own service whatever their arguments look like.
+# There is no release token: a bypass the primary can type is the primary
+# choosing to comply, which is the failure this guard replaces.
 # fm-*.sh scripts, no-mistakes, and the *-axi tools are the primary's own job
 # and always allowed, whatever paths they carry.
 # See docs/delegate-guard.md for the complete contract and validation record.
@@ -46,10 +51,6 @@
 #          reads the returned object rather than the exit status.
 #   INERT - not a genuine primary home (a crewmate/scout task worktree or a
 #           non-firstmate repo): exit 0 with no output, exactly like ALLOW.
-#   ESCAPE - a Bash command whose leading assignments include the literal
-#            FM_ALLOW_PROJECT_WORK=1 allows deliberately, per invocation. The
-#            hook's own process environment is deliberately ignored so the
-#            override can never be ambient for a whole session.
 #   FAIL OPEN - malformed or empty stdin, missing jq for stdin transport, or
 #               an unconfirmable home identity.
 #
@@ -66,6 +67,14 @@ set -f
 # segment, whatever project paths it carries: dispatch and lifecycle scripts
 # take project directories as arguments by design.
 ALLOW_WORDS=' no-mistakes gh-axi tasks-axi quota-axi lavish-axi chrome-devtools-axi '
+
+# Lead words that mean project work whatever their arguments: a project's own
+# containers and its database are a worker's territory, never the primary's.
+RUNTIME_WORDS=' docker docker-compose podman podman-compose psql mysql mariadb mongosh redis-cli '
+
+# http clients, denied only when the request targets a loopback address, which
+# is a project's own running service.
+HTTP_WORDS=' curl wget http https httpie xh '
 
 TOOL=""
 TOOL_SET=0
@@ -92,8 +101,6 @@ investigating project code is exactly right.
 Exits 0 to allow and 2 to deny, naming the crewmate dispatch path instead.
 With --cursor, a deny is Cursor's own decision object on stdout and exit 0,
 because Cursor reads the returned object rather than the exit status.
-A Bash command prefixed with the literal assignment FM_ALLOW_PROJECT_WORK=1
-allows deliberately, per invocation; the hook's own environment is ignored.
 Malformed transport and an unconfirmable home identity fail open.
 EOF
 }
@@ -139,11 +146,23 @@ if [ "$TOOL_SET" -eq 0 ]; then
   if [ "$CURSOR_MODE" -eq 0 ] && fm_hook_payload_is_foreign_host "$PAYLOAD"; then
     exit 0
   fi
-  TOOL=$(printf '%s' "$PAYLOAD" | jq -r '(.tool_name // .toolName // empty)' 2>/dev/null) || exit 0
-  CMD=$(printf '%s' "$PAYLOAD" | jq -r '(.tool_input.command // .toolInput.command // empty)' 2>/dev/null) || exit 0
-  TPATH=$(printf '%s' "$PAYLOAD" | jq -r '(.tool_input.file_path // .tool_input.notebook_path // .tool_input.path // .toolInput.file_path // .toolInput.notebook_path // .toolInput.path // empty)' 2>/dev/null) || exit 0
-  GLOB_PATTERN=$(printf '%s' "$PAYLOAD" | jq -r '(.tool_input.pattern // .toolInput.pattern // empty)' 2>/dev/null) || GLOB_PATTERN=""
-  CWD=$(printf '%s' "$PAYLOAD" | jq -r '(.cwd // empty)' 2>/dev/null) || CWD=""
+  # One jq per payload: this hook fires on every classified tool call the
+  # primary makes, so every field is read from a single parse. The command is
+  # emitted last because it is the only field that can carry newlines.
+  FIELDS=$(printf '%s' "$PAYLOAD" | jq -r '
+    (.tool_name // .toolName // ""),
+    (.tool_input.file_path // .tool_input.notebook_path // .tool_input.path
+      // .toolInput.file_path // .toolInput.notebook_path // .toolInput.path // ""),
+    (.tool_input.pattern // .toolInput.pattern // ""),
+    (.cwd // ""),
+    (.tool_input.command // .toolInput.command // "")' 2>/dev/null) || exit 0
+  {
+    read -r TOOL || true
+    read -r TPATH || true
+    read -r GLOB_PATTERN || true
+    read -r CWD || true
+    CMD=$(cat)
+  } <<<"$FIELDS"
 else
   GLOB_PATTERN=""
 fi
@@ -166,19 +185,6 @@ esac
 
 if [ "$KIND" = command ]; then
   [ -n "$CMD" ] || exit 0
-  # The single escape hatch: a leading literal assignment in the command text.
-  # Per invocation and visible in the transcript by construction; the hook's
-  # own process environment is deliberately never consulted.
-  REST=$CMD
-  while :; do
-    REST=${REST#"${REST%%[![:space:]]*}"}
-    TOK=${REST%%[[:space:]]*}
-    case "$TOK" in
-      FM_ALLOW_PROJECT_WORK=1) exit 0 ;;
-      [A-Za-z_]*=*) REST=${REST#"$TOK"} ;;
-      *) break ;;
-    esac
-  done
 else
   [ -n "$TPATH" ] || [ -n "$GLOB_PATTERN" ] || exit 0
 fi
@@ -305,6 +311,7 @@ expand_token() {
 
 ROOTS=""
 BLOCKED_WORD=""
+RUNTIME_HIT=""
 PATHS_SEEN=0
 
 note_root() {
@@ -316,11 +323,72 @@ note_root() {
   esac
 }
 
+# heredoc_delim <line>: the terminator a heredoc redirection on <line> opens,
+# or nothing when the line opens none.
+heredoc_delim() {
+  local t=${1##*<<}
+  case "$t" in
+    \<*) return 0 ;;
+  esac
+  t=${t#-}
+  t=${t#"${t%%[![:space:]]*}"}
+  t=${t%%[[:space:]]*}
+  t=${t//\"/}
+  t=${t//\'/}
+  printf '%s' "$t"
+}
+
+# strip_heredocs <cmd>: drop every heredoc body and terminator. A brief written
+# into the primary's own home carries project paths in its body, and that body
+# is data, not a command sequence.
+strip_heredocs() {
+  local rest=$1 line delim='' out=''
+  while [ -n "$rest" ]; do
+    line=${rest%%$'\n'*}
+    if [ "$line" = "$rest" ]; then rest=''; else rest=${rest#*$'\n'}; fi
+    if [ -n "$delim" ]; then
+      [ "${line#"${line%%[![:space:]]*}"}" = "$delim" ] && delim=''
+      continue
+    fi
+    out=$out$line$'\n'
+    case "$line" in
+      *'<<'*) delim=$(heredoc_delim "$line") ;;
+    esac
+  done
+  printf '%s' "$out"
+}
+
+# unquote <cmd>: drop quote characters and neutralize separators INSIDE a
+# quoted span, so a quoted argument - a steer message, a brief line - is never
+# re-read as a new command while its words stay in their own segment.
+unquote() {
+  local rest=$1 out='' pre q body
+  while :; do
+    case "$rest" in
+      *[\'\"]*) ;;
+      *) out=$out$rest; break ;;
+    esac
+    pre=${rest%%[\'\"]*}
+    out=$out$pre
+    rest=${rest#"$pre"}
+    q=${rest%"${rest#?}"}
+    rest=${rest#?}
+    case "$rest" in
+      *"$q"*) body=${rest%%"$q"*}; rest=${rest#"$body$q"} ;;
+      *) body=$rest; rest='' ;;
+    esac
+    out=$out${body//[$'\n\r;|&']/ }
+  done
+  printf '%s' "$out"
+}
+
 if [ "$KIND" = command ]; then
-  # Split into naive shell segments; quoting subtleties are out of scope under
-  # the same agent-mistake threat model the sibling guards use.
-  SEGSTR=${CMD//$'\n'/;}
-  SEGSTR=${SEGSTR//$'\r'/;}
+  # A newline is not a command separator: the lines of a multi-line argument
+  # belong to the command that owns them, and the fleet-dispatch release the
+  # refusal itself recommends must survive them.
+  SEGSTR=$(unquote "$(strip_heredocs "$CMD")")
+  SEGSTR=${SEGSTR//$'\n'/ }
+  SEGSTR=${SEGSTR//$'\r'/ }
   SEGSTR=${SEGSTR//&&/;}
   SEGSTR=${SEGSTR//\|\|/;}
   SEGSTR=${SEGSTR//\|/;}
@@ -337,6 +405,7 @@ if [ "$KIND" = command ]; then
     LEAD=""
     WRAPPED=0
     SEG_PATHS=""
+    SEG_LOOPBACK=0
     # shellcheck disable=SC2086
     for TOK in $SEG; do
       RAW=$TOK
@@ -362,6 +431,10 @@ if [ "$KIND" = command ]; then
         fi
         LEAD=${RAW##*/}
       fi
+      case "$RAW" in
+        *://localhost*|*://127.*|*://0.0.0.0*|*://\[::1\]*|localhost:[0-9]*|127.0.0.1:[0-9]*)
+          SEG_LOOPBACK=1 ;;
+      esac
       if [ "$PATHS_SEEN" -lt 32 ]; then
         CAND=$(expand_token "$TOK") || CAND=""
         if [ -n "$CAND" ]; then
@@ -371,7 +444,16 @@ if [ "$KIND" = command ]; then
         fi
       fi
     done
-    [ -n "$SEG_PATHS" ] || continue
+    SEG_RUNTIME=0
+    case "$RUNTIME_WORDS" in
+      *" $LEAD "*) SEG_RUNTIME=1 ;;
+    esac
+    if [ "$SEG_LOOPBACK" -eq 1 ]; then
+      case "$HTTP_WORDS" in
+        *" $LEAD "*) SEG_RUNTIME=1 ;;
+      esac
+    fi
+    [ -n "$SEG_PATHS" ] || [ "$SEG_RUNTIME" -eq 1 ] || continue
     case "$ALLOW_WORDS" in
       *" $LEAD "*) continue ;;
     esac
@@ -379,6 +461,7 @@ if [ "$KIND" = command ]; then
       fm-*.sh) continue ;;
     esac
     BLOCKED_WORD=${BLOCKED_WORD:-$LEAD}
+    [ "$SEG_RUNTIME" -eq 1 ] && RUNTIME_HIT=${RUNTIME_HIT:-$LEAD}
     OLDIFS2=$IFS
     IFS='|'
     # shellcheck disable=SC2086
@@ -417,7 +500,7 @@ else
   fi
 fi
 
-[ -n "$ROOTS" ] || exit 0
+[ -n "$ROOTS$RUNTIME_HIT" ] || exit 0
 
 if [ -f "$FM_ROOT/bin/fm-scout.sh" ]; then
   ROUTE='first classify the work under the AGENTS.md intake contract: work already classified as a scout goes to bin/fm-scout.sh "<question>" [project], while authorized ship work and its bounded research go to bin/fm-brief.sh then bin/fm-spawn.sh'
@@ -437,7 +520,10 @@ deny() {
   exit 2
 }
 
-FIRST_ROOT=${ROOTS#|}
-FIRST_ROOT=${FIRST_ROOT%%|*}
+if [ -n "$ROOTS" ]; then
+  FIRST_ROOT=${ROOTS#|}
+  FIRST_ROOT=${FIRST_ROOT%%|*}
+  deny "[delegate-project-work] the firstmate primary delegates project work instead of doing it: this $TOOL call ($BLOCKED_WORD) targets project $FIRST_ROOT, and project work - reading it included - belongs to a worker. Instead, $ROUTE (blocked tool: $TOOL)."
+fi
 
-deny "[delegate-project-work] the firstmate primary delegates project work instead of doing it: this $TOOL call ($BLOCKED_WORD) targets project $FIRST_ROOT, and project work - reading it included - belongs to a worker. Instead, $ROUTE (blocked tool: $TOOL)."
+deny "[delegate-project-work] the firstmate primary delegates project work instead of doing it: this $TOOL call ($RUNTIME_HIT) drives a project's containers, database, or running service, which is a worker's job. Instead, $ROUTE (blocked tool: $TOOL)."

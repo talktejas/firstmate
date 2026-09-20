@@ -210,21 +210,68 @@ test_projects_prefix_counts_without_git() {
   pass "anything under projects/ is a project even when git cannot resolve it"
 }
 
-test_escape_hatch_is_per_invocation_only() {
-  expect_allow "leading FM_ALLOW_PROJECT_WORK=1 releases" \
-    --tool Bash --command "FM_ALLOW_PROJECT_WORK=1 grep -rn seeded $PROJ/src"
-  expect_deny "FM_ALLOW_PROJECT_WORK=0 does not release" \
-    --tool Bash --command "FM_ALLOW_PROJECT_WORK=0 grep -rn seeded $PROJ/src"
-  expect_deny "a trailing assignment does not release" \
-    --tool Bash --command "grep -rn seeded $PROJ/src FM_ALLOW_PROJECT_WORK=1"
-  # The hook's own process environment must never be the release: that would
-  # be ambient for the whole session rather than explicit per invocation.
+test_no_environment_assignment_releases_the_guard() {
+  # There is no release token. A leading assignment of any name, including the
+  # one an earlier contract honoured, is just an assignment.
   local rc=0
+  expect_deny "a leading FM_ALLOW_PROJECT_WORK=1 assignment" \
+    --tool Bash --command "FM_ALLOW_PROJECT_WORK=1 grep -rn seeded $PROJ/src"
+  expect_deny "a leading DEBUG=1 assignment" \
+    --tool Bash --command "DEBUG=1 grep -rn seeded $PROJ/src"
   : > "$OUT"; : > "$ERR"
   env FM_ALLOW_PROJECT_WORK=1 FM_ROOT_OVERRIDE="$PRIMARY" FM_HOME="$PRIMARY" FM_STATE_OVERRIDE="$STATE" \
     "$CHECK" --claude --cwd "$PRIMARY" --tool Bash --command "grep -rn seeded $PROJ/src" > "$OUT" 2> "$ERR" || rc=$?
-  [ "$rc" -eq 2 ] || fail "an ambient FM_ALLOW_PROJECT_WORK=1 environment must not release the guard, got exit $rc"
-  pass "the escape hatch is the leading in-command assignment and nothing else"
+  [ "$rc" -eq 2 ] || fail "an ambient environment must not release the guard, got exit $rc"
+  pass "no in-command assignment and no ambient environment releases the guard"
+}
+
+test_project_runtime_verbs_are_refused_without_a_path() {
+  local cmd
+  for cmd in \
+    "docker logs jt-backend" \
+    "docker restart jt-api" \
+    "docker exec -it jt-backend sh" \
+    "docker-compose up -d" \
+    "podman logs jt-backend" \
+    "psql -h localhost -d jewel -c 'select 1'" \
+    "mysql -u root -e 'show databases'" \
+    "redis-cli keys '*'" \
+    "curl http://localhost:8000/health" \
+    "curl -s http://127.0.0.1:8000/api/health" \
+    "wget -qO- http://localhost:3000/" ; do
+    expect_deny "project-runtime shape: $cmd" --tool Bash --command "$cmd"
+  done
+  # The rule is the verb plus, for http, a loopback target: the primary's own
+  # remote work is untouched.
+  expect_allow "a remote http request" --tool Bash --command "curl -s https://api.example.test/status"
+  expect_allow "gh-axi over https" --tool Bash --command "gh-axi pr view 12"
+  expect_allow "docker named by a fleet script" \
+    --tool Bash --command "bin/fm-crew-state.sh task-1 docker"
+  pass "container, database, and loopback-http shapes are refused with no path at all"
+}
+
+test_multi_line_and_heredoc_dispatch_commands_keep_their_release() {
+  # The guard must never deny the dispatch commands its own refusal recommends.
+  expect_allow "fm-send with a project path on the second line of the message" \
+    --tool Bash --command "bin/fm-send.sh task-1 \"start with $PROJ/src/app.php
+and report back\""
+  expect_allow "a quoted single-token argument containing a newline" \
+    --tool Bash --command "bin/fm-spawn.sh task-1 \"$PROJ
+--mode no-mistakes\""
+  expect_allow "a heredoc brief body naming project files" \
+    --tool Bash --command "cat > data/task-1/brief.md <<'EOF'
+Investigate $PROJ/src/app.php and $PROJ/database/migrations
+EOF"
+  # The heredoc body is data, not a command: the command line around it still
+  # classifies.
+  expect_deny "a heredoc written into a project" \
+    --tool Bash --command "cat > $PROJ/src/patch.php <<'EOF'
+harmless body
+EOF"
+  expect_deny "a project grep whose argument spans lines" \
+    --tool Bash --command "grep -rn \"seeded
+credential\" $PROJ/src"
+  pass "quoted multi-line arguments and heredoc bodies stay inside their own command"
 }
 
 test_deny_message_names_the_dispatch_path() {
@@ -236,11 +283,10 @@ test_deny_message_names_the_dispatch_path() {
     *"$SCOUT_ROUTE"*) ;;
     *) fail "deny must name the scout dispatch route: $actual" ;;
   esac
-  # The refusal names the dispatch path and nothing else: advertising the
-  # captain-approved bypass to the agent it just refused makes the mechanism a
-  # choice again.
+  # The refusal names the dispatch path and nothing else: any release token it
+  # could name would make the mechanism a choice again.
   case "$actual" in
-    *FM_ALLOW_PROJECT_WORK*) fail "deny must not advertise the bypass token: $actual" ;;
+    *FM_ALLOW_PROJECT_WORK*) fail "deny must not advertise a bypass token: $actual" ;;
   esac
   case "$actual" in
     *"blocked tool: Bash"*) ;;
@@ -502,7 +548,9 @@ test_build_run_and_write_shapes_never_pass
 test_read_grep_glob_edit_write_tools_are_classified
 test_home_and_neutral_paths_stay_free
 test_projects_prefix_counts_without_git
-test_escape_hatch_is_per_invocation_only
+test_no_environment_assignment_releases_the_guard
+test_project_runtime_verbs_are_refused_without_a_path
+test_multi_line_and_heredoc_dispatch_commands_keep_their_release
 test_deny_message_names_the_dispatch_path
 test_crewmate_worktree_and_non_firstmate_repo_are_inert
 test_secondmate_home_is_in_scope
