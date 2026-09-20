@@ -34,8 +34,14 @@ SH
 make_spawn_fakebin() {
   local dir=$1 fakebin
   fakebin=$(fm_test_make_spawn_fakebin "$dir")
+  # Pass-through stand-in for the bound fm_run_bounded puts around external
+  # calls, in the GNU shape it invokes: `timeout -k <bound> <bound> <cmd>...`.
+  # Nothing here is meant to expire, so both durations are dropped and the
+  # command runs unbounded; a stub that dropped only one argument would try to
+  # exec the bound itself.
   cat > "$fakebin/timeout" <<'SH'
 #!/usr/bin/env bash
+while [ "${1:-}" = -k ]; do shift 2; done
 shift
 exec "$@"
 SH
