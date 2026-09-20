@@ -31,20 +31,24 @@
 # an eligible merge remains a captain call, never an automatic forge action.
 #
 # poll consumes fm-fleet-snapshot.sh --contribution-input, a local-only read,
-# and spends at most FM_CONTRIBUTIONS_BUDGET seconds on forge reads (default 20,
-# 1..200). Each gh call is bounded by the remaining budget and
-# FM_CONTRIBUTIONS_CALL_TIMEOUT seconds (default 15, 1..25). The 15-second
-# default leaves headroom over the 12.2-second slow-link forge call observed in
-# the contributions-poll incident. A PR costs eight sequential calls, so
-# observing one on a slow link needs 8 x FM_CONTRIBUTIONS_CALL_TIMEOUT seconds:
-# 120 at the 15-second default, and the 200-second ceiling covers the
-# 25-second per-call maximum. The watcher kills a check at FM_CHECK_TIMEOUT
-# (default 30) seconds, so a raised budget needs that raised with it.
+# and spends at most FM_CONTRIBUTIONS_BUDGET seconds on forge reads (default
+# 20). The watcher kills this check at FM_CHECK_TIMEOUT (default 30) seconds,
+# so the budget is cut to FM_CHECK_TIMEOUT minus three: 27 seconds by default.
+# Each gh call is bounded by the remaining budget and
+# FM_CONTRIBUTIONS_CALL_TIMEOUT seconds (default 15, cut below the budget so a
+# per-call kill is never mistaken for the deadline). The 15-second default
+# leaves headroom over the 12.2-second slow-link forge call observed in the
+# contributions-poll incident. A PR costs eight sequential calls, so observing
+# one at that bound needs 8 x 15 = 120 seconds of budget and therefore
+# FM_CHECK_TIMEOUT 123. When the whole budget goes to one PR and it still does
+# not finish, the poll records that URL unavailable naming the bound it needs,
+# rather than leaving it silently unobserved poll after poll.
 # Oldest observations go first, so a large corpus progresses across polls.
 # Each distinct URL is observed once per poll and applied to every owner. A
 # final observation applies to every owner without another forge read. When
-# the budget runs out mid-observation, the poll ends with that URL's records
-# untouched; a genuine forge failure, a per-call timeout or a head change
+# the budget runs out mid-observation after earlier URLs spent it, the poll
+# ends with that URL's records untouched; a genuine forge failure, a per-call
+# timeout, a head change or a budget that cannot finish one observation
 # records an error and the poll continues with the next URL.
 # API failure leaves error evidence; an expired or absent observation is not
 # silence. FM_CONTRIBUTIONS_MAX_AGE (default 900 seconds) bounds freshness.
@@ -91,11 +95,25 @@ EPOCH=$(jq -nr --arg now "$NOW" '$now | fromdateiso8601') || fail 'invalid obser
 MAX_AGE=${FM_CONTRIBUTIONS_MAX_AGE:-900}
 BUDGET=${FM_CONTRIBUTIONS_BUDGET:-20}
 CALL_TIMEOUT=${FM_CONTRIBUTIONS_CALL_TIMEOUT:-15}
+CHECK_TIMEOUT=${FM_CHECK_TIMEOUT:-30}
 case "$MAX_AGE" in ''|*[!0-9]*) fail 'invalid freshness bound' ;; esac
-case "$BUDGET" in ''|*[!0-9]*) fail 'invalid poll budget' ;; esac
-case "$CALL_TIMEOUT" in ''|*[!0-9]*) fail 'invalid per-call timeout' ;; esac
-[ "$BUDGET" -ge 1 ] && [ "$BUDGET" -le 200 ] || fail 'poll budget must be 1..200 seconds'
-[ "$CALL_TIMEOUT" -ge 1 ] && [ "$CALL_TIMEOUT" -le 25 ] || fail 'per-call timeout must be 1..25 seconds'
+case "$BUDGET" in ''|*[!0-9]*|0) fail 'poll budget must be a whole number of seconds' ;; esac
+case "$CALL_TIMEOUT" in ''|*[!0-9]*|0) fail 'per-call timeout must be a whole number of seconds' ;; esac
+case "$CHECK_TIMEOUT" in ''|*[!0-9]*|0) CHECK_TIMEOUT=30 ;; esac
+# Eight sequential calls observe one PR, and fm_run_timed plus the watcher's
+# own kill need the same three-second margin the mail and tool-update checks
+# leave, so this is the watcher bound one observation costs at this per-call
+# timeout.
+NEEDED_CHECK_TIMEOUT=$((8 * CALL_TIMEOUT + 3))
+# The watcher kills this check at FM_CHECK_TIMEOUT; a budget past that bound
+# would be killed mid-observation with nothing recorded.
+BUDGET_MAX=$((CHECK_TIMEOUT - 3))
+[ "$BUDGET_MAX" -ge 1 ] || BUDGET_MAX=1
+[ "$BUDGET" -le "$BUDGET_MAX" ] || BUDGET=$BUDGET_MAX
+# A call must be able to end inside the budget for its kill to be the call's
+# outcome rather than the deadline's.
+[ "$CALL_TIMEOUT" -lt "$BUDGET" ] || CALL_TIMEOUT=$((BUDGET - 1))
+[ "$CALL_TIMEOUT" -ge 1 ] || CALL_TIMEOUT=1
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/fm-contributions.XXXXXX")
 LOCK_HELD=0
 cleanup() {
@@ -303,7 +321,7 @@ settle_final() { # canonical-url task... : copy the URL's final observation to e
 }
 
 poll() {
-  local task url old kind error observed
+  local task url old kind error observed starved progressed=0
   local -a row
   acquire
   get_input
@@ -328,15 +346,29 @@ poll() {
       continue
     fi
     observed=0
+    starved=0
     observe "$url" || observed=$?
-    # An observation the budget cut short is unmeasured, not unavailable: keep
-    # every owner's prior record so the URL is observed first next poll.
-    [ "$BUDGET_EXHAUSTED" -eq 0 ] || break
+    if [ "$BUDGET_EXHAUSTED" -ne 0 ]; then
+      # An observation the budget cut short after earlier URLs spent it is
+      # unmeasured, not unavailable: keep every owner's prior record so the
+      # URL is observed first next poll. A URL that consumed the whole budget
+      # by itself is unavailable at this budget, and saying so keeps it from
+      # starving every other URL forever.
+      [ "$progressed" -eq 0 ] || break
+      observed=1
+      starved=1
+    fi
+    progressed=1
     # Wake once per failure episode: only when no owner has a prior error.
     if [ "$observed" -ne 0 ] && jq -ne --slurpfile saved "$TMP/saved.json" --arg url "$url" --args \
       'all($ARGS.positional[] as $task | [$saved[0][] | select(.task == $task) | .records[] | select(.url == $url)] | first;
         .error == null)' "${row[@]:1}" >/dev/null; then
-      printf 'contributions: observation unavailable for %s\n' "$url"
+      if [ "$starved" -eq 0 ]; then
+        printf 'contributions: observation unavailable for %s\n' "$url"
+      else
+        printf 'contributions: observation needs more than the %ss poll budget for %s; raise FM_CHECK_TIMEOUT to at least %ss\n' \
+          "$BUDGET" "$url" "$NEEDED_CHECK_TIMEOUT"
+      fi
     fi
     case "$url" in */issues/*) kind=issue ;; *) kind="pr" ;; esac
     for task in "${row[@]:1}"; do
@@ -356,7 +388,11 @@ poll() {
             seen:($events | map(.token)),
             pending:(($old.pending // []) + [$events[] | select(.token as $t | ($old.seen // [] | index($t)) == null)] | unique_by(.token))}' > "$TMP/row.json"
       else
-        error='forge observation unavailable or changed during read'
+        if [ "$starved" -eq 0 ]; then
+          error='forge observation unavailable or changed during read'
+        else
+          error="forge observation needs more than the ${BUDGET}s poll budget; raise FM_CHECK_TIMEOUT to at least ${NEEDED_CHECK_TIMEOUT}s"
+        fi
         jq --arg now "$NOW" --arg error "$error" '.checked_at=$now | .error=$error' "$old" > "$TMP/row.json"
       fi
       write_record "$task" "$TMP/row.json"
