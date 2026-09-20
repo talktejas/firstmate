@@ -3798,9 +3798,9 @@ elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
   # nothing here established that the copy is anyone's.
   spawn_wt_claim=$(real_path_or_raw "$WT")
   if ! collect_local_firstmate_states "$STATE"; then
-    echo "error: refusing to launch task $ID into the pool copy '$WT': $FM_LOCAL_STATES_ERROR, so the task records in Firstmate home '$FM_LOCAL_STATES_ERROR_HOME' could not be read and a task there cannot be ruled out as the one holding this copy" >&2
+    echo "error: refusing to launch task $ID into the pool copy '$WT': $FM_LOCAL_STATES_ERROR, so the task records in Firstmate home '$FM_LOCAL_STATES_ERROR_HOME' and in the homes it registers could not all be read, and a task in one of them cannot be ruled out as the one holding this copy" >&2
     echo "The pool claim on '$WT' has been returned and no task metadata was published; nothing was changed." >&2
-    echo "Repair that entry in ${FM_LOCAL_STATES_ERROR_REGISTRY:-$FM_LOCAL_STATES_ERROR_HOME/.fm-secondmate-parent} - correct the home path, or remove the entry if that home is gone - then re-run this spawn." >&2
+    echo "Repair ${FM_LOCAL_STATES_ERROR_REGISTRY:-$FM_LOCAL_STATES_ERROR_HOME/.fm-secondmate-parent} ($FM_LOCAL_STATES_ERROR), then re-run this spawn." >&2
     exit 1
   fi
   for spawn_state_dir in "${TREEHOUSE_OWNER_STATES[@]}"; do
@@ -3812,8 +3812,14 @@ elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
       [ -n "$spawn_other_wt" ] || continue
       [ "$(real_path_or_raw "$spawn_other_wt")" = "$spawn_wt_claim" ] || continue
       SPAWN_TREEHOUSE_LEASE_PENDING=0
-      echo "error: the pool offered '$WT', which task $spawn_other_id's own record still names as its working copy; refusing to launch task $ID into it and reset another worker's work" >&2
-      echo "That copy is now held under '$SPAWN_TREEHOUSE_LEASE_HOLDER' so it is not offered again; reconcile whichever record is wrong (bin/fm-crew-state.sh $spawn_other_id), then release it with: (cd '$PROJ_ABS' && treehouse return --force --if-lease-holder '$SPAWN_TREEHOUSE_LEASE_HOLDER' '$WT')" >&2
+      spawn_other_where=
+      spawn_other_probe="bin/fm-crew-state.sh $spawn_other_id"
+      if [ "$spawn_state_dir" != "$STATE" ]; then
+        spawn_other_where=" in Firstmate home '${spawn_state_dir%/state}'"
+        spawn_other_probe="FM_HOME='${spawn_state_dir%/state}' bin/fm-crew-state.sh $spawn_other_id"
+      fi
+      echo "error: the pool offered '$WT', which task $spawn_other_id's own record$spawn_other_where still names as its working copy; refusing to launch task $ID into it and reset another worker's work" >&2
+      echo "That copy is now held under '$SPAWN_TREEHOUSE_LEASE_HOLDER' so it is not offered again; reconcile whichever record is wrong ($spawn_other_probe), then release it with: (cd '$PROJ_ABS' && treehouse return --force --if-lease-holder '$SPAWN_TREEHOUSE_LEASE_HOLDER' '$WT')" >&2
       echo "Re-running this spawn is safe: it is given a different copy." >&2
       exit 1
     done

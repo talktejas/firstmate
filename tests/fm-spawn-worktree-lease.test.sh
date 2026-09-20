@@ -200,8 +200,10 @@ test_a_record_in_another_local_home_blocks_a_spawn() {
   out=$(run_lease_spawn "$id" "$LEASE_WT")
   status=$?
   [ "$status" -ne 0 ] || fail "spawn launched into a copy a record in another local home still names"$'\n'"$out"
-  assert_contains "$out" "task other-task-w6's own record still names as its working copy" \
-    "the refusal did not name the task holding the copy"
+  assert_contains "$out" "task other-task-w6's own record in Firstmate home '$parent' still names as its working copy" \
+    "the refusal did not name the task holding the copy, or the home its record lives in"
+  assert_contains "$out" "(FM_HOME='$parent' bin/fm-crew-state.sh other-task-w6)" \
+    "the refusal printed a reconcile command that reads the spawning home instead of the holding one"
   [ ! -e "$LEASE_HOME/state/$id.meta" ] || fail "refused spawn published task metadata"
   log=$(cat "$LEASE_LOG")
   assert_not_contains "$log" "return" \
@@ -221,14 +223,16 @@ test_unreadable_registry_refuses_the_spawn_and_returns_the_claim() {
     id="lease-registry-${shape}-w7"
     make_lease_case "lease-registry-$shape" "$id"
     reg="$LEASE_HOME/data/secondmates.md"
-    repair="Repair that entry in $reg"
     case "$shape" in
       missing-home)
+        repair="Repair $reg (registered local Firstmate home is unavailable: $LEASE_HOME/gone), then re-run this spawn."
         printf -- '- ghost - fixture (home: %s; scope: fixture; projects: sample; added 2026-09-20)\n' \
           "$LEASE_HOME/gone" > "$reg" ;;
       malformed-entry)
+        repair="Repair $reg (malformed local Firstmate registry entry in $reg), then re-run this spawn."
         printf -- '- ghost - fixture (home: %s)\n' "$LEASE_HOME" > "$reg" ;;
       symlinked-registry)
+        repair="Repair $reg (local Firstmate registry is unsafe at $reg), then re-run this spawn."
         printf -- '- ghost - fixture (home: %s; scope: fixture; projects: sample; added 2026-09-20)\n' \
           "$LEASE_HOME" > "$LEASE_HOME/data/registry-elsewhere.md"
         ln -s "$LEASE_HOME/data/registry-elsewhere.md" "$reg" ;;
@@ -241,7 +245,10 @@ test_unreadable_registry_refuses_the_spawn_and_returns_the_claim() {
       "$shape: the refusal was not the spawn's own"
     assert_contains "$out" "cannot be ruled out as the one holding this copy" \
       "$shape: the refusal did not say why an unreadable home blocks the spawn"
-    assert_contains "$out" "$repair" "$shape: the refusal did not name the file to repair"
+    assert_contains "$out" "$repair" \
+      "$shape: the refusal did not name the file to repair and the fault in it"
+    assert_not_contains "$out" "remove the entry if that home is gone" \
+      "$shape: the refusal still prescribes an entry edit for a fault that may not be one"
     [ ! -e "$LEASE_HOME/state/$id.meta" ] || fail "$shape: refused spawn published task metadata"
     log=$(cat "$LEASE_LOG")
     assert_contains "$log" \
@@ -298,7 +305,7 @@ SH
   out=$(run_lease_spawn "$id" "$LEASE_WT")
   status=$?
   [ "$status" -ne 0 ] || fail "spawn launched although the home's root became unresolvable"$'\n'"$out"
-  assert_contains "$out" "Repair that entry in $marker" \
+  assert_contains "$out" "Repair $marker (cannot resolve the root Firstmate home), then re-run this spawn." \
     "the refusal did not name the parent marker as the file to repair"
   assert_contains "$out" "cannot be ruled out as the one holding this copy" \
     "the refusal did not say why an unreadable home blocks the spawn"
