@@ -8,6 +8,7 @@ set -u
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 SCAN="$ROOT/bin/command-center-scan.sh"
+RECORD="$ROOT/bin/fm-captain-message.sh"
 SERVER="$ROOT/bin/command-center.py"
 TMP_ROOT=$(fm_test_tmproot command-center)
 
@@ -802,6 +803,170 @@ $out"
   pass "the page's $out decision rules hold"
 }
 
+# --- what firstmate SAID to him ---------------------------------------------
+# The whole point of the page: firstmate's work records are not a record of the
+# messages it sent him, so bin/fm-captain-message.sh writes them down and the
+# server reads them back.
+say() {  # <home> <title> <text> [extra args...]
+  local home=$1 title=$2 text=$3
+  shift 3
+  FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$RECORD" --title "$title" "$@" "$text"
+}
+
+test_a_message_names_the_project_the_worktree_and_the_branch() {
+  local home row wt
+  home="$TMP_ROOT/record"
+  seed_home "$home"
+  wt="$home/wt"
+  git init -q "$wt"
+  git -C "$wt" checkout -q -b fm/colour
+  printf 'project=/home/captain/p/demo\nworktree=%s\n' "$wt" > "$home/state/cc-live.meta"
+
+  say "$home" "The colour call is ready" "Blue or green?" --task cc-live >/dev/null \
+    || fail "the recorder refused a message"
+  row=$(tail -1 "$home/data/captain-messages.jsonl")
+
+  assert_equals demo "$(jq -r .project <<<"$row")" \
+    "a message recorded against a task did not carry its project"
+  assert_equals "$wt" "$(jq -r .worktree <<<"$row")" \
+    "a message recorded against a task did not carry its worktree"
+  assert_equals fm/colour "$(jq -r .branch <<<"$row")" \
+    "a message recorded against a task did not carry its branch"
+  assert_equals "Blue or green?" "$(jq -r .text <<<"$row")" \
+    "the message text was not recorded"
+  pass "a recorded message names its project, its worktree and its branch"
+}
+
+test_a_field_nothing_knows_is_recorded_as_unknown_not_guessed() {
+  local home row
+  home="$TMP_ROOT/unknown"
+  seed_home "$home"
+  say "$home" "Nothing to do with a project" "A fleet-wide note." >/dev/null \
+    || fail "the recorder refused a message with no task"
+  row=$(tail -1 "$home/data/captain-messages.jsonl")
+  assert_equals null "$(jq -r '.project // "null"' <<<"$row")" \
+    "a project nothing recorded was filled in with a guess"
+  assert_equals null "$(jq -r '.branch // "null"' <<<"$row")" \
+    "a branch nothing recorded was filled in with a guess"
+  pass "a field nothing knows is recorded as unknown rather than guessed"
+}
+
+test_the_recorder_refuses_a_message_with_no_title_or_no_text() {
+  local home
+  home="$TMP_ROOT/refuse"
+  seed_home "$home"
+  ! FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$RECORD" "no title given" 2>/dev/null \
+    || fail "a message with no title was recorded anyway"
+  ! say "$home" "A title" "   " 2>/dev/null \
+    || fail "an empty message was recorded anyway"
+  pass "the recorder refuses a message with no title or no text"
+}
+
+# THE ONE THING THAT DECIDES WHETHER THIS IS DONE. He was away; firstmate spoke
+# several times; he opens the page and every one of them is there, newest first,
+# with nothing dropped and nothing added that he never saw.
+test_every_message_sent_while_he_was_away_comes_back_in_order() {
+  local home port body i titles
+  home="$TMP_ROOT/away"
+  seed_home "$home"
+  for i in 1 2 3 4 5; do
+    say "$home" "Message $i" "Body of message $i" --project demo >/dev/null
+  done
+  start_server "$home" || fail "the server did not start"
+  port=$SERVER_PORT
+  body=$(curl -s -m 30 "http://127.0.0.1:$port/api/messages")
+  stop_server
+
+  assert_equals 5 "$(jq '.messages | length' <<<"$body")" \
+    "a message firstmate sent while he was away did not come back"
+  titles=$(jq -r '[.messages[].title] | join(",")' <<<"$body")
+  assert_equals "Message 5,Message 4,Message 3,Message 2,Message 1" "$titles" \
+    "the messages did not come back newest first, in order"
+  assert_equals "Body of message 3" \
+    "$(jq -r '.messages[] | select(.title == "Message 3") | .text' <<<"$body")" \
+    "a message came back without the text he was meant to read"
+  assert_not_contains "$body" 'cc-live' \
+    "internal bookkeeping he was never sent was served as one of his messages"
+  pass "every message sent while he was away comes back, in order, with nothing else"
+}
+
+test_a_reply_takes_the_answer_route_when_the_task_is_still_waiting() {
+  local home port id body
+  home="$TMP_ROOT/reply-answer"
+  seed_home "$home"
+  id=$(say "$home" "Blue or green?" "The colour call is yours." --task cc-live) \
+    || fail "the recorder refused the message"
+  start_server "$home" || fail "the server did not start"
+  port=$SERVER_PORT
+  body=$(post "$port" /api/reply "$(jq -cn --arg m "$id" '{msg:$m,text:"Go blue."}')")
+  stop_server
+
+  assert_contains "$body" '"outcome":"sent"' "the reply was not delivered"
+  assert_contains "$body" 'fm-captain-hold.sh answer cc-live' \
+    "a reply about a task still waiting did not take the answer route"
+  assert_equals "$id" \
+    "$(jq -r 'select(.text == "Go blue.") | .msg' "$home/data/command-center/said.jsonl")" \
+    "the reply was not recorded against the message it answered"
+  assert_contains "$(cat "$home/data/backlog.md")" 'Go blue.' \
+    "his exact words did not reach the durable record"
+  pass "a reply about a task still waiting is answered through the answer route"
+}
+
+test_a_reply_with_nothing_waiting_is_queued_for_firstmate() {
+  local home port id body
+  home="$TMP_ROOT/reply-note"
+  seed_home "$home"
+  id=$(say "$home" "PR is green" "https://example.invalid/pr/1 is ready to merge.") \
+    || fail "the recorder refused the message"
+  start_server "$home" || fail "the server did not start"
+  port=$SERVER_PORT
+  body=$(post "$port" /api/reply "$(jq -cn --arg m "$id" '{msg:$m,text:"Merge it."}')")
+  stop_server
+
+  assert_contains "$body" '"outcome":"sent"' "the reply was not queued"
+  assert_contains "$body" 'fm-inbox.sh note' \
+    "a reply with nothing waiting on it did not reach firstmate as a note"
+  assert_contains "$(cat "$home"/state/inbox/*.note 2>/dev/null)" 'Merge it.' \
+    "his reply never reached firstmate's own inbox"
+  pass "a reply with nothing waiting on it is queued for firstmate"
+}
+
+test_a_reply_to_a_message_this_home_never_recorded_is_refused() {
+  local home port code
+  home="$TMP_ROOT/reply-unknown"
+  seed_home "$home"
+  say "$home" "Something" "Anything." >/dev/null
+  start_server "$home" || fail "the server did not start"
+  port=$SERVER_PORT
+  code=$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+    -H 'Content-Type: application/json' -d '{"msg":"m-never-written","text":"hi"}' \
+    "http://127.0.0.1:$port/api/reply")
+  stop_server
+  assert_equals 404 "$code" \
+    "a reply naming a message that was never recorded was acted on anyway"
+  pass "a reply names a recorded message or it is refused"
+}
+
+test_an_unreadable_message_log_is_reported_not_shown_as_empty() {
+  local home port body
+  if [ "$(id -u)" = 0 ]; then
+    pass "running as root; the unreadable-message-log case cannot be staged"
+    return
+  fi
+  home="$TMP_ROOT/msgread"
+  seed_home "$home"
+  say "$home" "Something he must not lose" "The whole point of the page." >/dev/null
+  start_server "$home" || fail "the server did not start"
+  port=$SERVER_PORT
+  chmod 000 "$home/data/captain-messages.jsonl"
+  body=$(curl -s -m 30 "http://127.0.0.1:$port/api/messages")
+  chmod 600 "$home/data/captain-messages.jsonl"
+  stop_server
+  assert_contains "$body" 'could not be read' \
+    "an unreadable message log was served as an empty one"
+  pass "an unreadable message log is reported rather than shown as empty"
+}
+
 trap stop_server EXIT
 
 test_only_live_captain_holds_are_carded
@@ -829,3 +994,11 @@ test_the_send_outcome_is_decided_by_the_exit_code_alone
 test_concurrent_polls_produce_one_scan
 test_the_pages_decision_rules_hold
 test_the_server_serves_the_pages_decision_rules
+test_a_message_names_the_project_the_worktree_and_the_branch
+test_a_field_nothing_knows_is_recorded_as_unknown_not_guessed
+test_the_recorder_refuses_a_message_with_no_title_or_no_text
+test_every_message_sent_while_he_was_away_comes_back_in_order
+test_a_reply_takes_the_answer_route_when_the_task_is_still_waiting
+test_a_reply_with_nothing_waiting_is_queued_for_firstmate
+test_a_reply_to_a_message_this_home_never_recorded_is_refused
+test_an_unreadable_message_log_is_reported_not_shown_as_empty

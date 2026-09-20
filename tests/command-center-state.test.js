@@ -7,6 +7,7 @@ const assert = require('assert');
 const path = require('path');
 const {
   pollFacts, tense, transportFailure, verdictFor, releaseVerdicts, itemKey,
+  shapeMessage, orderRows,
 } = require(path.join(__dirname, '..', 'bin', 'command-center-state.js'));
 
 // Quiet on success: tests/command-center.test.sh runs this and reports the
@@ -168,6 +169,47 @@ test('an item is identified by its record as well as its task', () => {
   assert.notStrictEqual(
     itemKey(item({ source: 'hold', key: 't-1' })),
     itemKey(item({ source: 'status', key: 'k' })));
+});
+
+// --- the two lists are in different orders, and both are deliberate -----------
+const msg = (id, at, over) => shapeMessage(Object.assign({ id, at }, over));
+const M = [
+  msg('m1', '2026-09-01T10:00:00Z'),
+  msg('m2', '2026-09-02T10:00:00Z'),
+  msg('m3', '2026-09-03T10:00:00Z'),
+];
+const ids = rows => rows.map(r => r.id).join(',');
+
+test('a message is given the time and branch fields a row is grouped by', () => {
+  const m = shapeMessage({ id: 'm', at: '2026-09-01T10:00:00Z', branch: 'fm/x' });
+  assert.strictEqual(m.since_epoch, Math.floor(Date.parse('2026-09-01T10:00:00Z') / 1000));
+  assert.strictEqual(m.branch_state, 'branch');
+  assert.strictEqual(shapeMessage({ id: 'm', at: '' }).since_epoch, null,
+    'a record with no usable time must not be given one');
+  assert.strictEqual(shapeMessage({ id: 'm', at: '' }).branch_state, 'not-started');
+});
+
+// He opens the page to see the LAST thing firstmate said, while the waiting
+// queue leads with what has waited longest. One rule, two defaults.
+test('messages default to newest first and the waiting queue to oldest first', () => {
+  assert.strictEqual(ids(orderRows(M, 'project', true)), 'm3,m2,m1');
+  assert.strictEqual(ids(orderRows(M, 'project', false)), 'm1,m2,m3');
+});
+
+test('Latest and Oldest override both defaults', () => {
+  assert.strictEqual(ids(orderRows(M, 'oldest', true)), 'm1,m2,m3');
+  assert.strictEqual(ids(orderRows(M, 'latest', false)), 'm3,m2,m1');
+});
+
+test('the flat list claims no order at all', () => {
+  assert.strictEqual(ids(orderRows(M, 'none', true)), 'm1,m2,m3');
+});
+
+test('a row with no usable time is never given a position among the dated', () => {
+  const rows = [msg('m1', '2026-09-01T10:00:00Z'), msg('mx', ''),
+                msg('m2', '2026-09-02T10:00:00Z')];
+  assert.strictEqual(ids(orderRows(rows, 'project', true)), 'm2,m1,mx');
+  assert.strictEqual(ids(orderRows(rows, 'oldest', true)), 'm1,m2,mx');
 });
 
 process.exit(failures ? 1 : 0);

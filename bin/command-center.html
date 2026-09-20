@@ -292,11 +292,12 @@
       <div class="search">
         <span class="mag">⌕</span>
         <input id="q" type="search" autocomplete="off"
-               placeholder="Search everything — items, your words, replies…">
+               placeholder="Search everything — messages, items, your words…">
         <button class="clr" id="clr" hidden>×</button>
       </div>
       <div class="tabs" role="tablist">
-        <button class="tab" role="tab" data-tab="waiting" aria-selected="true">Waiting <span class="n" id="n-waiting"></span></button>
+        <button class="tab" role="tab" data-tab="messages" aria-selected="true">Messages <span class="n" id="n-messages"></span></button>
+        <button class="tab" role="tab" data-tab="waiting" aria-selected="false">Waiting on you <span class="n" id="n-waiting"></span></button>
         <button class="tab" role="tab" data-tab="words" aria-selected="false">My words <span class="n" id="n-words"></span></button>
       </div>
       <div class="groupbar">
@@ -399,8 +400,9 @@ const esc = s => String(s == null ? '' : s)
   .replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
 const state = {
-  tab:'waiting', group:'project', sfilter:'', q:'', homes:new Set(),
-  open:null, view:{homes:[],items:[]}, said:[], etag:null,
+  tab:'messages', group:'project', sfilter:'', q:'', homes:new Set(),
+  open:null, view:{homes:[],items:[]}, said:[], messages:[], msgError:null,
+  msgRead:false, etag:null,
   sending:false, flash:null, error:null, seen:load('cc.seen',{}), draft:load('cc.draft',{}),
   note:load('cc.note',''), outcome:load('cc.outcome',{}), scanned:false, saidError:null,
   offline:null, unread:null, confirmed:false, readAt:null,
@@ -463,10 +465,32 @@ const isDeferred = it => Boolean(it.deferred_until) &&
 // two are answered by different commands, so home+id alone would merge them into
 // one row and one draft. itemKey comes from bin/command-center-state.js.
 const isUnread = it => !state.seen[itemKey(it)];
+// --- what firstmate SAID -----------------------------------------------------
+// bin/fm-captain-message.sh writes one record per message; this page is the
+// only place they are read back. A message carries the same project, worktree
+// and branch fields an item does, so the grouping, the ordering and the search
+// below work over both lists unchanged.
+// shapeMessage and the ordering rule come from bin/command-center-state.js.
+const msgKey = m => 'msg/' + m.id;
+const repliesTo = m => state.said.filter(r => r.msg === m.id);
 const projectOf = it => it.project || 'No project';
 const homeOf = id => state.view.homes.find(h => h.id === id) || {id, name:id};
 const homeColour = id => HOME_COLOURS[
   Math.max(0, state.view.homes.findIndex(h => h.id === id)) % HOME_COLOURS.length];
+
+function msgHaystack(m){
+  return [m.title, m.text, m.project, m.worktree, m.branch, m.task, m.pr,
+          ...repliesTo(m).map(r => r.text)]
+    .filter(Boolean).join(' ').toLowerCase();
+}
+
+function visibleMessages(){
+  const q = state.q.trim().toLowerCase();
+  // The home chips and the state filter both name facts only a scanned ITEM
+  // has, so neither is applied here rather than quietly hiding messages by a
+  // rule that cannot be true of them.
+  return state.messages.filter(m => !q || msgHaystack(m).includes(q));
+}
 
 function haystack(it){
   return [it.title, it.detail, it.project, it.worktree, it.branch, it.repo, it.id,
@@ -512,15 +536,8 @@ function groupOf(it){
              : 'Not started — no branch yet' };
 }
 
-function ordered(rows){
-  if (state.group === 'none') return rows;   // as scanned: the flat list claims no order
-  const dated   = rows.filter(r => r.since_epoch);
-  const undated = rows.filter(r => !r.since_epoch);
-  // Latest first, or oldest first - which is also the default, longest waiting.
-  dated.sort((a,b) => state.group === 'latest' ? b.since_epoch - a.since_epoch
-                                               : a.since_epoch - b.since_epoch);
-  return dated.concat(undated);
-}
+const ordered = (rows, newestDefault) =>
+  orderRows(rows, state.group, newestDefault);
 
 // --- render ------------------------------------------------------------------
 function renderHomes(){
@@ -674,11 +691,13 @@ function renderWords(){
   $('#list').innerHTML = head + note + rows.map(r => {
     const draft = r.kind === 'draft';
     const item = (state.view.items || []).find(i => itemKey(i) === (r.item_key || r.key));
-    const where = item ? esc(item.title)
+    const where = r.msg ? 'Reply to “' + esc(r.title || 'a message') + '”'
+      : item ? esc(item.title)
       : r.kind === 'note' ? 'Note to firstmate — not about one item'
       : esc(r.title || r.item || '—');
     const out = wordOutcome(r);
-    return `<button class="word" data-key="${esc(r.item_key || r.key || '')}">
+    return `<button class="word" data-key="${esc(r.msg ? 'msg/' + r.msg
+      : (r.item_key || r.key || ''))}">
       <span class="word-top">
         <span class="word-when">${esc(draft ? 'unsent' : localTime(r.at))}</span>
         <span class="word-where">${where}</span>
@@ -694,27 +713,52 @@ function renderWords(){
 
 function renderList(){
   const items = state.view.items || [];
+  $('#n-messages').textContent = state.messages.length;
   $('#n-waiting').textContent = items.filter(i => !isDeferred(i)).length;
   $('#n-words').textContent = state.said.length +
     Object.values(state.draft).filter(t => t && t.trim()).length;
   document.querySelectorAll('.tab').forEach(t =>
     t.setAttribute('aria-selected', String(t.dataset.tab === state.tab)));
   $('#clr').hidden = !state.q;
+  // Both of these narrow by facts only a scanned item has.
+  $('#statefilter').disabled = state.tab !== 'waiting';
+  $('#homes').hidden = state.tab !== 'waiting';
   renderHomes(); renderWatcher();
   if (state.tab === 'words'){ renderWords(); return; }
+  if (state.tab === 'messages'){ renderMessages(); return; }
 
   const rows = ordered(visible());
+  const empty = state.q || state.sfilter ? 'Nothing matches.'
+    : !state.scanned ? 'The records have not been read yet.'
+    : 'Nothing is waiting on you.<br>Firstmate is getting on with it.';
+  $('#list').innerHTML = rowsHtml(rows, itemRow, empty);
+}
+
+// Messages are the default list and the reason this page exists: everything
+// firstmate said to him, newest first, none of it dropped. The log arrives
+// newest first (bin/command-center.py), so the grouped views are newest first
+// without sorting anything; Latest and Oldest order explicitly as before.
+function renderMessages(){
+  const rows = ordered(visibleMessages().map(shapeMessage), true);
+  const note = state.msgError
+    ? `<div class="archive-note" style="background:var(--warn-soft)"><b>What firstmate
+       said to you could not be read.</b> ${esc(state.msgError)} This is not the whole
+       of it.</div>` : '';
+  const empty = state.q ? 'Nothing matches.'
+    : state.msgError ? 'The record could not be read.'
+    : !state.msgRead ? 'The record has not been read yet.'
+    : 'Firstmate has not said anything to you yet.';
+  $('#list').innerHTML = note + rowsHtml(rows, messageRow, empty);
+}
+
+// One list renderer for both, so the grouping, the flat views and the
+// no-recorded-time tail cannot drift apart between them.
+function rowsHtml(rows, rowFn, emptyText){
   let head = '';
-  if (state.q || state.sfilter)
+  if (state.q || (state.sfilter && state.tab === 'waiting'))
     head = `<div class="hits">${rows.length} match${rows.length === 1 ? '' : 'es'}${
-      state.q ? ` for “${esc(state.q)}”` : ''}</div>`;
-  if (!rows.length){
-    $('#list').innerHTML = head + `<div class="empty">${
-      state.q || state.sfilter ? 'Nothing matches.'
-        : !state.scanned ? 'The records have not been read yet.'
-        : 'Nothing is waiting on you.<br>Firstmate is getting on with it.'}</div>`;
-    return;
-  }
+      state.q ? ` for \u201c${esc(state.q)}\u201d` : ''}</div>`;
+  if (!rows.length) return head + `<div class="empty">${emptyText}</div>`;
   if (FLAT.has(state.group)){
     const undatedCount = rows.filter(r => !r.since_epoch).length;
     // The flat list makes no ordering claim, so it owes no note about the rows
@@ -722,8 +766,7 @@ function renderList(){
     const note = (undatedCount && state.group !== 'none')
       ? `<div class="hits">${undatedCount} row${undatedCount === 1 ? '' : 's'} carry no
          recorded time and cannot be ordered — they follow at the end.</div>` : '';
-    $('#list').innerHTML = head + note + rows.map(itemRow).join('');
-    return;
+    return head + note + rows.map(rowFn).join('');
   }
   const buckets = new Map();
   for (const it of rows){
@@ -737,11 +780,35 @@ function renderList(){
       : g.none ? `<div class="g2 none">${esc(g.noneLabel)}</div>`
                : `<div class="g2">${esc(g.g2)}</div>`;
     html += `<div class="grp"><div class="g1">
-      <span class="dot" style="background:${homeColour(bucket[0].home)}"></span>${esc(g.g1)}
+      <span class="dot" style="background:${homeColour(bucket[0].home || 'main')}"></span>${esc(g.g1)}
       <span class="cnt">${bucket.length}</span></div>${sub}</div>` +
-      bucket.map(itemRow).join('');
+      bucket.map(rowFn).join('');
   }
-  $('#list').innerHTML = html;
+  return html;
+}
+
+// His standing rule: every row names the project, the worktree and the branch.
+// A field the record does not carry says so; none of the three is ever guessed.
+function messageRow(m){
+  const replied = repliesTo(m).length;
+  const where = [
+    m.project || 'no project',
+    m.worktree ? m.worktree.replace(/^.*\//, '') : 'no worktree',
+    m.branch || 'no branch',
+  ];
+  return `<button class="item ${state.seen[msgKey(m)] ? 'answered' : ''}"
+      data-key="${esc(msgKey(m))}" aria-current="${state.open === msgKey(m)}">
+    <span class="item-top">
+      <span class="item-title">${esc(m.title)}</span>
+      ${replied ? '<span class="flag f-sent">replied</span>' : ''}
+      <span class="age" title="from the time firstmate sent it">${ageLabel(m)}</span>
+    </span>
+    <span class="item-sub" title="${esc([m.project || 'no project',
+        m.worktree || 'no worktree', m.branch || 'no branch'].join(' · '))}">
+      ${where.map((w, i) => (i ? '<span class="sep">·</span>' : '') +
+        `<span class="${i ? 'mono' : ''}">${esc(w)}</span>`).join('')}
+    </span>
+  </button>`;
 }
 
 function trackHtml(m){
@@ -778,13 +845,72 @@ function threadHtml(it){
   }).join('') + '</div>';
 }
 
+// A message is a conversation: what firstmate said, then what he said back,
+// then the box he says the next thing in. The reply goes to the same place his
+// answer would have gone if he had been at the terminal - to the worker still
+// waiting on that task, or to firstmate itself - and the server decides which
+// from the message's own record.
+function renderMessagePane(m){
+  const key = msgKey(m);
+  const draft = state.draft[key] || '';
+  const replies = repliesTo(m).slice().reverse();   // the log is newest first
+  const cell = (label, value, na) =>
+    `<div><dt>${label}</dt><dd class="${value ? '' : 'na'}">${esc(value || na)}</dd></div>`;
+  const para = t => esc(t || '').split(/\n{2,}/)
+    .map(x => `<p>${x.replace(/\n/g, '<br>')}</p>`).join('');
+  const thread = replies.map(r => `<div class="msg you">
+      <div class="msg-who">You<span class="t">${esc(localTime(r.at))}</span></div>
+      <div class="msg-text">${esc(r.text)}</div>
+      <div class="proof">${wordOutcome(r)}</div>
+    </div>`).join('');
+  $('#main').innerHTML = `<div class="main-inner">
+    <div class="crumbs">
+      <span class="kind k-decision">firstmate said</span>
+      <span class="sep">·</span><span>${esc(localTime(m.at))}</span>
+      ${m.task ? `<span class="sep">·</span><span class="mono">${esc(m.task)}</span>` : ''}
+    </div>
+    <h2 class="subject">${esc(m.title)}</h2>
+    <div class="where">
+      ${cell('Project', m.project, 'Not recorded')}
+      ${cell('Worktree', m.worktree, 'Not recorded')}
+      ${cell('Branch', m.branch, 'Not recorded')}
+    </div>
+    <div class="body">${para(m.text) || '<p class="quiet">No text recorded.</p>'}</div>
+    ${m.pr ? `<div class="hits"><a href="${esc(m.pr)}">${esc(m.pr)}</a></div>` : ''}
+    ${thread ? `<div class="thread"><h3>What you said back</h3>${thread}</div>` : ''}
+    <div class="reply">
+      <label for="reply">Your reply — in your own words</label>
+      <textarea id="reply" placeholder="Type here…">${esc(draft)}</textarea>
+      <div class="reply-foot">
+        <button class="send" id="sendreply" ${
+          draft.trim() && !state.sending ? '' : 'disabled'}>${
+          state.sending ? 'Sending…' : 'Reply to firstmate'}</button>
+        ${draft.trim() ? '<span class="draft-flag">Draft kept</span>' : ''}
+        <span class="send-note" id="sendnote">Goes to the worker still waiting on this
+          task, or to firstmate itself when nothing is.</span>
+      </div>
+    </div>
+  </div>`;
+  const ta = $('#reply');
+  ta.addEventListener('input', () => {
+    state.draft[key] = ta.value;
+    save('cc.draft', state.draft);
+    $('#sendreply').disabled = !ta.value.trim() || state.sending;
+    renderList();
+  });
+}
+
 function renderMain(){
+  if (String(state.open || '').startsWith('msg/')){
+    const m = state.messages.find(x => msgKey(x) === state.open);
+    if (m){ renderMessagePane(m); return; }
+  }
   const it = (state.view.items || []).find(i => itemKey(i) === state.open);
   if (!it){
     $('#main').innerHTML = `<div class="blank"><strong>Pick something on the left.</strong>
-      <span>Everything firstmate is waiting on you for, from every project, in one list.<br>
-      New items appear on their own — you never reload, and you never get a new link.<br>
-      Search finds anything you remember, including your own words.</span></div>`;
+      <span>Everything firstmate has said to you, newest first, with a box to reply in.<br>
+      <b>Waiting on you</b> is the queue it is still holding — questions and stopped workers.<br>
+      New things appear on their own — you never reload, and you never get a new link.</span></div>`;
     return;
   }
   const L = LISTEN[it.listen] || LISTEN.unknown;
@@ -917,6 +1043,27 @@ async function poll(){
   }
 }
 
+// The message log is read on its own, not through /api/items: what firstmate
+// said to him is still readable when the scan of the work records is not, and
+// the page must not go blank about it because a backlog could not be parsed.
+async function loadMessages(){
+  try {
+    const res = await fetch('/api/messages');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const body = await res.json();
+    const rows = body.messages || [];
+    const before = state.messages.length + '/' + (state.messages[0] || {}).id;
+    state.messages = rows;
+    state.msgError = body.error || null;
+    state.msgRead = true;
+    return before !== rows.length + '/' + (rows[0] || {}).id;
+  } catch (e) {
+    // Reachability already has its own band from the item poll; this only
+    // declines to claim the list is complete.
+    return false;
+  }
+}
+
 async function loadSaid(){
   try {
     const res = await fetch('/api/said');
@@ -985,6 +1132,45 @@ async function sendAnswer(){
   render();
 }
 
+async function sendReply(){
+  const m = state.messages.find(x => msgKey(x) === state.open);
+  if (!m) return;
+  const key = msgKey(m);
+  const text = (state.draft[key] || '').trim();
+  if (!text || state.sending) return;
+  state.sending = true; renderMain();
+  let ok = false, data = {};
+  try {
+    ({ ok, data } = await post('/api/reply', { msg: m.id, text }));
+  } catch (err) {
+    // The request never came back, so delivery is genuinely unknown: the steer
+    // may already sit on the worker's inbox and the note may already be saved.
+    // His words stay in the box either way - retyping them is how he sends the
+    // same thing twice, and clearing them is the loss this page exists to end.
+    data = { outcome:'unknown', detail:String(err.message || err) };
+  } finally {
+    state.sending = false;
+  }
+  await loadSaid();
+  if (ok && data.ok){
+    delete state.draft[key]; save('cc.draft', state.draft);
+    state.etag = null;
+    await poll();
+  }
+  render();
+  const note = $('#sendnote');
+  if (!note) return;
+  if (ok && data.ok)
+    note.innerHTML = 'Delivered through ' + esc(data.route) + '.';
+  else if (data.outcome === 'unknown')
+    note.innerHTML = `<b>Delivery could not be confirmed.</b> ${esc(data.detail || '')}
+      — it may already have arrived, so check before sending it again. Your words
+      are still here.`;
+  else
+    note.innerHTML = `<b style="color:var(--hot)">Not sent.</b> ${
+      esc(data.error || data.detail || 'the command failed')} — your words are still here.`;
+}
+
 // --- events ------------------------------------------------------------------
 document.addEventListener('click', async e => {
   const tab = e.target.closest('.tab');
@@ -998,6 +1184,7 @@ document.addEventListener('click', async e => {
   const row = e.target.closest('.item, .word');
   if (row){ if (row.dataset.key) open(row.dataset.key); return; }
   if (e.target.id === 'send'){ await sendAnswer(); return; }
+  if (e.target.id === 'sendreply'){ await sendReply(); return; }
   if (e.target.id === 'defer'){ state.open = null; render(); return; }
   if (e.target.id === 'sendanyway'){
     delete state.outcome[state.open]; save('cc.outcome', state.outcome);
@@ -1050,8 +1237,11 @@ $('#note-dlg').addEventListener('close', async function(){
   await loadSaid(); render();
 });
 
-loadSaid().then(poll);
+Promise.all([loadSaid(), loadMessages()]).then(poll);
 setInterval(poll, POLL_MS);
+// The message log is a local file read, so it is polled on the same cadence and
+// re-rendered only when a message actually arrived.
+setInterval(async () => { if (await loadMessages()) render(); }, POLL_MS);
 setInterval(renderList, 30000);   // keep the ages and stuck flags honest
 </script>
 </body>

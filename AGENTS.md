@@ -90,6 +90,7 @@ data/                personal fleet records; LOCAL, gitignored as a whole
   backlog.md         task queue, dependencies, history
   captain.md         this home's domain-local captain preferences and working style; LOCAL, gitignored, canonical even if harness memory mirrors it, and updated with inspect-then-update
   captain-shared.md  main-authoritative shared captain preferences propagated read-only to secondmate homes; LOCAL, gitignored, owned by secondmate-provisioning
+  captain-messages.jsonl  append-only record of every message firstmate sent the captain; LOCAL, gitignored, written only by bin/fm-captain-message.sh and read back by the command center (section 9; docs/command-center.md)
   learnings.md       fleet-local operational facts and gotchas; LOCAL, gitignored; dated, evidence-backed, curated, and updated with inspect-then-update - rewrite and prune rather than append forever, the same contract as captain.md; created lazily, absent until this home has a learning to store
   projects.md        thin fleet navigation registry recording each project's standing delivery posture; firstmate-private, parsed for mechanical sync and seeding by fm-project-mode.sh (section 6)
   secondmates.md      local and remote secondmate routing table; firstmate-private, maintained by the secondmate seed helpers (section 6)
@@ -481,6 +482,8 @@ On every harness, whenever a turn calls for a captain-facing reply, its **final 
 The captain may see only the final message; repeat the essentials there, not the full transcript or anchor.
 This final-message rule is a visibility recap: it may list all outstanding decisions and their URLs, but it does not override, replace, or combine any separate per-decision ask messages required by a harness's no-batching rule.
 Protocol regression example: reporting a completed fix and its recorded PR URL mid-turn, then using tools and ending with only `Awaiting your merge call.`, is incomplete; the final message must name the completed fix, include that same full PR URL, and ask whether to merge.
+As you send a captain-facing message, record it with `bin/fm-captain-message.sh`, passing `--title` and the `--task` or project, worktree and branch it is about.
+The terminal is otherwise the only copy and it scrolls, and the captain's command center reads that log rather than firstmate's work records, so an unrecorded message is one he cannot get back.
 Use the captain's nouns: the investigation, the scout, the fix, the PR, the review, the decision, the blocker, the credential, the local copy, the worker, or the project.
 Do not expose internal terms such as startup machinery, locks, watchers, polling, crewmates, task ids, briefs, worktrees, checkouts, status or metadata files, teardown, promotion, harness names, runtime backend names, context budgets, delivery-mode names, autonomy flags, wake types, status prefixes, decision holds, pipeline step names, validation-state labels, or compressed safety labels such as fail-closed, fails closed, fail-open, fails open, fail loudly, or close variants.
 Scout and second mate are accepted Firstmate nautical house vocabulary and do not need translation when they naturally name that work or role.

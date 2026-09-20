@@ -22,15 +22,24 @@
 # a forgotten tab leaks. The change check is a stat sweep costing ~30ms, so the
 # expensive scan runs once per actual change however many tabs are open.
 #
-# IT STORES ONE THING. Firstmate already keeps the questions and the answers
-# that close a decision, so copying those here would create a second truth that
-# can drift. What firstmate does NOT keep is the captain's own words in three
-# cases: a steer to a worker is deleted with the task's steering inbox at
-# teardown (bin/fm-teardown.sh), an unsent draft never existed, and terminal
-# text is only scrollback. So this appends every word he sends to one
-# append-only log, <home>/data/command-center/said.jsonl, and stores nothing
-# else. Drafts and read state stay in the browser, because they are his and
-# this runs on his machine.
+# IT STORES TWO THINGS, AND ONLY BECAUSE NOTHING ELSE DOES.
+#
+# data/captain-messages.jsonl is what firstmate SAID to the captain, appended by
+# bin/fm-captain-message.sh as firstmate says it. The terminal was the only
+# other copy and a terminal scrolls, so the page's default list is that log: it
+# is the whole point of this surface, and firstmate's own work records are not
+# a substitute for it.
+#
+# data/command-center/said.jsonl is what HE said back. Firstmate already keeps
+# the questions and the answers that close a decision, so copying those here
+# would create a second truth that can drift. What firstmate does NOT keep is
+# the captain's own words in three cases: a steer to a worker is deleted with
+# the task's steering inbox at teardown (bin/fm-teardown.sh), an unsent draft
+# never existed, and terminal text is only scrollback. So this appends every
+# word he sends to that log, and stores nothing else.
+#
+# Drafts and read state stay in the browser, because they are his and this runs
+# on his machine.
 #
 # TRUST BOUNDARY. It binds loopback only and runs firstmate's own scripts with
 # the captain's authority, which is the point of it; it is not an authenticated
@@ -171,6 +180,24 @@ class Records:
                 return home["path"]
         return None
 
+    def waiting_task(self, task_id):
+        """The scanned item for a task, or None when nothing is waiting on it.
+
+        A message names a task; whether that task is still stopped on a decision
+        is the scan's answer, not the browser's. A task waiting twice at once
+        resolves to its status record, which is the one a worker is sitting on.
+        """
+        if not task_id or not ID_RE.match(task_id):
+            return None
+        found = None
+        for it in self.view().get("items", []):
+            if it["id"] != task_id:
+                continue
+            if it["source"] == "status":
+                return it
+            found = found or it
+        return found
+
     def item(self, home_id, task_id, source, key):
         # A task can be waiting twice at once - captain-held AND stopped on its
         # own status record - and the two are answered by different commands, so
@@ -185,6 +212,11 @@ class Records:
 def item_key(item):
     """The identity the page uses too (itemKey in bin/command-center.html)."""
     return "/".join([item["home"], item["source"], item["id"], item.get("key") or ""])
+
+
+def message_log(home):
+    """What firstmate said to him. bin/fm-captain-message.sh is its only writer."""
+    return os.path.join(home, "data", "captain-messages.jsonl")
 
 
 def said_log(home):
@@ -213,11 +245,13 @@ def record_said(home, entry):
         sys.stderr.write(f"command-center: could not write {path}: {exc}\n")
 
 
-def read_said(home, limit=500):
-    """Returns (rows, error). A log that is not there yet is honestly empty; one
-    that cannot be READ is a different state, and reporting it as empty would
-    tell the captain he has never typed anything."""
-    path = said_log(home)
+def read_log(path, limit=500):
+    """Returns (rows, error), newest first.
+
+    A log that is not there yet is honestly empty; one that cannot be READ is a
+    different state, and reporting it as empty would tell the captain he has
+    never typed anything - or that firstmate never said anything to him.
+    """
     rows = []
     try:
         with open(path, encoding="utf-8") as fh:
@@ -234,6 +268,29 @@ def read_said(home, limit=500):
     except OSError as exc:
         return [], f"the record could not be read: {exc}"
     return rows[-limit:][::-1], None
+
+
+def read_said(home, limit=500):
+    return read_log(said_log(home), limit)
+
+
+def read_messages(home, limit=500):
+    return read_log(message_log(home), limit)
+
+
+def find_message(home, msg_id):
+    """The message a reply names, read back from the log rather than trusted.
+
+    The whole log is read because the reply is rare and the log is one line per
+    message; a reply to a message this home never recorded is refused.
+    """
+    rows, error = read_messages(home, limit=10 ** 6)
+    if error:
+        return None, error
+    for row in rows:
+        if row.get("id") == msg_id:
+            return row, None
+    return None, None
 
 
 def send_answer(home_path, item, text):
@@ -456,6 +513,11 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, dump(view), etag=etag)
             return
 
+        if path == "/api/messages":
+            rows, error = read_messages(self.records.home)
+            self._json(200, {"messages": rows, "error": error})
+            return
+
         if path == "/api/said":
             rows, error = read_said(self.records.home)
             self._json(200, {"said": rows, "error": error})
@@ -492,6 +554,51 @@ class Handler(BaseHTTPRequestHandler):
                 "at": utc_now(), "kind": "note", "home": "main",
                 "text": text, "route": route, "outcome": outcome, "detail": detail,
             })
+            self._json(200 if ok else 502,
+                       {"ok": ok, "outcome": outcome, "route": route,
+                        "detail": detail})
+            return
+
+        if path == "/api/reply":
+            # A reply to something firstmate SAID. Where it goes is decided by
+            # the recorded message, never by the browser: if it named a task
+            # that is still waiting on him, the reply is that answer and takes
+            # the answer route unchanged; otherwise it is a note, because a
+            # reply with nowhere to be delivered is still his words and still
+            # has to reach firstmate.
+            msg_id = payload.get("msg")
+            if not isinstance(msg_id, str) or not ID_RE.match(msg_id):
+                self._json(400, {"ok": False, "error": "unknown message"})
+                return
+            message, log_error = find_message(self.records.home, msg_id)
+            if log_error is not None:
+                self._json(503, {"ok": False, "error": log_error})
+                return
+            if message is None:
+                self._json(404, {"ok": False, "error": "no such message"})
+                return
+            self.records.refresh(min_interval=0)
+            item = self.records.waiting_task(message.get("task"))
+            home_path = self.records.home_path(item["home"]) if item else None
+            if item and home_path:
+                outcome, route, detail, mode = send_answer(home_path, item, text)
+                said = {"kind": "answer", "home": item["home"], "item": item["id"],
+                        "source": item["source"], "key": item.get("key"),
+                        "item_key": item_key(item), "title": item.get("title"),
+                        "mode": mode}
+                if outcome != "failed":
+                    self.records.invalidate()
+            else:
+                try:
+                    outcome, route, detail = send_note(self.records.home, text)
+                except subprocess.SubprocessError as exc:
+                    outcome, route, detail = "unknown", "fm-inbox.sh note", str(exc)
+                said = {"kind": "note", "home": "main",
+                        "title": message.get("title")}
+            ok = outcome == "sent"
+            record_said(self.records.home, dict(
+                said, at=utc_now(), msg=msg_id, text=text,
+                route=route, outcome=outcome, detail=detail))
             self._json(200 if ok else 502,
                        {"ok": ok, "outcome": outcome, "route": route,
                         "detail": detail})

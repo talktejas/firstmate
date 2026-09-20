@@ -1,7 +1,8 @@
 # Command center
 
-One permanent page showing everything firstmate is waiting on you for, across every local home, with your answer going straight back.
-It is a view over firstmate's own records, not a second place where work lives.
+One permanent page showing everything firstmate has said to you, newest first, with a box to reply in, and beside it everything it is still waiting on you for across every local home.
+Its default list is the conversation, because the terminal was the only other copy of it and a terminal scrolls.
+Everything else on it is a view over firstmate's own records, not a second place where work lives.
 
 ## Start it
 
@@ -32,18 +33,32 @@ Re-run `--install-unit` after changing it, then `systemctl --user daemon-reload 
 
 ## What it shows
 
-The left list is everything waiting on you, from two kinds of durable record:
+The left list has three tabs.
+
+**Messages** is the default and is what firstmate said to you: one row per message, newest first, each with its title, its time, and its project, worktree and branch.
+Click one and the whole message opens with a box to reply in.
+A reply goes where your answer would have gone had you been at the terminal: to the worker still waiting on that task if there is one, and to firstmate itself if there is not.
+Your replies appear under the message, so the exchange reads as a conversation.
+
+Firstmate writes each of these as it sends it, with `bin/fm-captain-message.sh`; nothing captures terminal output, so a message firstmate did not record is one this page cannot show.
+That obligation is `AGENTS.md` section 9.
+
+**Waiting on you** is the queue firstmate is still holding, from two kinds of durable record:
 
 - A **captain hold** on a backlog task, in any local home: a question filed for you.
 - An **open status decision**: a worker that stopped on `needs-decision` or `blocked` and is waiting.
   These never appear as held tasks, which is why a surface built on holds alone cannot reach them.
 
-Every row carries its project, its worktree and its branch.
-`Group by` arranges the list by project, project and worktree, or project and branch. `Latest first` and `Oldest first` drop the grouping for one flat list in time order, and `Nothing — one flat list` drops it for one list in the order the scan read the records, making no ordering claim at all.
+**My words** is everything you have typed here and where it went.
 
-Beside it, `Filter by state` narrows the list to what is stuck, sent but not acted on, or has nobody listening. Its default view leaves out rows firstmate has already deferred to a date still in the future — they are waiting, but not on you today — and `Deferred` is the one view that shows them.
+Every row on every tab carries its project, its worktree and its branch.
+`Group by` arranges the list by project, project and worktree, or project and branch. `Latest first` and `Oldest first` drop the grouping for one flat list in time order, and `Nothing — one flat list` drops it for one list in the order the records were read, making no ordering claim at all.
 
-In the two time-ordered views, rows whose records carry no usable time are never given a guessed position: they follow the dated rows and the list says how many there are. The unsorted flat list orders nothing, so it says nothing about them either.
+The messages lead with the last thing firstmate said and the waiting queue with what has waited longest; `Latest first` and `Oldest first` override both.
+
+Beside it, `Filter by state` narrows the waiting list to what is stuck, sent but not acted on, or has nobody listening. Its default view leaves out rows firstmate has already deferred to a date still in the future — they are waiting, but not on you today — and `Deferred` is the one view that shows them.
+
+In every ordered view, rows whose records carry no usable time are never given a guessed position: they follow the dated rows and the list says how many there are. The unsorted flat list orders nothing, so it says nothing about them either.
 
 ## What it can and cannot prove
 
@@ -62,7 +77,7 @@ The doorbell ring that `fm-send.sh` types into a pane is best effort and is neve
 The lamp beside each row is `bin/fm-busy-lib.sh`'s classification of whether anyone is listening: **working**, **waiting**, **cannot tell**, **not running**, or **no worker** for a question firstmate itself owns.
 A missing or stale signal classifies as *cannot tell* and is never shown as healthy.
 
-A message that has not been picked up is called stuck after 270 seconds, the page's own threshold, chosen to match firstmate's retry ladder: `FM_TASK_INBOX_GRACE_SECS` (default 90) between rings times `FM_TASK_INBOX_RING_MAX` (default 3) rings.
+Something you sent a worker that has not been picked up is called stuck after 270 seconds, the page's own threshold, chosen to match firstmate's retry ladder: `FM_TASK_INBOX_GRACE_SECS` (default 90) between rings times `FM_TASK_INBOX_RING_MAX` (default 3) rings.
 Nothing serves that environment to the browser, so setting either variable changes firstmate's ringing and not this page; to keep the two in step, edit `GRACE_SECS` and `RING_MAX` in `bin/command-center.html` as well.
 
 Above the list, every notice that applies is shown as its own band, because two independent facts never share one slot and none of them pushes another off the screen: whatever has gone wrong between the page and the records, a backlog whose holds are hidden, the homes firstmate is not watching, and the homes it is — each named, each with its own last beat from `state/.last-watcher-beat`.
@@ -86,12 +101,24 @@ The server reuses those commands rather than writing records itself, so every gu
 Every answer settles the decision it was sent about; the only difference between the two held rows is whether settling it closes the task or lets the work go on.
 A held row that records no kind at all cannot be told apart, so the command center refuses the send and says so rather than risk marking unstarted work complete — answer that one with `fm-captain-hold.sh`, which can see the task itself.
 
+## Where your reply to a message goes
+
+| The message named | It runs |
+|---|---|
+| a task still waiting on you | whatever that row would have run under **Where your answer goes** above, unchanged |
+| a task that is no longer waiting, or no task at all | `bin/fm-inbox.sh note`, queued for firstmate's next turn |
+
+The server decides which from the recorded message and the current scan, never from the browser.
+A reply naming a message this home never recorded is refused.
+
 ## What it stores
 
-One file: `<home>/data/command-center/said.jsonl`, an append-only log of what you typed and where it went, with the outcome of the send, read from the exit code of the command that ran and nothing else: **sent**, **failed** (a captain hold refused the record and nothing left this machine — answering it again is safe, and `fm-captain-hold.sh` documents an exact retry as idempotent), or **unknown** (the command reported neither, so the page never guesses which: the page reads only a confirmed `fm-send.sh` exit as sent, and every other exit is unknown to it — including the one that says the answer was delivered but its decision close failed, which the page does not yet report as a state of its own; and `fm-inbox.sh` saves a note before it wakes firstmate, so its failure may mean only that the wake did not land).
+`<home>/data/captain-messages.jsonl`, an append-only log of what firstmate said to you: when, the title, the text, and the project, worktree, branch, task and PR it named, each recorded as unknown rather than guessed when nothing knows it.
+`bin/fm-captain-message.sh` is its only writer, and `--task` fills the project, worktree and branch from that task's own record so all three are one flag rather than three chances to leave one out.
+`<home>/data/command-center/said.jsonl`, an append-only log of what you typed and where it went, with the outcome of the send, read from the exit code of the command that ran and nothing else: **sent**, **failed** (a captain hold refused the record and nothing left this machine — answering it again is safe, and `fm-captain-hold.sh` documents an exact retry as idempotent), or **unknown** (the command reported neither, so the page never guesses which: the page reads only a confirmed `fm-send.sh` exit as sent, and every other exit is unknown to it — including the one that says the answer was delivered but its decision close failed, which the page does not yet report as a state of its own; and `fm-inbox.sh` saves a note before it wakes firstmate, so its failure may mean only that the wake did not land).
 On **unknown** the page keeps your text, says plainly that delivery could not be confirmed, and does not offer Send again until the steering record appears — or until you say so yourself, knowing it may be a second copy. On any other non-success it keeps your text too, so nothing you typed is cleared by a send that did not land.
 
-An open item shows one line derived from this record: the last thing you sent about it and what became of it.
+An open item shows one line derived from this record: the last thing you sent about it and what became of it, and a message shows every reply you sent to it.
 
 If that log cannot be written the send is unaffected — firstmate's own records already hold a delivered answer and a queued note — so the server reports it on its own output and the page says nothing it cannot support.
 
@@ -118,5 +145,6 @@ A home whose holds are hidden from the page — one on a non-markdown backlog ba
 
 ## Reading it without the page
 
-`bin/command-center-scan.sh` prints the same view as JSON, and `--fingerprint` prints only the change check.
+`bin/command-center-scan.sh` prints the waiting view as JSON, and `--fingerprint` prints only the change check.
+`<home>/data/captain-messages.jsonl` is one JSON object per message and needs nothing to read it.
 Both honour `FM_HOME`.

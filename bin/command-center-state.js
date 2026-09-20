@@ -1,12 +1,13 @@
 // command-center-state.js - the command center's decision rules, as pure
 // functions of state.
 //
-// These four are here, and only these four, because they are the ones that got
-// the rules wrong twice: what a poll's answer means for the view on screen,
-// whether a band may speak in the present, what a dropped send means on each
-// route, and when a do-not-resend verdict is set and released. They touch no
-// DOM and no network, so tests/command-center-state.test.js can execute the
-// real rules rather than a restatement of them.
+// What is here is what got the rules wrong, or what a wrong rule would cost him
+// silently: what a poll's answer means for the view on screen, whether a band
+// may speak in the present, what a dropped send means on each route, when a
+// do-not-resend verdict is set and released, and the order each of the two
+// lists is in. They touch no DOM and no network, so
+// tests/command-center-state.test.js can execute the real rules rather than a
+// restatement of them.
 //
 // The page loads this before its own script (bin/command-center.html) and
 // bin/command-center.py serves it beside the page.
@@ -90,6 +91,34 @@ function releaseVerdicts(verdicts, view) {
   return kept;
 }
 
+// --- what a message is, and what order a list is in -----------------------------
+// A recorded message (bin/fm-captain-message.sh) is given the same time and
+// branch fields a scanned item has, so one grouping and one ordering serve both
+// lists rather than two that can drift apart.
+function shapeMessage(m) {
+  const at = Date.parse(m.at || '');
+  return Object.assign({}, m, {
+    since_epoch: isNaN(at) ? null : Math.floor(at / 1000),
+    since_kind: isNaN(at) ? 'none' : 'created',
+    branch_state: m.branch ? 'branch' : 'not-started',
+  });
+}
+
+// `newestDefault` is what an UNSORTED view means for each list, and the two
+// differ honestly: the waiting queue leads with what has waited longest, while
+// the messages lead with the last thing firstmate said. Latest and Oldest are
+// explicit choices and override both. A row with no usable time is never given
+// a position among the dated ones: it follows them, and the page says why.
+function orderRows(rows, group, newestDefault) {
+  if (group === 'none') return rows;   // as read: the flat list claims no order
+  const dated = rows.filter(r => r.since_epoch);
+  const undated = rows.filter(r => !r.since_epoch);
+  const newest = group === 'latest' || (newestDefault && group !== 'oldest');
+  dated.sort((a, b) => newest ? b.since_epoch - a.since_epoch
+                              : a.since_epoch - b.since_epoch);
+  return dated.concat(undated);
+}
+
 // The identity the server uses too (item_key in bin/command-center.py).
 function itemKey(it) {
   return [it.home, it.source, it.id, it.key || ''].join('/');
@@ -97,4 +126,4 @@ function itemKey(it) {
 
 if (typeof module === 'object' && module.exports)
   module.exports = { pollFacts, tense, transportFailure, verdictFor,
-                     releaseVerdicts, itemKey };
+                     releaseVerdicts, itemKey, shapeMessage, orderRows };
