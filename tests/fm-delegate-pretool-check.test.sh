@@ -286,6 +286,10 @@ test_project_runtime_verbs_are_refused_without_a_path() {
     --tool Bash --command "curl -s http://127.0.0.1:8765/state"
   expect_allow "lavish on the home's own port" \
     --tool Bash --command "curl -s http://localhost:4387/session/abc"
+  expect_deny "a loopback request carrying userinfo" \
+    --tool Bash --command "curl -s http://admin:secret@localhost:15672/api/overview"
+  expect_deny "a loopback address carrying a bare username" \
+    --tool Bash --command "curl -s http://user@127.0.0.1:3000/health"
   expect_deny "a home port appearing in the path is not the port" \
     --tool Bash --command "curl -s http://127.0.0.1:3000/files/a@8765/b"
   expect_deny "a home port appearing in the query is not the port" \

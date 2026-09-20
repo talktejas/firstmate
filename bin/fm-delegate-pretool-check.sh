@@ -575,11 +575,12 @@ if [ "$KIND" = command ]; then
         fi
         LEAD=${RAW##*/}
       fi
-      case "$RAW" in
-        *://localhost*|*://127.*|*://0.0.0.0*|*://\[::1\]*|localhost:[0-9]*|127.0.0.1:[0-9]*)
-          PORT=${RAW#*://}
-          PORT=${PORT%%[/?#]*}
-          PORT=${PORT##*:}
+      AUTH=${RAW#*://}
+      AUTH=${AUTH%%[/?#]*}
+      AUTH=${AUTH##*@}
+      case "$AUTH" in
+        localhost|localhost:*|127.*|0.0.0.0|0.0.0.0:*|\[::1\]|\[::1\]:*)
+          PORT=${AUTH##*:}
           PORT=${PORT%%[!0-9]*}
           case "$HOME_SERVICE_PORTS" in
             *" $PORT "*) ;;
