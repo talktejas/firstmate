@@ -1619,7 +1619,7 @@ reconcile_note() {
 
 command_complete() {
   local origin=${1:-} meta previous='' supplied='' keys='' entry key status_file open has_meta=0 transfer_rc resolved
-  local resolved_how attested_by_prefix='' dropped_unresolved='' resolve_rc retained='' drop_err reason
+  local resolved_how attested_by_prefix='' dropped_unresolved='' resolve_rc retained='' drop_err reason probe_rc
   [ "$#" -ge 2 ] || { usage >&2; exit 2; }
   validate_slug origin-id "$origin"
   shift
@@ -1673,11 +1673,20 @@ EOF
   # still held and unanswered is refused by name; an id that resolves to no row
   # at all is repairable drift, reported so a mistype stays visible.
   # A resolution failure is only absence when the backlog itself was readable;
-  # an unaddressable backend fails every id alike, and spending that as drift
-  # would clear a live inventory. Establish readability once, loudly, first.
+  # an unreadable backend fails every id alike, and spending that as drift would
+  # clear a live inventory. Establish readability once, loudly, first. It takes
+  # both tests: `tasks-axi list` reports a markdown backlog that is simply GONE
+  # as an empty one, so the declared file is checked directly, while the bounded
+  # listing read is what speaks for a backend that keeps its rows elsewhere.
   if [ -n "$previous" ]; then
     fm_backlog_tasks_axi_addressing "$DATA" \
       || fail "the configured backlog is not addressable, so no attested captain call may be dropped from the $origin inventory (data directory $DATA)${FM_BACKLOG_TRANSITION_ERROR:+: $FM_BACKLOG_TRANSITION_ERROR}"
+    [ -z "$FM_BACKLOG_AXI_FILE" ] || [ -r "$FM_BACKLOG_AXI_FILE" ] \
+      || fail "the configured backlog could not be read, so no attested captain call may be dropped from the $origin inventory: $FM_BACKLOG_AXI_FILE is absent or unreadable"
+    probe_rc=0
+    reason=$(fm_backlog_row_list "$DATA" 2>&1) || probe_rc=$?
+    [ "$probe_rc" -eq 0 ] \
+      || fail "the configured backlog could not be read, so no attested captain call may be dropped from the $origin inventory (data directory $DATA)${reason:+: $(printf '%s' "$reason" | tr '\n' ' ')}"
   fi
   drop_err=$(umask 077; mktemp "${TMPDIR:-/tmp}/fm-captain-hold-drop-err.XXXXXX") \
     || fail "cannot stage the inventory-drop resolution diagnostics"

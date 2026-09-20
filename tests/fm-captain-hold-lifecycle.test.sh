@@ -928,10 +928,12 @@ test_answered_inventory_allows_repair_and_teardown() {
 
 
 # Drift is a statement about the backlog, not about the backend: when the
-# configured backlog cannot be addressed at all, every id fails to resolve
-# alike, and reading that as "these calls no longer exist" would clear a live
-# inventory and let teardown discard the scout with its questions unanswered.
-test_unaddressable_backlog_does_not_drift_clear_an_inventory() {
+# configured backlog cannot be read, every id fails to resolve alike, and
+# reading that as "these calls no longer exist" would clear a live inventory
+# and let teardown discard the scout with its questions unanswered. Both a
+# missing data directory and a missing backlog file inside a present one are
+# that same unreadable backlog.
+test_unreadable_backlog_does_not_drift_clear_an_inventory() {
   local home id call_a call_b rc err
   home=$(make_home drift-backend-failure)
   id=sample-drift-backend-scout
@@ -952,22 +954,40 @@ test_unaddressable_backlog_does_not_drift_clear_an_inventory() {
   run_captain "$home" complete "$id" "$call_a" "$call_b" >/dev/null \
     || fail "could not attest the drift-backend inventory"
 
-  mv "$home/data" "$home/data-away" || fail "could not take the backlog out of reach"
+  # The whole data directory out of reach.
+  mv "$home/data" "$home/data-away" || fail "could not take the data directory out of reach"
   set +e
   err=$(run_captain "$home" complete "$id" --none 2>&1 >/dev/null)
   rc=$?
   set -e
-  mv "$home/data-away" "$home/data" || fail "could not restore the backlog"
-  [ "$rc" -ne 0 ] || fail "--none cleared a live inventory while the backlog was unaddressable"
+  mv "$home/data-away" "$home/data" || fail "could not restore the data directory"
+  [ "$rc" -ne 0 ] || fail "--none cleared a live inventory with the data directory out of reach"
   assert_contains "$err" "not addressable" \
-    "the refusal did not name the unaddressable backlog as its reason"
+    "the refusal did not name the unreachable data directory as its reason"
   assert_equals "decision_keys=$call_a,$call_b" \
     "$(grep '^decision_keys=' "$home/state/$id.meta" | tail -1)" \
-    "an unaddressable backlog still rewrote the attested inventory"
+    "an unreachable data directory still rewrote the attested inventory"
+
+  # The data directory present, but the backlog file itself gone - the default
+  # markdown backend still addresses cleanly here, so only a real read sees it.
+  mv "$home/data/backlog.md" "$home/backlog-away.md" \
+    || fail "could not take the backlog file out of reach"
+  set +e
+  err=$(run_captain "$home" complete "$id" --none 2>&1 >/dev/null)
+  rc=$?
+  set -e
+  mv "$home/backlog-away.md" "$home/data/backlog.md" \
+    || fail "could not restore the backlog file"
+  [ "$rc" -ne 0 ] || fail "--none cleared a live inventory with the backlog file missing"
+  assert_contains "$err" "could not be read" \
+    "the missing-backlog refusal did not name the unreadable backlog as its reason"
+  assert_equals "decision_keys=$call_a,$call_b" \
+    "$(grep '^decision_keys=' "$home/state/$id.meta" | tail -1)" \
+    "a missing backlog file still rewrote the attested inventory"
 
   run_captain "$home" verify "$id" >/dev/null \
     || fail "the preserved inventory stopped verifying once the backlog was back in reach"
-  pass "an unaddressable backlog refuses instead of drift-clearing a live captain-call inventory"
+  pass "an unreadable backlog refuses instead of drift-clearing a live captain-call inventory"
 }
 # --release lifts the hold instead of closing, preserving the work item's own
 # body under the record; a re-held task later accepts a new answer.
@@ -4189,7 +4209,7 @@ test_retained_body_keeps_its_utf8_bytes
 test_completion_gate_attests_and_transfers
 test_answer_records_and_closes
 test_answered_inventory_allows_repair_and_teardown
-test_unaddressable_backlog_does_not_drift_clear_an_inventory
+test_unreadable_backlog_does_not_drift_clear_an_inventory
 test_release_frees_held_work
 test_hold_stamp_precedes_hold_visibility
 test_interrupted_answer_preserves_hold_age
