@@ -272,6 +272,43 @@ test_unresolvable_root_home_refuses_before_any_copy_is_leased() {
   pass "a home whose root cannot be resolved refuses before any pool copy is leased"
 }
 
+# The same failure one step later: the parent marker breaks AFTER the project
+# lock resolved the root home, so the scan is the first thing to notice - the
+# one path on which no registry entry is at fault. The refusal must still name a
+# file the operator can open, and it is the marker, not a registry it never
+# reached. The fake pool breaks the marker as it hands the copy over, which is
+# exactly the window (lock taken, copy leased, scan not yet run).
+test_root_lost_after_leasing_names_the_parent_marker() {
+  local id out status marker
+  id=lease-root-late-w9
+  make_lease_case lease-root-late "$id"
+  marker="$LEASE_HOME/.fm-secondmate-parent"
+  mv "$LEASE_FAKEBIN/treehouse" "$LEASE_FAKEBIN/treehouse-pool"
+  cat > "$LEASE_FAKEBIN/treehouse" <<SH
+#!/usr/bin/env bash
+set -u
+if [ "\${1:-}" = get ]; then
+  printf 'schema=fm-secondmate-parent.v1\nroute=local\nparent_home=%s\n' \
+    '$LEASE_HOME/gone-parent' > '$marker'
+fi
+exec '$LEASE_FAKEBIN/treehouse-pool' "\$@"
+SH
+  chmod +x "$LEASE_FAKEBIN/treehouse"
+
+  out=$(run_lease_spawn "$id" "$LEASE_WT")
+  status=$?
+  [ "$status" -ne 0 ] || fail "spawn launched although the home's root became unresolvable"$'\n'"$out"
+  assert_contains "$out" "Repair that entry in $marker" \
+    "the refusal did not name the parent marker as the file to repair"
+  assert_contains "$out" "cannot be ruled out as the one holding this copy" \
+    "the refusal did not say why an unreadable home blocks the spawn"
+  [ ! -e "$LEASE_HOME/state/$id.meta" ] || fail "refused spawn published task metadata"
+  assert_contains "$(cat "$LEASE_LOG")" \
+    "treehouse${SEP}return${SEP}--force${SEP}--if-lease-holder${SEP}fm:$id@$LEASE_HOME/state${SEP}$LEASE_WT" \
+    "the refusal said the claim was returned but the pool still holds it"
+  pass "a root that becomes unresolvable after leasing names the parent marker to repair"
+}
+
 # The guarantee the whole fix rests on, checked against the real pool rather
 # than assumed: a leased slot is not handed to a later `treehouse get`, with no
 # process running inside it.
@@ -319,6 +356,7 @@ test_a_record_whose_claim_was_released_still_blocks_a_spawn
 test_a_record_in_another_local_home_blocks_a_spawn
 test_unreadable_registry_refuses_the_spawn_and_returns_the_claim
 test_unresolvable_root_home_refuses_before_any_copy_is_leased
+test_root_lost_after_leasing_names_the_parent_marker
 test_real_pool_does_not_hand_out_a_leased_slot
 
 echo "# all fm-spawn-worktree-lease tests passed"

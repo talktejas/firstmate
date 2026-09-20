@@ -3800,7 +3800,7 @@ elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
   if ! collect_local_firstmate_states "$STATE"; then
     echo "error: refusing to launch task $ID into the pool copy '$WT': $FM_LOCAL_STATES_ERROR, so the task records in Firstmate home '$FM_LOCAL_STATES_ERROR_HOME' could not be read and a task there cannot be ruled out as the one holding this copy" >&2
     echo "The pool claim on '$WT' has been returned and no task metadata was published; nothing was changed." >&2
-    echo "Repair that entry in $FM_LOCAL_STATES_ERROR_REGISTRY - correct the home path, or remove the entry if that home is gone - then re-run this spawn." >&2
+    echo "Repair that entry in ${FM_LOCAL_STATES_ERROR_REGISTRY:-$FM_LOCAL_STATES_ERROR_HOME/.fm-secondmate-parent} - correct the home path, or remove the entry if that home is gone - then re-run this spawn." >&2
     exit 1
   fi
   for spawn_state_dir in "${TREEHOUSE_OWNER_STATES[@]}"; do
