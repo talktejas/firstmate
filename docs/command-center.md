@@ -50,9 +50,8 @@ That obligation is `AGENTS.md` section 9.
 - An **open status decision**: a worker that stopped on `needs-decision` or `blocked` and is waiting.
   These never appear as held tasks, which is why a surface built on holds alone cannot reach them.
 
-A stopped worker's own note is written for firstmate, not for you: it carries finding ids, decision keys and file paths.
-So a note that does not read as a sentence a person would say out loud is dropped whole, never rewritten, and the row is stated plainly from what is known: which project, and that a worker there stopped and needs a decision or cannot go on.
-A row that cannot be stated plainly at all is not shown, because guessing at it is worse than leaving it out.
+A stopped worker's row carries the worker's own note, exactly as it wrote it, because the options you are being asked to choose between are the whole value of that row.
+The one exception is the machine line a no-mistakes ask-user gate reports itself with, `ask-user findings=<ids> file=<path>`, which is ids and a path with the content deliberately left in the file: that row is stated plainly instead, as which project it is and that a worker there stopped and needs a decision or cannot go on.
 
 **My words** is everything you have typed here and where it went.
 
@@ -144,6 +143,7 @@ The outcome is read from the exit code of the command that ran and nothing else:
 On **unknown** the page keeps your text, says plainly that delivery could not be confirmed, and does not offer Send again until the steering record appears — or until you say so yourself, knowing it may be a second copy.
 On any other non-success it keeps your text too, so nothing you typed is cleared by a send that did not land.
 Your words stay in the box until the outcome row says the send landed; when it says failed or unknown they are put back where you typed them, the row you sent from is flagged `not sent`, and a note that did not land says so on its own button.
+If no outcome ever arrives, because the server or the page stopped while the command was still running, the page releases that send itself once the send window has passed: your words come back, the controls work again, and the row says plainly that nothing ever reported what became of it.
 
 An open item shows one line derived from this record: the last thing you sent about it and what became of it, and a message shows every reply you sent to it.
 Both logs are served whole, and if either is ever shortened the page says so and says how many rows are missing, because a reply missing from a thread reads as a message you never answered.

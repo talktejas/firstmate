@@ -229,30 +229,22 @@ epoch_of() {  # <file>
   [ -e "$1" ] && stat -c '%Y' "$1" 2>/dev/null || printf ''
 }
 
-# WHAT HE READS IS NEVER MACHINE TEXT. A worker's status note is written for
-# firstmate, not for the captain: it carries finding ids, decision keys, run
-# ids and file paths, and showing it as an item renders bookkeeping as if
-# firstmate had said it. So a note that does not read as a sentence a person
-# would say out loud is dropped WHOLE - never rewritten - and the row is stated
-# plainly from what is actually known. A row that cannot be stated plainly at
-# all is dropped, because guessing at it is worse than not showing it.
-plain_sentence() {  # <text>
-  local text=$1
-  case "$text" in
-    ''|*=*|*/*|*'{'*|*'}'*|*'|'*|*'['*|*'<'*) return 1 ;;
-  esac
-  # Two hyphens inside one word is an id, a key or a run name, never a phrase.
-  [[ "$text" =~ [^[:space:]]*-[^[:space:]]*-[^[:space:]]* ]] && return 1
-  [ "$(printf '%s' "$text" | wc -w)" -ge 3 ] || return 1
-  return 0
-}
-
-plain_line() {  # <note> <verb> <project>
+# ONE KNOWN MACHINE LINE NEVER REACHES HIS SCREEN. A no-mistakes ask-user gate
+# reports itself as `ask-user findings=<ids> file=<path>` (bin/fm-dod-lib.sh
+# rule 6): ids and a path, with the content deliberately left in the file
+# rather than the line. That is bookkeeping, not something firstmate said to
+# him, so such a row is stated plainly from what is known instead.
+#
+# EVERY OTHER NOTE IS THE WORKER'S OWN SENTENCE AND IS SHOWN AS WRITTEN. The
+# options he is being asked to choose between are the whole value of the row,
+# and a path or an id in the middle of a question is a far smaller price than
+# losing the question.
+status_line() {  # <note> <verb> <project>
   local note=$1 verb=$2 project=$3 said
-  if plain_sentence "$note"; then
-    printf '%s\n' "$note"
-    return 0
-  fi
+  case "$note" in
+    'ask-user findings='*' file='*) ;;
+    *) printf '%s\n' "$note"; return 0 ;;
+  esac
   said='stopped and needs a decision from you'
   [ "$verb" = blocked ] && said='stopped and cannot go on'
   if [ -n "$project" ]; then
@@ -355,7 +347,7 @@ scan_home() {  # <home-id> <home-name> <home-path>
   while IFS=$'\t' read -r task key verb note; do
     [ -n "$task" ] || continue
     project=$(meta_get "$state/$task.meta" project | sed 's#.*/##')
-    line=$(plain_line "$note" "$verb" "$project")
+    line=$(status_line "$note" "$verb" "$project")
     # `blocked` and `needs-decision` both stop a worker, but they mean different
     # things to the person answering, so the verb travels with the item.
     STATUS_VERB=$verb

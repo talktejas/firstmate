@@ -8,6 +8,7 @@ const path = require('path');
 const {
   pollFacts, tense, transportFailure, verdictFor, releaseVerdicts, itemKey,
   shapeMessage, orderRows, replyTarget, foldSaid, wordsAfter,
+  listSignature,
 } = require(path.join(__dirname, '..', 'bin', 'command-center-state.js'));
 
 // Quiet on success: tests/command-center.test.sh runs this and reports the
@@ -281,6 +282,26 @@ test('only a send that landed takes his words out of the box', () => {
     'an accepted send must not be treated as a delivered one');
   assert.strictEqual(wordsAfter({ outcome: 'sent' }), null,
     'a row from no send of his must not empty a box');
+});
+
+// --- did anything actually change? ---------------------------------------------
+// A record that has not moved must not re-render the page: the reply box he is
+// typing in is rebuilt by a render, and a log with no change check of its own
+// answers every poll with a fresh 200.
+test('an unchanged list is recognised as unchanged', () => {
+  const rows = [{ sid: 'b', outcome: 'sent', at: '2026-09-02T10:00:00Z' },
+                { sid: 'a', outcome: 'sent', at: '2026-09-01T10:00:00Z' }];
+  assert.strictEqual(listSignature(rows), listSignature(rows.slice()),
+    'the same rows read twice must look the same');
+  assert.notStrictEqual(listSignature(rows),
+    listSignature([{ sid: 'c', outcome: 'sending', at: '2026-09-03T10:00:00Z' }, ...rows]),
+    'a new row must look different');
+  assert.notStrictEqual(listSignature(rows),
+    listSignature([{ sid: 'b', outcome: 'sending', at: '2026-09-02T10:00:00Z' },
+                   rows[1]]),
+    'the same row with a new outcome must look different');
+  assert.strictEqual(listSignature([]), listSignature(undefined),
+    'a log that is not there yet and an empty one are the same list');
 });
 
 process.exit(failures ? 1 : 0);

@@ -678,8 +678,11 @@ function wordOutcome(r){
 
 function renderWords(){
   const q = state.q.trim().toLowerCase();
+  // His words stay in the box while a send is in flight, so a draft whose send
+  // was accepted is NOT an unsent draft: the record's own row already says what
+  // became of it, and showing both would have the page claim two things at once.
   const drafts = Object.entries(state.draft)
-    .filter(([, t]) => t && t.trim())
+    .filter(([key, t]) => t && t.trim() && !isSending(key))
     .map(([key, text]) => ({ kind:'draft', at:null, text, key }));
   const rows = drafts.concat(state.said)
     .filter(r => !q || String(r.text || '').toLowerCase().includes(q));
@@ -1114,12 +1117,12 @@ async function loadMessages(){
     state.msgEtag = res.headers.get('ETag');
     const body = await res.json();
     const rows = body.messages || [];
-    const before = state.messages.length + '/' + (state.messages[0] || {}).id;
+    const before = listSignature(state.messages);
     state.messages = rows;
     state.msgError = body.error || null;
     state.msgDropped = body.dropped || 0;
     state.msgRead = true;
-    return before !== rows.length + '/' + (rows[0] || {}).id;
+    return before !== listSignature(rows);
   } catch (e) {
     // Reachability already has its own band from the item poll; this only
     // declines to claim the list is complete.
@@ -1137,11 +1140,16 @@ async function loadSaid(){
     const body = await res.json();
     // foldSaid comes from bin/command-center-state.js: the outcome row
     // supersedes the acceptance row written when he clicked.
-    state.said = foldSaid(body.said);
+    const rows = foldSaid(body.said);
+    // A log that does not exist yet is served with no change check, so every
+    // poll is a fresh 200: what CHANGED has to be decided here, or the pane
+    // would be rebuilt every three seconds and take his cursor out of a reply.
+    const before = listSignature(state.said) + '/' + state.saidError + '/' + state.saidDropped;
+    state.said = rows;
     state.saidError = body.error || null;
     state.saidDropped = body.dropped || 0;
     applyOutcomes();
-    return true;
+    return before !== listSignature(rows) + '/' + state.saidError + '/' + state.saidDropped;
   } catch (e) { return false; }   // the list still works without it
 }
 
@@ -1161,13 +1169,13 @@ function applyOutcomes(){
       // wordsAfter comes from bin/command-center-state.js.
       if (wordsAfter(r) === 'clear'){
         // It landed, and only now may his words leave the box.
-        if (held.key === 'note'){ state.note = ''; save('cc.note', state.note); }
+        if (held.key === 'note') noteText('');
         else delete state.draft[held.key];
         delete state.failed[held.key];
       } else {
         // It did not land. His words go back where he typed them and the row he
         // sent from says so, rather than only the record he may never open.
-        if (held.key === 'note'){ state.note = held.text; save('cc.note', state.note); }
+        if (held.key === 'note') noteText(held.text);
         else state.draft[held.key] = held.text;
         state.failed[held.key] = {outcome: r.outcome, detail: r.detail || ''};
       }
@@ -1184,11 +1192,56 @@ function applyOutcomes(){
   if (changed){ save('cc.applied', state.applied); save('cc.outcome', state.outcome); }
 }
 
+// The note box is a dialog that is built once, so its element is the box: a
+// note whose outcome arrives later has to reach the textarea itself, or a
+// delivered note sits there waiting to be sent a second time - and queue_note
+// mints a fresh id, so that would be a genuine duplicate.
+function noteText(text){
+  state.note = text;
+  save('cc.note', state.note);
+  const box = $('#note-text');
+  if (box) box.value = text;
+}
+
 // His words stay in the box until the outcome says they landed, so the button
 // they were sent from has to say they are already going out: otherwise a second
 // click on the same box is a second answer to the same decision.
 function isSending(key){
   return Object.values(state.pending).some(p => p.key === key);
+}
+
+// A send the page can never hear the end of. The server answers the click
+// before the command runs, so a process killed under the delivery thread
+// (a restart, a reboot, a SIGTERM inside the send window) leaves an acceptance
+// row with no outcome row after it. Past the window that is not a send in
+// flight any more: it is a send nobody can confirm, so the page says exactly
+// that, puts his words back, and lets him send again. It recovers by itself -
+// a box he can never type in again is the freeze that started this by another
+// road.
+const SEND_WINDOW_MS = 150000;   // bin/command-center.py SEND_TIMEOUT plus slack
+
+function reconcilePending(){
+  let changed = false;
+  for (const [sid, held] of Object.entries(state.pending)){
+    if (held.at && Date.now() - held.at < SEND_WINDOW_MS) continue;
+    const row = state.said.find(r => r.sid === sid);
+    if (row && row.outcome !== 'sending') continue;   // applyOutcomes owns it
+    delete state.pending[sid];
+    state.applied[sid] = true;
+    if (held.key === 'note') noteText(held.text);
+    else state.draft[held.key] = held.text;
+    state.failed[held.key] = {outcome: 'unknown',
+      detail: 'nothing ever reported what became of it: the page or the server '
+            + 'stopped before the command answered'};
+    changed = true;
+  }
+  if (changed){
+    save('cc.pending', state.pending);
+    save('cc.applied', state.applied);
+    save('cc.draft', state.draft);
+    save('cc.failed', state.failed);
+  }
+  return changed;
 }
 
 // One owner of "this send did not land", so the item pane, the reply pane and
@@ -1255,7 +1308,7 @@ async function sendAnswer(){
   // says the send landed, and the item he just answered is never the one this
   // opens next - the view has not been rescanned, so it still lists it and a
   // second click there would really send a second answer.
-  state.pending[data.sid] = {key: itemKey(it), text};
+  state.pending[data.sid] = {key: itemKey(it), text, at: Date.now()};
   delete state.failed[itemKey(it)];
   save('cc.pending', state.pending); save('cc.failed', state.failed);
   await loadSaid();
@@ -1284,7 +1337,7 @@ async function sendReply(){
     state.sending = false;
   }
   if (ok && data.ok){
-    state.pending[data.sid] = {key, text};
+    state.pending[data.sid] = {key, text, at: Date.now()};
     delete state.failed[key];
     save('cc.pending', state.pending); save('cc.failed', state.failed);
     await loadSaid();
@@ -1329,6 +1382,12 @@ document.addEventListener('click', async e => {
   if (e.target.id === 'defer'){ state.open = null; render(); return; }
   if (e.target.id === 'sendanyway'){
     delete state.outcome[state.open]; save('cc.outcome', state.outcome);
+    // And the record of the send it was held against, so the next load cannot
+    // read it as a send still going out and lock the box again.
+    for (const [sid, held] of Object.entries(state.pending))
+      if (held.key === state.open) delete state.pending[sid];
+    delete state.failed[state.open];
+    save('cc.pending', state.pending); save('cc.failed', state.failed);
     renderMain(); return;
   }
   if (e.target.id === 'clr'){ state.q = ''; $('#q').value = ''; renderList(); return; }
@@ -1376,7 +1435,7 @@ $('#note-dlg').addEventListener('close', async function(){
   // delivery never reads as a failure, because retyping it is how the captain
   // sends it twice.
   if (ok && data.ok){
-    state.pending[data.sid] = {key: 'note', text};
+    state.pending[data.sid] = {key: 'note', text, at: Date.now()};
     delete state.failed.note;
     save('cc.pending', state.pending); save('cc.failed', state.failed);
     btn.textContent = '✎  Written down — going out now';
@@ -1392,7 +1451,7 @@ $('#note-dlg').addEventListener('close', async function(){
   await loadSaid(); render();
 });
 
-Promise.all([loadSaid(), loadMessages()]).then(poll);
+Promise.all([loadSaid(), loadMessages()]).then(() => { reconcilePending(); return poll(); });
 setInterval(poll, POLL_MS);
 // The message log is a local file read, so it is polled on the same cadence and
 // re-rendered only when a message actually arrived. Only the LIST is redrawn: a
@@ -1402,7 +1461,10 @@ setInterval(async () => { if (await loadMessages()) renderList(); }, POLL_MS);
 // The outcome of a send is written to the record by the thread carrying the
 // delivery out, so the record is polled on the same cadence and behind the same
 // change check. An unchanged record costs a stat.
-setInterval(async () => { if (await loadSaid()) render(); }, POLL_MS);
+setInterval(async () => {
+  const changed = await loadSaid();
+  if (reconcilePending() || changed) render();
+}, POLL_MS);
 setInterval(renderList, 30000);   // keep the ages and stuck flags honest
 </script>
 </body>

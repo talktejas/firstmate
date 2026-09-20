@@ -1267,10 +1267,11 @@ test_the_recorder_takes_a_body_that_looks_like_a_flag() {
   pass "the recorder takes a body that looks like a flag"
 }
 
-# WHAT HE READS IS NEVER MACHINE TEXT. A worker's status note is written for
-# firstmate: finding ids, decision keys and file paths. It may never be rendered
-# as something firstmate said to him.
-test_a_machine_status_note_never_reaches_his_screen() {
+# The one machine line that never reaches his screen: a no-mistakes ask-user
+# gate reports itself as ids plus a path, with the content deliberately left in
+# the file. Everything else is the worker's own question, and the options he is
+# being asked to choose between are the whole value of the row.
+test_the_ask_user_machine_line_is_stated_plainly_and_real_questions_are_not() {
   local home out row
   home="$TMP_ROOT/plain"
   mkdir -p "$home/data" "$home/state"
@@ -1278,37 +1279,31 @@ test_a_machine_status_note_never_reaches_his_screen() {
   printf 'needs-decision [key=k-mach]: ask-user findings=status-line-timestamp-has-no-reader file=/home/c/p/fm/data/nm-1-findings.txt\n' \
     > "$home/state/t-machine.status"
   printf 'project=/home/captain/p/demo\nkind=ship\n' > "$home/state/t-machine.meta"
-  printf 'blocked [key=k-said]: The build needs your call on the release window\n' \
-    > "$home/state/t-said.status"
-  printf 'project=/home/captain/p/demo\nkind=ship\n' > "$home/state/t-said.meta"
-  printf 'needs-decision [key=k-drop]: findings=x file=/tmp/y.txt\n' \
-    > "$home/state/t-nameless.status"
+  printf 'needs-decision [key=k-opts]: Ship with the current cap of 500, or raise it to 2000 - your call, see data/limits.md\n' \
+    > "$home/state/t-options.status"
+  printf 'project=/home/captain/p/demo\nkind=ship\n' > "$home/state/t-options.meta"
+  printf 'blocked [key=k-short]: Which palette?\n' > "$home/state/t-short.status"
 
   out=$(scan "$home") || fail "the scan failed"
   row=$(printf '%s' "$out" | jq -c '.items[] | select(.id == "t-machine")')
   assert_not_contains "$row" 'findings=' \
-    "a raw status note was rendered as something firstmate said to him"
+    "the ask-user machine line was rendered as something firstmate said to him"
   assert_not_contains "$row" 'nm-1-findings.txt' \
-    "a file path reached the title or the body of a row he reads"
+    "a file path from the machine line reached a row he reads"
   assert_contains "$(printf '%s' "$row" | jq -r .title)" 'A worker on demo' \
-    "the row was not stated plainly from what is known"
-  assert_equals "$(printf '%s' "$row" | jq -r .title)" \
-    "$(printf '%s' "$row" | jq -r .detail)" \
-    "the machine text survived in the body of the row"
+    "the machine row was not stated plainly from what is known"
 
-  assert_contains "$(printf '%s' "$out" | jq -r '.items[] | select(.id == "t-said") | .title')" \
-    'release window' "a note a person would say out loud was thrown away"
-  # Nothing but the verb is known here, and that is still sayable plainly: the
-  # row stays, stated from what is known, with no machine text in it at all.
-  assert_equals "A worker stopped and needs a decision from you." \
-    "$(printf '%s' "$out" | jq -r '.items[] | select(.id == "t-nameless") | .title')" \
-    "a row with no project was hidden instead of stated plainly"
-  pass "a machine status note never reaches his screen"
+  # His decision content survives intact, path and hyphens and all: losing the
+  # options is far worse than showing him a path inside a sentence.
+  assert_equals 'Ship with the current cap of 500, or raise it to 2000 - your call, see data/limits.md' \
+    "$(printf '%s' "$out" | jq -r '.items[] | select(.id == "t-options") | .title')" \
+    "the worker's own question was replaced instead of shown"
+  assert_equals 'Which palette?' \
+    "$(printf '%s' "$out" | jq -r '.items[] | select(.id == "t-short") | .title')" \
+    "a short question a person would say out loud was thrown away"
+  pass "the ask-user machine line is stated plainly and real questions are shown as written"
 }
 
-# The ONLY place a send's outcome now exists is the record, so every way the
-# command can fail has to reach it. A row stuck at "going out now" forever is a
-# send he is never told about.
 test_a_send_that_cannot_run_at_all_still_records_an_outcome() {
   local home bin port f result
   home="$TMP_ROOT/norunner"
@@ -1447,6 +1442,6 @@ test_the_turn_end_check_names_a_question_he_cannot_see
 test_the_click_returns_before_the_command_finishes
 test_a_failed_read_is_never_cached_as_the_state_of_the_log
 test_the_recorder_takes_a_body_that_looks_like_a_flag
-test_a_machine_status_note_never_reaches_his_screen
+test_the_ask_user_machine_line_is_stated_plainly_and_real_questions_are_not
 test_a_send_that_cannot_run_at_all_still_records_an_outcome
 test_a_reply_that_is_not_a_question_is_sent_even_with_no_scan

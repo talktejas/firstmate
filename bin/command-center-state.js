@@ -144,6 +144,19 @@ function foldSaid(rows) {
   return kept;
 }
 
+// --- did anything actually change? ----------------------------------------------
+// A log that does not exist yet is served with no change check, so every poll
+// of it is a fresh 200 and "the response arrived" says nothing about whether
+// the list moved. Both logs only ever grow at one end, so their length plus
+// their newest row is their identity; a poll that finds the same one must not
+// re-render, or the open reply box is rebuilt under his cursor every few
+// seconds.
+function listSignature(rows) {
+  const newest = (rows || [])[0] || {};
+  return [(rows || []).length, newest.sid || newest.id || '',
+          newest.outcome || '', newest.at || ''].join('/');
+}
+
 // --- what an arrived outcome does to the words he typed -------------------------
 // The click is accepted before the command runs, so the record's outcome row is
 // what decides the fate of his draft. Only a send that LANDED may take his
@@ -184,4 +197,5 @@ function itemKey(it) {
 if (typeof module === 'object' && module.exports)
   module.exports = { pollFacts, tense, transportFailure, verdictFor,
                      releaseVerdicts, itemKey, shapeMessage, orderRows,
-                     replyTarget, foldSaid, wordsAfter };
+                     replyTarget, foldSaid, wordsAfter,
+                     listSignature };
