@@ -682,7 +682,7 @@ test_failed_close_recovery_command_is_shell_safe() {
     FM_ROOT_OVERRIDE="$home" FM_HOME="$home" FM_SEND_LOG="$log" FM_SEND_SETTLE=0 \
     "$SEND" t1 --resolve-key quote-safety "$answer" >/dev/null 2>"$err"; rc=$?
   chmod 0600 "$home/state/t1.status"
-  [ "$rc" -ne 0 ] || fail "a delivered answer with a failed close append should fail loudly"
+  expect_code 4 "$rc" "a delivered answer with a failed close append should exit with the distinct delivered-but-not-closed code"
   diagnostic=$(cat "$err")
   assert_contains "$diagnostic" "Close it manually with:" "the close failure should provide recovery guidance"
   manual=${diagnostic#*Close it manually with: }

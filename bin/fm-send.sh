@@ -24,11 +24,12 @@
 # for a remote secondmate - and the terminal receives only one short constant
 # self-describing doorbell line plus Enter, best-effort. The durable record IS
 # the delivery, so the record's fate alone governs the exit: 0 = the steer is
-# durably sent (recorded); nonzero = nothing was confirmed delivered and a
-# resend is appropriate (unresolvable target, an endpoint that cannot be
-# locked and revalidated or that retired or changed, an unwritable record, a
-# failed or lost remote transport) or a decision-close append failed after
-# delivery (the error then carries the exact manual close). The remote enqueue
+# durably sent (recorded); 4 = the steer was durably delivered but a
+# --resolve-key decision-close append failed afterward (the error then
+# carries the exact manual close - do not resend); any other nonzero = nothing
+# was confirmed delivered and a resend is appropriate (unresolvable target, an
+# endpoint that cannot be locked and revalidated or that retired or changed,
+# an unwritable record, a failed or lost remote transport). The remote enqueue
 # is idempotent: the remote leg deduplicates an exact re-run of the same
 # request onto the existing record (bin/fm-task-inbox-lib.sh), so after a lost
 # transport (ssh exit 255, completion unknown) fm-send retries the same leg
@@ -959,8 +960,8 @@ else
       fi
     fi
     if [ -n "$RESOLVE_KEYS" ]; then
-      fm_send_close_resolved_keys "$RESOLVE_ANSWER_TEXT" || exit 1
-      fm_send_feed_resolved_holds "$RESOLVE_ANSWER_TEXT" || exit 1
+      fm_send_close_resolved_keys "$RESOLVE_ANSWER_TEXT" || exit 4
+      fm_send_feed_resolved_holds "$RESOLVE_ANSWER_TEXT" || exit 4
     fi
     exit 0
   fi
@@ -1034,10 +1035,12 @@ else
       fi
     fi
     # The answer is durably sent: close each answered decision at enqueue time
-    # (answerer-closes; see the header contract).
+    # (answerer-closes; see the header contract). Exit 4 distinguishes this
+    # delivered-but-not-closed outcome from an undelivered send (exit 1), so a
+    # caller can tell them apart without matching error text.
     if [ -n "$RESOLVE_KEYS" ]; then
-      fm_send_close_resolved_keys "$RESOLVE_ANSWER_TEXT" || exit 1
-      fm_send_feed_resolved_holds "$RESOLVE_ANSWER_TEXT" || exit 1
+      fm_send_close_resolved_keys "$RESOLVE_ANSWER_TEXT" || exit 4
+      fm_send_feed_resolved_holds "$RESOLVE_ANSWER_TEXT" || exit 4
     fi
     # Ring the doorbell, best-effort: no ring outcome changes the exit status,
     # because the watcher owns loss detection from here, either through its
