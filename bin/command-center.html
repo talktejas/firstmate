@@ -1147,25 +1147,22 @@ async function loadSaid(){
     if (res.status === 304) return {read: true, changed: false};
     if (!res.ok) return {read: false, changed: false};
     state.saidEtag = res.headers.get('ETag');
-    const body = await res.json();
-    if (body.error){
-      // The server answered, and what it answered is that it could not read the
-      // record: no rows, and no news about the send it was asked about. Holding
-      // that as the record would release a send whose outcome is on disk.
+    // logRead and foldSaid come from bin/command-center-state.js: what counts
+    // as a read, and the outcome row superseding the acceptance row.
+    const got = logRead(await res.json(), 'said');
+    if (!got.read){
       const was = state.saidError;
-      state.saidError = body.error;
-      return {read: false, changed: was !== body.error};
+      state.saidError = got.error;
+      return {read: false, changed: was !== got.error};
     }
-    // foldSaid comes from bin/command-center-state.js: the outcome row
-    // supersedes the acceptance row written when he clicked.
-    const rows = foldSaid(body.said);
+    const rows = foldSaid(got.rows);
     // A log that does not exist yet is served with no change check, so every
     // poll is a fresh 200: what CHANGED has to be decided here, or the pane
     // would be rebuilt every three seconds and take his cursor out of a reply.
     const before = listSignature(state.said) + '/' + state.saidError + '/' + state.saidDropped;
     state.said = rows;
     state.saidError = null;
-    state.saidDropped = body.dropped || 0;
+    state.saidDropped = got.dropped;
     applyOutcomes();
     return {read: true,
             changed: before !== listSignature(rows) + '/' + state.saidError
@@ -1203,11 +1200,14 @@ function applyOutcomes(){
       save('cc.pending', state.pending);
       save('cc.failed', state.failed);
     }
-    const key = r.msg ? 'msg/' + r.msg : (r.item_key || '');
-    if (!key) continue;
+    // A reply to a recorded question carries BOTH: the message he answered
+    // from and the item it steered. An unconfirmed delivery forbids a second
+    // one from either surface, so the verdict is held against both.
+    const keys = [r.msg ? 'msg/' + r.msg : '', r.item_key || ''].filter(Boolean);
+    if (!keys.length) continue;
     const verdict = verdictFor(r.source || 'status', r.outcome, r.detail,
                                r.sent_count || 0);
-    if (verdict) state.outcome[key] = verdict;
+    if (verdict) for (const k of keys) state.outcome[k] = verdict;
   }
   if (changed){ save('cc.applied', state.applied); save('cc.outcome', state.outcome); }
 }
@@ -1227,7 +1227,10 @@ function noteText(text){
 // they were sent from has to say they are already going out: otherwise a second
 // click on the same box is a second answer to the same decision.
 function isSending(key){
-  return Object.values(state.pending).some(p => p.key === key && !p.released);
+  // A reply delivered on the answer route is a steer at an ITEM, so it is in
+  // flight on both surfaces: the message he typed it in and the row it steers.
+  return Object.values(state.pending)
+    .some(p => !p.released && (p.key === key || p.item === key));
 }
 
 // A send the page can never hear the end of. The server answers the click
@@ -1359,7 +1362,10 @@ async function sendReply(){
     state.sending = false;
   }
   if (ok && data.ok){
-    state.pending[data.sid] = {key, text, at: Date.now()};
+    // The server says which item it is steering, if any; that is what makes
+    // this send visible on the Waiting on you row as well as here.
+    state.pending[data.sid] = {key, item: data.item_key || null, text,
+                               at: Date.now()};
     delete state.failed[key];
     save('cc.pending', state.pending); save('cc.failed', state.failed);
     await loadSaid();
@@ -1373,10 +1379,15 @@ async function sendReply(){
   // An unconfirmed reply forbids a resend for exactly the reason an
   // unconfirmed answer does, so it leaves the same standing verdict rather
   // than a line of text the next render wipes. His words stay in the box.
-  const verdict = verdictFor(data.source || 'status', data.outcome, data.detail,
+  const verdict = verdictFor('status', data.outcome, data.detail,
                              repliesTo(m).length);
   if (verdict){
     state.outcome[key] = verdict;
+    // The request never came back, so which route ran is unknown: if this
+    // message named a question that is still waiting, that item is the one the
+    // steer may already have reached, and it is locked here too.
+    const target = replyTarget(m, state.view.items);
+    if (target.kind === 'answer') state.outcome[itemKey(target.item)] = verdict;
     save('cc.outcome', state.outcome);
     render();
     return;

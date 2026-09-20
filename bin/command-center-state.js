@@ -144,6 +144,20 @@ function foldSaid(rows) {
   return kept;
 }
 
+// --- was the record actually READ? ----------------------------------------------
+// The server answers 200 with no rows and an `error` when it could not read one
+// of the logs (_log_response in bin/command-center.py). That is not a read: it
+// carries no rows and no news about a send in flight, and holding it as the
+// record is exactly how a send whose outcome is already on disk gets released
+// as unconfirmed by mayRelease below. Both halves of that invariant live here,
+// because the half that lived in the page is the half that broke.
+function logRead(body, field) {
+  const error = (body && body.error) || null;
+  if (error) return { read: false, error: error, rows: null, dropped: 0 };
+  return { read: true, error: null, rows: (body && body[field]) || [],
+           dropped: (body && body.dropped) || 0 };
+}
+
 // --- may a send still marked as going out be released? --------------------------
 // The click is answered before the command runs, so a process killed under the
 // delivery thread leaves an acceptance row with no outcome row after it. Past
@@ -215,4 +229,4 @@ if (typeof module === 'object' && module.exports)
   module.exports = { pollFacts, tense, transportFailure, verdictFor,
                      releaseVerdicts, itemKey, shapeMessage, orderRows,
                      replyTarget, foldSaid, wordsAfter,
-                     listSignature, mayRelease };
+                     listSignature, mayRelease, logRead };

@@ -8,7 +8,7 @@ const path = require('path');
 const {
   pollFacts, tense, transportFailure, verdictFor, releaseVerdicts, itemKey,
   shapeMessage, orderRows, replyTarget, foldSaid, wordsAfter,
-  listSignature, mayRelease,
+  listSignature, mayRelease, logRead,
 } = require(path.join(__dirname, '..', 'bin', 'command-center-state.js'));
 
 // Quiet on success: tests/command-center.test.sh runs this and reports the
@@ -330,6 +330,30 @@ test('a record that answered the send keeps its own answer', () => {
   assert.strictEqual(mayRelease(true, held, {sid: 'a', outcome: 'sending'},
                                 1000 + WINDOW + 1, WINDOW), true,
     'an acceptance row with no outcome after it past the window is unconfirmed');
+});
+
+// --- was the record actually read? ---------------------------------------------
+// The other half of the release invariant: the server answers 200 with no rows
+// and an error when it could not read a log, and treating that as the record is
+// how a send whose outcome is already on disk gets released as unconfirmed.
+test('a body carrying a read error is not a read', () => {
+  const failed = logRead({ said: [], error: 'the record could not be read: x',
+                           dropped: 0 }, 'said');
+  assert.strictEqual(failed.read, false);
+  assert.strictEqual(failed.rows, null, 'a failed read carries no rows to hold');
+  assert.strictEqual(failed.error, 'the record could not be read: x');
+  assert.strictEqual(mayRelease(failed.read, held, undefined,
+                                1000 + WINDOW + 1, WINDOW), false,
+    'a send must never be released off a record that could not be read');
+});
+
+test('a body with rows and no error is a read', () => {
+  const got = logRead({ said: [{ sid: 'a', outcome: 'sent' }], dropped: 3 }, 'said');
+  assert.strictEqual(got.read, true);
+  assert.strictEqual(got.rows.length, 1);
+  assert.strictEqual(got.dropped, 3, 'what the limit cut must survive the read');
+  assert.deepStrictEqual(logRead({}, 'said').rows, [],
+    'a log with nothing in it yet is an empty read, not a failed one');
 });
 
 process.exit(failures ? 1 : 0);

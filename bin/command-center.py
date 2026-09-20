@@ -701,7 +701,12 @@ class Handler(BaseHTTPRequestHandler):
                 invalidate = None
             sid = deliver(self.records.home, dict(said, msg=msg_id, text=text),
                           run, route_hint=hint, invalidate=invalidate)
-            self._json(202, {"ok": True, "sid": sid, "outcome": "sending"})
+            # The item this reply is steering, when it took the answer route.
+            # The page holds the do-not-resend state by item as well as by
+            # message, so the same worker cannot be reached twice from the other
+            # surface while this is still in flight.
+            self._json(202, {"ok": True, "sid": sid, "outcome": "sending",
+                             "item_key": said.get("item_key")})
             return
 
         if path == "/api/answer":

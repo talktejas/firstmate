@@ -925,6 +925,11 @@ test_a_reply_takes_the_answer_route_when_the_task_is_still_waiting() {
   stop_server
 
   assert_contains "$resolved" '"outcome":"sent"' "the reply was not delivered"
+  # The page holds its do-not-resend state by item as well as by message, so a
+  # reply that steers an item has to say which one: otherwise the same worker is
+  # reachable a second time from the waiting list while this is still in flight.
+  assert_equals "main/hold/cc-live/cc-live" "$(jq -r '.item_key // ""' <<<"$body")" \
+    "the reply did not name the item it steers"
   assert_contains "$resolved" 'fm-captain-hold.sh answer cc-live' \
     "a reply about a task still waiting did not take the answer route"
   assert_equals "$id" \
@@ -949,6 +954,8 @@ test_a_reply_with_nothing_waiting_is_queued_for_firstmate() {
   stop_server
 
   assert_contains "$resolved" '"outcome":"sent"' "the reply was not queued"
+  assert_equals "" "$(jq -r '.item_key // ""' <<<"$body")" \
+    "a reply that steers nothing named an item anyway"
   assert_contains "$resolved" 'fm-inbox.sh note' \
     "a reply with nothing waiting on it did not reach firstmate as a note"
   assert_contains "$(cat "$home"/state/inbox/*.note 2>/dev/null)" 'Merge it.' \
