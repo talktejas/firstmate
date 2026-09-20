@@ -327,8 +327,8 @@ note_root() {
 # or nothing when the line opens none.
 heredoc_delim() {
   local t=${1##*<<}
-  case "$t" in
-    \<*) return 0 ;;
+  case "${1%"$t"}" in
+    *'<<<') return 0 ;;
   esac
   t=${t#-}
   t=${t#"${t%%[![:space:]]*}"}
@@ -383,18 +383,17 @@ unquote() {
 }
 
 if [ "$KIND" = command ]; then
-  # A newline is not a command separator: the lines of a multi-line argument
-  # belong to the command that owns them, and the fleet-dispatch release the
-  # refusal itself recommends must survive them.
+  # An unquoted newline separates commands; a newline inside a quoted argument
+  # or a heredoc body does not, and both are already neutralized above, so the
+  # lines of a steer message stay with the command that owns them while a
+  # command on its own line is classified on its own.
   SEGSTR=$(unquote "$(strip_heredocs "$CMD")")
-  SEGSTR=${SEGSTR//$'\n'/ }
-  SEGSTR=${SEGSTR//$'\r'/ }
   SEGSTR=${SEGSTR//&&/;}
   SEGSTR=${SEGSTR//\|\|/;}
   SEGSTR=${SEGSTR//\|/;}
   SEGSTR=${SEGSTR//&/;}
   OLDIFS=$IFS
-  IFS=';'
+  IFS=$';\n\r'
   # shellcheck disable=SC2086
   set -- $SEGSTR
   IFS=$OLDIFS

@@ -42,8 +42,7 @@ The decision then follows one rule, stated in the refusal itself:
 
 Bash commands are split into shell segments; a segment is refused when it carries a project path or a project-runtime verb and its lead word is not the primary's own fleet tooling.
 The lead word therefore only ever widens the refusal to an allowance, never the reverse, so an unrecognized wrapper or verb fails toward the deny.
-Segmentation is quote-aware and heredoc-aware, and a newline is NOT a command separator: the lines of a quoted steer message and the body of a heredoc brief belong to the command that owns them, so `bin/fm-send.sh task-1 "... /projects/x ..."` and `cat > data/task-1/brief.md <<'EOF'` keep their fleet-dispatch release.
-The guard must never deny the dispatch commands its own refusal recommends; the cost is that a project command placed on a later line of a released fleet command is not separately classified, which is an accepted trade.
+Segmentation is quote-aware and heredoc-aware: a newline inside a quoted argument or a heredoc body belongs to the command that owns it, so `bin/fm-send.sh task-1 "... /projects/x ..."` and `cat > data/task-1/brief.md <<'EOF'` keep their fleet-dispatch release, while an UNQUOTED newline separates commands exactly like `;` does, so an allowed lead word on one line never releases a project command on the next.
 Deliberate obfuscation is out of scope under the same agent-mistake threat model the cd guard records; the script header owns the exact token mechanics.
 
 ## Scope
@@ -92,7 +91,7 @@ Every run used a scratch primary-shaped home under a task worktree, with the hoo
 - `npm --prefix <project> test` was denied as a build shape while `bin/fm-crew-state.sh <task> <project>` ran untouched in the same session.
 - In a linked worktree of that home carrying the identical tracked bytes, both `Read` calls reached the worktree's own copy of the checker and were allowed (a block seen there came from an operator-global duplicate-read hook, not this guard).
 - This session type offered no separate `Grep` tool and routed content search through `Bash`, which the guard covers; the matcher still names `Grep`/`Glob` for the session types that do offer them.
-- The escape hatch and the remaining classification matrix are pure command-text logic with no vendor surface, owned by the portable suite below.
+- The classification matrix is pure command-text logic with no vendor surface, owned by the portable suite below.
 
 `tests/fm-delegate-guard-claude-live-e2e.test.sh` automates the deny and inert cases against the installed claude and is the command that refreshes this record; it is opt-in through `FM_DELEGATE_GUARD_LIVE=1` because it submits prompts.
 
@@ -115,5 +114,5 @@ FM_DELEGATE_GUARD_LIVE=1 tests/fm-delegate-guard-claude-live-e2e.test.sh
 Under Grok this guard covers the shell surface only: `.grok/hooks/fm-primary-delegate-check.json` matches Grok's `Bash` tool, and the tracked Claude entry is marker-guarded like every other duplicated event, so Grok's read and write tools are simply not wired.
 Wiring them needs Grok's own matcher tokens for those tools, verified against a live Grok the way `docs/arm-pretool-check.md` records its own verification; grok is not installed on this host, so nothing about Grok's Claude-compatibility mapping is asserted here.
 Pi and omp remain uncovered for the reason recorded under "Harness wiring", and the Cursor and OpenCode entries cover their shell surface only.
-The classifier is a seatbelt against the observed mistake shapes, not a sandbox: variable indirection is not resolved, a project command on a later line of a released fleet command is not separately classified, and deliberate obfuscation is out of scope under the recorded threat model.
+The classifier is a seatbelt against the observed mistake shapes, not a sandbox: variable indirection is not resolved, and deliberate obfuscation is out of scope under the recorded threat model.
 Path-free project work beyond the runtime verbs listed above - a project service reached through a remote hostname, a container name given to a runtime this list does not name, an ssh session into a project host - is not classified either.

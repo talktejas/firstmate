@@ -271,6 +271,18 @@ EOF"
   expect_deny "a project grep whose argument spans lines" \
     --tool Bash --command "grep -rn \"seeded
 credential\" $PROJ/src"
+  # An UNQUOTED newline is still a command boundary: a released lead word on
+  # one line must not carry the next line with it.
+  expect_deny "an allowed first line does not release the next line" \
+    --tool Bash --command "no-mistakes daemon status
+grep -rn seeded $PROJ/src"
+  expect_deny "a fleet script does not release the next line" \
+    --tool Bash --command "bin/fm-spawn.sh task-1 --mode no-mistakes
+cat $PROJ/src/app.php"
+  # A herestring is not a heredoc opener: the lines after it must still be read.
+  expect_deny "a herestring does not swallow the next line" \
+    --tool Bash --command "jq -r .a <<< \"\$payload\"
+grep -rn seeded $PROJ/src"
   pass "quoted multi-line arguments and heredoc bodies stay inside their own command"
 }
 
