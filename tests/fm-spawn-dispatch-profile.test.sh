@@ -82,6 +82,28 @@ enable_dispatch_profile() {
     > "$home/config/crew-dispatch.json"
 }
 
+# A real pool gives each task in a batch its own copy and never hands one copy
+# to two live tasks, so a batch case leases a copy per task rather than the
+# single fixture path: the second spawn would otherwise be offered the copy the
+# first task's record already names, which fm-spawn refuses by name. Exports
+# FM_FAKE_LEASE_QUEUE for the fake pool and pane; retire_batch_lease_queue
+# clears it once the batch spawn has returned.
+arm_batch_lease_queue() {  # <name> <extra-copies>
+  local name=$1 extra=$2 i copy
+  : > "$CASE_DIR/lease-queue"
+  printf '%s\n' "$WT_DIR" >> "$CASE_DIR/lease-queue"
+  for ((i = 2; i <= extra + 1; i++)); do
+    copy="$CASE_DIR/wt-$i"
+    git -C "$PROJ_DIR" worktree add --quiet -b "wt-$name-$i" "$copy"
+    printf '%s\n' "$copy" >> "$CASE_DIR/lease-queue"
+  done
+  export FM_FAKE_LEASE_QUEUE="$CASE_DIR/lease-queue"
+}
+
+retire_batch_lease_queue() {
+  unset FM_FAKE_LEASE_QUEUE
+}
+
 make_seeded_secondmate_home() {
   local home=$1 id=$2
   mkdir -p "$home/bin" "$home/data"
@@ -215,6 +237,11 @@ test_home_defaults_preserve_absolute_or_resolve_relative_paths() {
   assert_contains "$launch" "< '$home_real/data/$relative_id/launch-brief.md'" \
     "relative FM_HOME leaked into the default cross-process brief path"
 
+  # Both spawns in this case are handed the same fixture copy, so retire the
+  # first task's record: a live record still naming the copy the pool offers is
+  # the slot-reuse collision fm-spawn refuses by name, and this case is about
+  # home-path spelling, not that refusal.
+  rm -f "$HOME_DIR/state/$relative_id.meta"
   linked_home="$CASE_DIR/home-link"
   ln -s "$HOME_DIR" "$linked_home"
   : > "$LAUNCH_LOG"
@@ -697,13 +724,16 @@ test_native_pi_ultra_is_explicit_and_model_scoped() {
 }
 
 test_batch_preserves_native_ultra() {
-  local rec id1=ultra-batch-a id2=ultra-batch-b out launch
+  local rec id1=ultra-batch-a id2=ultra-batch-b out launch status
   rec=$(make_spawn_case ultra-batch pi "$id1" "$id2")
   read_case_record "$rec"
   enable_dispatch_profile "$HOME_DIR"
+  arm_batch_lease_queue ultra-batch 1
   out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" \
     "$id1=$PROJ_DIR" "$id2=$PROJ_DIR" --harness pi --model codex-native/gpt-6-astra --effort ultra)
-  expect_code 0 "$?" "native Ultra batch failed: $out"
+  status=$?
+  retire_batch_lease_queue
+  expect_code 0 "$status" "native Ultra batch failed: $out"
   assert_meta_profile "$HOME_DIR/state/$id1.meta" pi codex-native/gpt-6-astra ultra
   assert_meta_profile "$HOME_DIR/state/$id2.meta" pi codex-native/gpt-6-astra ultra
   launch=$(cat "$LAUNCH_LOG")
@@ -861,9 +891,11 @@ test_batch_forwards_shared_profile_flags() {
   read_case_record "$rec"
   enable_dispatch_profile "$HOME_DIR"
 
+  arm_batch_lease_queue profile-batch 1
   out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" \
     "$id1=$PROJ_DIR" "$id2=$PROJ_DIR" --harness codex --model gpt-5 --effort high)
   status=$?
+  retire_batch_lease_queue
   expect_code 0 "$status" "batch spawn with shared profile flags should succeed"
   assert_contains "$out" "spawned $id1 harness=codex" "first batch task did not use shared harness"
   assert_contains "$out" "spawned $id2 harness=codex" "second batch task did not use shared harness"

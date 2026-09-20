@@ -97,16 +97,25 @@ fm_test_fake_gh_axi() {
 # set, each send-keys -l payload is appended one per line. Optional
 # FM_FAKE_DUPLICATE_WINDOW is printed from list-windows.
 #
-# The pane path defaults to empty when FM_FAKE_PANE_PATH is unset. Window
-# cleanup and option operations are no-ops. Launch logging is env-gated, so
-# suites that do not set FM_FAKE_LAUNCH_LOG keep a silent send-keys.
+# The pane path defaults to empty when FM_FAKE_PANE_PATH is unset. When
+# FM_FAKE_LEASE_QUEUE is set the pane instead reports the copy the fake pool
+# last leased (fm_test_fake_treehouse_lease in tests/lib.sh), so a suite leasing
+# a copy per task has its pane follow the pool. Window cleanup and option
+# operations are no-ops. Launch logging is env-gated, so suites that do not set
+# FM_FAKE_LAUNCH_LOG keep a silent send-keys.
 fm_test_fake_tmux_spawn() {
   local fakebin=$1
   cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 set -u
 case "$*" in
-  *"#{pane_current_path}"*) printf '%s\n' "${FM_FAKE_PANE_PATH:-}"; exit 0 ;;
+  *"#{pane_current_path}"*)
+    if [ -n "${FM_FAKE_LEASE_QUEUE:-}" ] && [ -s "$FM_FAKE_LEASE_QUEUE.current" ]; then
+      cat "$FM_FAKE_LEASE_QUEUE.current"
+    else
+      printf '%s\n' "${FM_FAKE_PANE_PATH:-}"
+    fi
+    exit 0 ;;
 esac
 case "${1:-}" in
   display-message) printf 'firstmate\n'; exit 0 ;;

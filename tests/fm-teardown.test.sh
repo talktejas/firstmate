@@ -667,6 +667,106 @@ make_path_without_lsof() {  # <case-dir>
   printf '%s\n' "$path_dir"
 }
 
+# Two task records naming one pool slot (observed 2026-09-20: two records named
+# the same copy, and cleanup refused in BOTH directions, each citing the other,
+# so neither could be retired until one record was deleted by hand). The slot's
+# own owner claim breaks the tie: it names the task that actually took the slot.
+#
+# The record scan and the claim only apply to a real pool slot
+# (bin/fm-wake-lib.sh's fm_treehouse_pool_slot), so these cases need the pool
+# shape the plain fixture does not have: <pool>/treehouse-state.json beside a
+# <pool>/<slot>/<copy> worktree of the same repository.
+#
+# Sets POOL_CASE_DIR and POOL_WT rather than echoing them, because a command
+# substitution would assign them in a subshell and lose them.
+POOL_CASE_DIR=
+POOL_WT=
+make_pool_slot_case() {  # <name>
+  local name=$1
+  POOL_CASE_DIR=$(make_case "$name")
+  mkdir -p "$POOL_CASE_DIR/pool/slot-1"
+  printf '{}\n' > "$POOL_CASE_DIR/pool/treehouse-state.json"
+  POOL_WT="$POOL_CASE_DIR/pool/slot-1/copy"
+  git -C "$POOL_CASE_DIR/project" worktree add -q -b "fm/$name" "$POOL_WT" main
+}
+
+# A task record naming the pool copy. Args: case_dir task_id
+write_pool_meta() {
+  local case_dir=$1 task_id=$2
+  fm_write_meta "$case_dir/state/$task_id.meta" \
+    "window=firstmate:fm-$task_id" \
+    "endpoint_task_id=$task_id" \
+    "worktree=$POOL_WT" \
+    "project=$case_dir/project" \
+    "kind=ship" \
+    "mode=no-mistakes" \
+    "spawn_gen=teardown-test-$task_id"
+}
+
+# Write the claim the way bin/fm-spawn.sh does - a sibling of the copy, not a
+# file inside it (bin/fm-wake-lib.sh's fm_treehouse_slot_owner_marker).
+write_slot_owner_claim() {  # <case-dir> <task-id>
+  local case_dir=$1 owner=$2
+  printf 'task=%s\nhome=%s\n' "$owner" "$case_dir" > "$(dirname "$POOL_WT")/.fm-slot-owner"
+}
+
+# The claim names the OTHER task, so this record is provably not the slot's
+# owner: it must retire through the reassigned path instead of refusing, and it
+# must not touch the copy on the way out - not even to inspect it, which is why
+# work left uncommitted in that copy does not refuse here.
+test_collision_with_claim_naming_the_other_task_retires_this_record() {
+  local case_dir rc
+  make_pool_slot_case slot-collision-not-owner
+  case_dir=$POOL_CASE_DIR
+  write_pool_meta "$case_dir" task-x1
+  write_pool_meta "$case_dir" task-x2
+  write_slot_owner_claim "$case_dir" task-x2
+  printf '%s\n' "uncommitted work belonging to the slot's real owner" > "$POOL_WT/feature.txt"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "slot-collision: a record the slot's claim disowns should be retirable"$'\n'"$(cat "$case_dir/stderr")"
+  ! grep -q REFUSED "$case_dir/stderr" || fail "slot-collision: the disowned record was still refused"
+  grep -q "was reassigned to task task-x2" "$case_dir/stderr" \
+    || fail "slot-collision: cleanup did not name the task the slot was reassigned to"
+  [ ! -e "$case_dir/state/task-x1.meta" ] || fail "slot-collision: the disowned record was not retired"
+  [ -e "$case_dir/state/task-x2.meta" ] || fail "slot-collision: cleanup removed the other task's record"
+  [ -f "$POOL_WT/feature.txt" ] || fail "slot-collision: cleanup touched a copy that is not this task's"
+  grep -q '^task=task-x2$' "$(dirname "$POOL_WT")/.fm-slot-owner" \
+    || fail "slot-collision: cleanup dropped another task's claim on the slot"
+  pass "a colliding record the slot's own claim disowns is retired without touching the copy"
+}
+
+# The other direction of the same collision: the claim names THIS record, so the
+# other record is the stale one. Refusing is still right - the copy is this
+# task's and returning it would kill whatever the other record points at - and
+# the pair is no longer stranded, because the other record's own teardown is the
+# one the claim disowns and retires (the case above).
+test_collision_with_claim_naming_this_task_still_refuses() {
+  local case_dir rc
+  make_pool_slot_case slot-collision-owner
+  case_dir=$POOL_CASE_DIR
+  write_pool_meta "$case_dir" task-x1
+  write_pool_meta "$case_dir" task-x2
+  write_slot_owner_claim "$case_dir" task-x1
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "slot-collision: the slot's owner should still refuse while a second record names its copy"
+  grep -q REFUSED "$case_dir/stderr" || fail "slot-collision: no REFUSED line in stderr"
+  grep -q "Reconcile whichever record is wrong" "$case_dir/stderr" \
+    || fail "slot-collision: the refusal did not say how to reconcile the colliding records"
+  [ -e "$case_dir/state/task-x1.meta" ] || fail "slot-collision: a refused teardown removed the record"
+  [ -e "$case_dir/state/task-x2.meta" ] || fail "slot-collision: a refused teardown removed the other record"
+  pass "the slot's owner still refuses while a second record names its copy"
+}
+
 test_local_only_fork_remote_allows() {
   local case_dir rc
   case_dir=$(make_case fork-allow)
@@ -3845,3 +3945,5 @@ test_process_spawned_during_grace_is_reaped_on_later_pass
 test_persistent_scan_refuses_after_bounded_retries
 test_process_exit_during_identity_lookup_does_not_refuse
 test_run_abort_precedes_process_reap_precedes_worktree_removal
+test_collision_with_claim_naming_the_other_task_retires_this_record
+test_collision_with_claim_naming_this_task_still_refuses

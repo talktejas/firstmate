@@ -1202,6 +1202,90 @@ fm_firstmate_root_home() {
   printf '%s\n' "$home"
 }
 
+# Every state directory on this machine whose task records can name the same
+# Treehouse pool slot: the local root home and each locally registered
+# secondmate home below it, plus the caller's own state directory. A pool slot
+# is shared per project across all of them, so any question of the form "does
+# another live record name this copy?" - bin/fm-teardown.sh's exclusivity scan
+# and bin/fm-spawn.sh's refusal to launch into a copy a record still names - has
+# to be asked against this set rather than one home's own records. Answers into
+# TREEHOUSE_OWNER_STATES; refuses rather than answering partially, because a
+# home this walk cannot read is exactly the home that might be holding the copy
+# in question. Proceeding past it would turn "I could not check" into "nothing
+# claims this", which is the assumption that lets one worker run freshen and
+# reset inside another's copy. A refusal costs a minute; that collision costs
+# someone's unlanded work.
+#
+# The refusal itself is the CALLER's to phrase, because "nothing was changed"
+# means something different to a cleanup than to a spawn holding a pool lease:
+# what happened is left in FM_LOCAL_STATES_ERROR, the home whose records went
+# unread in FM_LOCAL_STATES_ERROR_HOME, and the registry file the operator has
+# to repair in FM_LOCAL_STATES_ERROR_REGISTRY (empty when the walk never reached
+# a registry, which means the home's own parent marker is what is broken).
+FM_LOCAL_STATES_ERROR=
+FM_LOCAL_STATES_ERROR_HOME=
+FM_LOCAL_STATES_ERROR_REGISTRY=
+# shellcheck disable=SC2034 # The FM_LOCAL_STATES_ERROR* output globals are read by the sourcing caller's refusal.
+collect_local_firstmate_states() {  # <record-state-dir>
+  local record_state=$1 root home reg line child known existing i=0
+  local -a homes
+  TREEHOUSE_OWNER_STATES=("$record_state")
+  FM_LOCAL_STATES_ERROR=
+  FM_LOCAL_STATES_ERROR_HOME=
+  FM_LOCAL_STATES_ERROR_REGISTRY=
+  root=$(fm_firstmate_root_home "$FM_HOME") || {
+    FM_LOCAL_STATES_ERROR="cannot resolve the root Firstmate home"
+    FM_LOCAL_STATES_ERROR_HOME=$FM_HOME
+    return 1
+  }
+  homes=("$root")
+  while [ "$i" -lt "${#homes[@]}" ]; do
+    home=${homes[$i]}
+    i=$((i + 1))
+    known=0
+    for existing in "${TREEHOUSE_OWNER_STATES[@]}"; do
+      [ "$existing" != "$home/state" ] || known=1
+    done
+    [ "$known" = 1 ] || TREEHOUSE_OWNER_STATES+=("$home/state")
+    reg="$home/data/secondmates.md"
+    [ ! -e "$reg" ] && [ ! -L "$reg" ] && continue
+    [ -f "$reg" ] && [ ! -L "$reg" ] || {
+      FM_LOCAL_STATES_ERROR="local Firstmate registry is unsafe at $reg"
+      FM_LOCAL_STATES_ERROR_HOME=$home
+      FM_LOCAL_STATES_ERROR_REGISTRY=$reg
+      return 1
+    }
+    if ! command -v secondmate_registry_parse_line >/dev/null 2>&1; then
+      # shellcheck source=bin/fm-secondmate-registry-lib.sh
+      . "$FM_WAKE_LIB_DIR/fm-secondmate-registry-lib.sh"
+    fi
+    while IFS= read -r line || [ -n "$line" ]; do
+      case "$line" in
+        "- "*)
+          secondmate_registry_parse_line "$line" || {
+            FM_LOCAL_STATES_ERROR="malformed local Firstmate registry entry in $reg"
+            FM_LOCAL_STATES_ERROR_HOME=$home
+            FM_LOCAL_STATES_ERROR_REGISTRY=$reg
+            return 1
+          }
+          [ "$SECONDMATE_REGISTRY_REMOTE" -eq 0 ] || continue
+          child=$(CDPATH='' cd -- "$SECONDMATE_REGISTRY_HOME" 2>/dev/null && pwd -P) || {
+            FM_LOCAL_STATES_ERROR="registered local Firstmate home is unavailable: $SECONDMATE_REGISTRY_HOME"
+            FM_LOCAL_STATES_ERROR_HOME=$SECONDMATE_REGISTRY_HOME
+            FM_LOCAL_STATES_ERROR_REGISTRY=$reg
+            return 1
+          }
+          known=0
+          for existing in "${homes[@]}"; do
+            [ "$existing" != "$child" ] || known=1
+          done
+          [ "$known" = 1 ] || homes+=("$child")
+          ;;
+      esac
+    done < "$reg"
+  done
+}
+
 # The one lock serializing Treehouse slot allocation and return for a project.
 #
 # It is anchored in the local root home's state directory so that every home on

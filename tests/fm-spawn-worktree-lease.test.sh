@@ -152,11 +152,13 @@ test_copy_another_task_record_claims_is_refused_by_name() {
   pass "a copy another task record claims is refused by name, and stays claimed"
 }
 
-# The record's own claim is also what says it does not need this defence: a task
-# holding a lease cannot have had its copy offered, so its record must not block
-# a spawn the pool did allocate.
-test_a_record_holding_its_own_claim_does_not_block_a_spawn() {
-  local id out status
+# A record carrying its own worktree_lease= is NOT exempt from that refusal.
+# The pool having offered the copy at all is proof the claim is gone - every
+# recovery command this script prints can force-release a live one, and a
+# cleanup that returns the slot and then dies before removing its record leaves
+# the same state - so the record still names a copy about to be reset under it.
+test_a_record_whose_claim_was_released_still_blocks_a_spawn() {
+  local id out status log
   id=lease-claimed-neighbour-w4
   make_lease_case lease-claimed-neighbour "$id"
   fm_write_meta "$LEASE_HOME/state/other-task-w4.meta" \
@@ -165,10 +167,153 @@ test_a_record_holding_its_own_claim_does_not_block_a_spawn() {
 
   out=$(run_lease_spawn "$id" "$LEASE_WT")
   status=$?
-  expect_code 0 "$status" "spawn was blocked by a record that holds its own claim"$'\n'"$out"
-  assert_grep "worktree_lease=fm:$id@$LEASE_HOME/state" "$LEASE_HOME/state/$id.meta" \
-    "meta did not record the claim this task holds on its copy"
-  pass "a record holding its own claim does not block a spawn the pool allocated"
+  [ "$status" -ne 0 ] || fail "spawn launched into a copy whose record's claim had been released"$'\n'"$out"
+  assert_contains "$out" "task other-task-w4's own record still names as its working copy" \
+    "the refusal did not name the task holding the copy"
+  [ ! -e "$LEASE_HOME/state/$id.meta" ] || fail "refused spawn published task metadata"
+  log=$(cat "$LEASE_LOG")
+  assert_not_contains "$log" "return" \
+    "the refusal returned the claim, so the next spawn would be offered the same copy again"
+  pass "a record whose claim was released still blocks a spawn into its copy"
+}
+
+# A pool slot is shared per project across every Firstmate home on this machine,
+# so the record still naming the offered copy need not live in the home doing
+# the spawning: the parent home's task holds the copy, a force-released claim
+# hands it to a spawn in a registered secondmate home, and a scan of that home's
+# own records would see nothing and launch into another worker's copy. The scan
+# covers the locally registered homes, the same set teardown's exclusivity check
+# walks (bin/fm-wake-lib.sh's collect_local_firstmate_states).
+test_a_record_in_another_local_home_blocks_a_spawn() {
+  local id parent out status log
+  id=lease-cross-home-w6
+  make_lease_case lease-cross-home "$id"
+  parent="$TMP_ROOT/lease-cross-home/parent-home"
+  mkdir -p "$parent/state" "$parent/data"
+  printf 'schema=fm-secondmate-parent.v1\nroute=local\nparent_home=%s\n' "$parent" \
+    > "$LEASE_HOME/.fm-secondmate-parent"
+  printf -- '- mate - fixture (home: %s; scope: fixture; projects: sample; added 2026-09-20)\n' \
+    "$LEASE_HOME" > "$parent/data/secondmates.md"
+  fm_write_meta "$parent/state/other-task-w6.meta" \
+    "worktree=$LEASE_WT" "project=$LEASE_PROJ" "kind=ship" "backend=tmux"
+
+  out=$(run_lease_spawn "$id" "$LEASE_WT")
+  status=$?
+  [ "$status" -ne 0 ] || fail "spawn launched into a copy a record in another local home still names"$'\n'"$out"
+  assert_contains "$out" "task other-task-w6's own record in Firstmate home '$parent' still names as its working copy" \
+    "the refusal did not name the task holding the copy, or the home its record lives in"
+  assert_contains "$out" "(FM_HOME='$parent' bin/fm-crew-state.sh other-task-w6)" \
+    "the refusal printed a reconcile command that reads the spawning home instead of the holding one"
+  [ ! -e "$LEASE_HOME/state/$id.meta" ] || fail "refused spawn published task metadata"
+  log=$(cat "$LEASE_LOG")
+  assert_not_contains "$log" "return" \
+    "the refusal returned the claim, so the next spawn would be offered the same copy again"
+  pass "a record in another locally registered home blocks a spawn into its copy"
+}
+
+# The cross-home scan is fail-closed: a registered home the walk cannot read is
+# exactly the home that might hold the offered copy, so "I could not check" must
+# never become "nothing claims this". What the spawn owes the operator is its
+# OWN refusal - which copy it declined, why an unreadable home blocks it, that
+# the pool claim went back, and which registry to repair - rather than the
+# cleanup-shaped line the shared walk used to print.
+test_unreadable_registry_refuses_the_spawn_and_returns_the_claim() {
+  local shape id out status log reg repair
+  for shape in missing-home malformed-entry symlinked-registry; do
+    id="lease-registry-${shape}-w7"
+    make_lease_case "lease-registry-$shape" "$id"
+    reg="$LEASE_HOME/data/secondmates.md"
+    case "$shape" in
+      missing-home)
+        repair="Repair $reg (registered local Firstmate home is unavailable: $LEASE_HOME/gone), then re-run this spawn."
+        printf -- '- ghost - fixture (home: %s; scope: fixture; projects: sample; added 2026-09-20)\n' \
+          "$LEASE_HOME/gone" > "$reg" ;;
+      malformed-entry)
+        repair="Repair $reg (malformed local Firstmate registry entry in $reg), then re-run this spawn."
+        printf -- '- ghost - fixture (home: %s)\n' "$LEASE_HOME" > "$reg" ;;
+      symlinked-registry)
+        repair="Repair $reg (local Firstmate registry is unsafe at $reg), then re-run this spawn."
+        printf -- '- ghost - fixture (home: %s; scope: fixture; projects: sample; added 2026-09-20)\n' \
+          "$LEASE_HOME" > "$LEASE_HOME/data/registry-elsewhere.md"
+        ln -s "$LEASE_HOME/data/registry-elsewhere.md" "$reg" ;;
+    esac
+
+    out=$(run_lease_spawn "$id" "$LEASE_WT")
+    status=$?
+    [ "$status" -ne 0 ] || fail "$shape: spawn launched although a registered home could not be read"$'\n'"$out"
+    assert_contains "$out" "refusing to launch task $id into the pool copy '$LEASE_WT'" \
+      "$shape: the refusal was not the spawn's own"
+    assert_contains "$out" "cannot be ruled out as the one holding this copy" \
+      "$shape: the refusal did not say why an unreadable home blocks the spawn"
+    assert_contains "$out" "$repair" \
+      "$shape: the refusal did not name the file to repair and the fault in it"
+    assert_not_contains "$out" "remove the entry if that home is gone" \
+      "$shape: the refusal still prescribes an entry edit for a fault that may not be one"
+    [ ! -e "$LEASE_HOME/state/$id.meta" ] || fail "$shape: refused spawn published task metadata"
+    log=$(cat "$LEASE_LOG")
+    assert_contains "$log" \
+      "treehouse${SEP}return${SEP}--force${SEP}--if-lease-holder${SEP}fm:$id@$LEASE_HOME/state${SEP}$LEASE_WT" \
+      "$shape: the refusal said the claim was returned but the pool still holds it"
+  done
+  pass "a home the walk cannot read refuses the spawn by name and gives the claim back"
+}
+
+# The fourth way the walk can fail - this home's own parent marker naming a home
+# that is gone, so the root cannot be resolved at all - never reaches that scan.
+# The shared Treehouse project lock is anchored in the root home, so a pooled
+# spawn refuses one door earlier, before a copy is ever leased. Fail-closed all
+# the same: nothing is launched and no record is published.
+test_unresolvable_root_home_refuses_before_any_copy_is_leased() {
+  local id out status
+  id=lease-root-unresolvable-w8
+  make_lease_case lease-root-unresolvable "$id"
+  printf 'schema=fm-secondmate-parent.v1\nroute=local\nparent_home=%s\n' \
+    "$LEASE_HOME/gone-parent" > "$LEASE_HOME/.fm-secondmate-parent"
+
+  out=$(run_lease_spawn "$id" "$LEASE_WT")
+  status=$?
+  [ "$status" -ne 0 ] || fail "spawn launched although this home's root could not be resolved"$'\n'"$out"
+  [ ! -e "$LEASE_HOME/state/$id.meta" ] || fail "refused spawn published task metadata"
+  assert_not_contains "$(cat "$LEASE_LOG")" "get" \
+    "a spawn that cannot resolve its own root home still leased a pool copy"
+  pass "a home whose root cannot be resolved refuses before any pool copy is leased"
+}
+
+# The same failure one step later: the parent marker breaks AFTER the project
+# lock resolved the root home, so the scan is the first thing to notice - the
+# one path on which no registry entry is at fault. The refusal must still name a
+# file the operator can open, and it is the marker, not a registry it never
+# reached. The fake pool breaks the marker as it hands the copy over, which is
+# exactly the window (lock taken, copy leased, scan not yet run).
+test_root_lost_after_leasing_names_the_parent_marker() {
+  local id out status marker
+  id=lease-root-late-w9
+  make_lease_case lease-root-late "$id"
+  marker="$LEASE_HOME/.fm-secondmate-parent"
+  mv "$LEASE_FAKEBIN/treehouse" "$LEASE_FAKEBIN/treehouse-pool"
+  cat > "$LEASE_FAKEBIN/treehouse" <<SH
+#!/usr/bin/env bash
+set -u
+if [ "\${1:-}" = get ]; then
+  printf 'schema=fm-secondmate-parent.v1\nroute=local\nparent_home=%s\n' \
+    '$LEASE_HOME/gone-parent' > '$marker'
+fi
+exec '$LEASE_FAKEBIN/treehouse-pool' "\$@"
+SH
+  chmod +x "$LEASE_FAKEBIN/treehouse"
+
+  out=$(run_lease_spawn "$id" "$LEASE_WT")
+  status=$?
+  [ "$status" -ne 0 ] || fail "spawn launched although the home's root became unresolvable"$'\n'"$out"
+  assert_contains "$out" "Repair $marker (cannot resolve the root Firstmate home), then re-run this spawn." \
+    "the refusal did not name the parent marker as the file to repair"
+  assert_contains "$out" "cannot be ruled out as the one holding this copy" \
+    "the refusal did not say why an unreadable home blocks the spawn"
+  [ ! -e "$LEASE_HOME/state/$id.meta" ] || fail "refused spawn published task metadata"
+  assert_contains "$(cat "$LEASE_LOG")" \
+    "treehouse${SEP}return${SEP}--force${SEP}--if-lease-holder${SEP}fm:$id@$LEASE_HOME/state${SEP}$LEASE_WT" \
+    "the refusal said the claim was returned but the pool still holds it"
+  pass "a root that becomes unresolvable after leasing names the parent marker to repair"
 }
 
 # The guarantee the whole fix rests on, checked against the real pool rather
@@ -214,7 +359,11 @@ test_spawn_claims_the_slot_with_a_labelled_lease
 test_stalled_allocation_refuses_and_frees_the_project_lock
 test_aborted_spawn_returns_its_claim
 test_copy_another_task_record_claims_is_refused_by_name
-test_a_record_holding_its_own_claim_does_not_block_a_spawn
+test_a_record_whose_claim_was_released_still_blocks_a_spawn
+test_a_record_in_another_local_home_blocks_a_spawn
+test_unreadable_registry_refuses_the_spawn_and_returns_the_claim
+test_unresolvable_root_home_refuses_before_any_copy_is_leased
+test_root_lost_after_leasing_names_the_parent_marker
 test_real_pool_does_not_hand_out_a_leased_slot
 
 echo "# all fm-spawn-worktree-lease tests passed"

@@ -373,6 +373,14 @@ SH
 # FM_TREEHOUSE_LOG is set the holder label `get --lease-holder` recorded is kept
 # beside it, and `return --if-lease-holder` releases the slot only when the
 # label matches - the lease precondition the real pool enforces.
+#
+# FM_FAKE_LEASE_QUEUE names a file holding one copy per line, and each lease
+# pops the next one. That models the guarantee a single fake path cannot: a real
+# pool never hands the same copy to two live tasks, so a suite spawning more
+# than one task needs a copy per task or it is testing a pool that does not
+# exist. The copy handed out is written to <queue>.current, which
+# fm_test_fake_tmux_spawn reports as the pane path, so the pane follows the pool
+# the way a real pane follows the directory it is told to enter.
 fm_test_fake_treehouse_lease() {
   local fakebin=$1
   cat > "$fakebin/treehouse" <<'SH'
@@ -406,7 +414,19 @@ case "$sub" in
   get)
     if [ "$lease" = 1 ]; then
       [ -z "$holder_state" ] || printf '%s\n' "$holder" > "$holder_state"
-      printf '%s\n' "${FM_FAKE_LEASE_PATH:-${FM_FAKE_PANE_PATH:-}}"
+      if [ -n "${FM_FAKE_LEASE_QUEUE:-}" ]; then
+        leased=$(head -1 "$FM_FAKE_LEASE_QUEUE" 2>/dev/null) || leased=
+        if [ -z "$leased" ]; then
+          echo "fake treehouse: lease queue is empty" >&2
+          exit 1
+        fi
+        tail -n +2 "$FM_FAKE_LEASE_QUEUE" > "$FM_FAKE_LEASE_QUEUE.rest" &&
+          mv "$FM_FAKE_LEASE_QUEUE.rest" "$FM_FAKE_LEASE_QUEUE"
+        printf '%s\n' "$leased" > "$FM_FAKE_LEASE_QUEUE.current"
+        printf '%s\n' "$leased"
+      else
+        printf '%s\n' "${FM_FAKE_LEASE_PATH:-${FM_FAKE_PANE_PATH:-}}"
+      fi
     fi
     ;;
   return)
