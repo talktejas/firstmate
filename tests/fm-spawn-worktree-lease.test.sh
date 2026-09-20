@@ -48,11 +48,10 @@ run_lease_spawn() {  # <id> <pane-path>
 # Allocation happens under the shared Treehouse project lock, so a `treehouse
 # get` that never returns - a stalled fetch, a hung credential helper - would
 # wedge every other spawn for the project behind a lock nothing releases. The
-# bound must refuse, name what the stall may have left behind, and give the lock
-# back: a second spawn hits the same bound rather than "another Treehouse slot
-# allocation or return is in progress".
+# bound must refuse, name what the stall may have left behind, and leave no
+# project lockdir behind.
 test_stalled_allocation_refuses_and_frees_the_project_lock() {
-  local id out status again
+  local id out status held
   id=lease-stall-w5
   make_lease_case lease-stall "$id"
   cat > "$LEASE_FAKEBIN/treehouse" <<'SH'
@@ -74,9 +73,12 @@ SH
     "the refusal did not name the holder a half-created slot would carry"
   [ ! -e "$LEASE_HOME/state/$id.meta" ] || fail "a refused allocation published task metadata"
 
-  again=$(FM_TREEHOUSE_GET_TIMEOUT=1 run_lease_spawn "$id" "$LEASE_WT" 2>&1)
-  assert_not_contains "$again" "another Treehouse slot allocation or return is in progress" \
-    "the timed-out spawn kept the shared project lock, so the next spawn cannot allocate at all"
+  # The lock itself, not a later spawn's ability to take one: fm_lock_try_acquire
+  # steals a lockdir whose recorded process is gone, so a second spawn allocates
+  # either way and proves nothing. The lockdir under this home's state directory
+  # (fm_treehouse_project_lock_path) is the observable the release owns.
+  held=$(find "$LEASE_HOME/state" -maxdepth 1 -name '.treehouse-project-*.lock' 2>/dev/null)
+  [ -z "$held" ] || fail "the timed-out spawn kept the shared Treehouse project lock: $held"
   pass "a stalled allocation refuses within its bound and gives the project lock back"
 }
 

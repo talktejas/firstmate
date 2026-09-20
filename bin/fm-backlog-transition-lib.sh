@@ -336,9 +336,8 @@ fm_backlog_transition_applies() {  # <config-dir> <data-dir> <kind>
 # (TERM at the bound, KILL after that grace) and the watchdog kills the
 # same way. When a bound was requested but no bounding mechanism exists at
 # all, the call fails closed instead of running unbounded. Must be the last
-# command of a subshell: the exec keeps the tasks-axi process exactly where
+# command of a subshell: the exec keeps the bounded process exactly where
 # the plain call sat, and the bound kills the child, not the caller.
-# fm_tasks_axi is the tasks-axi-shaped wrapper the backlog paths call.
 fm_run_bounded_timed_out() {  # <status>
   case $1 in
     124 | 137) return 0 ;;
@@ -357,9 +356,9 @@ fm_run_bounded() {  # <bound-seconds-or-empty> <command> [arg...]
   elif command -v gtimeout >/dev/null 2>&1; then
     exec gtimeout -k "$bound" "$bound" "$@"
   elif command -v perl >/dev/null 2>&1; then
-    # Fork, run tasks-axi in the child, and poll waitpid(WNOHANG) until the
+    # Fork, run the command in the child, and poll waitpid(WNOHANG) until the
     # child exits or the bound expires: the same contract as
-    # `timeout $bound tasks-axi ...`. Expiry kills the child with TERM, waits
+    # `timeout $bound <command> ...`. Expiry kills the child with TERM, waits
     # one further bound of grace, then KILL, and exits 124 so the callers'
     # timeout plumbing reports it. Polling rather than alarm+die keeps the
     # bound off perl's platform-dependent syscall-restart signal semantics.
@@ -397,6 +396,7 @@ fm_run_bounded() {  # <bound-seconds-or-empty> <command> [arg...]
   exit 127
 }
 
+# The tasks-axi-shaped wrapper the backlog paths call.
 fm_tasks_axi() {
   fm_run_bounded "${FM_TASKS_AXI_TIMEOUT:-}" tasks-axi "$@"
 }

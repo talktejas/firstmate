@@ -1226,7 +1226,7 @@ spawn_abort_cleanup() {
   if [ "$SPAWN_FRESH_COMMIT_PENDING" = 1 ]; then
     if spawn_fresh_commit_rollback; then
       if [ "$SPAWN_TREEHOUSE_LEASE_PENDING" != 1 ] && [ -n "$SPAWN_TREEHOUSE_LEASE_HOLDER" ]; then
-        echo "warning: the record removed by failed-dispatch cleanup was what named task $ID's pool claim on $SPAWN_TREEHOUSE_LEASE_PATH; a worker may already be live in that copy, so inspect it first, then release the claim with: treehouse return --force --if-lease-holder '$SPAWN_TREEHOUSE_LEASE_HOLDER' '$SPAWN_TREEHOUSE_LEASE_PATH'" >&2
+        echo "warning: the record removed by failed-dispatch cleanup was what named task $ID's pool claim on $SPAWN_TREEHOUSE_LEASE_PATH; a worker may already be live in that copy, so inspect it first, then release the claim with: (cd '$PROJ_ABS' && treehouse return --force --if-lease-holder '$SPAWN_TREEHOUSE_LEASE_HOLDER' '$SPAWN_TREEHOUSE_LEASE_PATH')" >&2
       fi
     else
       status=1
@@ -1266,7 +1266,7 @@ spawn_abort_cleanup() {
     SPAWN_LEASE_RELEASE_OUT=$( cd "$PROJ_ABS" && treehouse return --force \
         --if-lease-holder "$SPAWN_TREEHOUSE_LEASE_HOLDER" \
         "$SPAWN_TREEHOUSE_LEASE_PATH" 2>&1 ) \
-      || echo "warning: could not release the treehouse lease on $SPAWN_TREEHOUSE_LEASE_PATH held as $SPAWN_TREEHOUSE_LEASE_HOLDER (treehouse said: ${SPAWN_LEASE_RELEASE_OUT:-nothing}); release it with: treehouse return --force --if-lease-holder '$SPAWN_TREEHOUSE_LEASE_HOLDER' '$SPAWN_TREEHOUSE_LEASE_PATH'" >&2
+      || echo "warning: could not release the treehouse lease on $SPAWN_TREEHOUSE_LEASE_PATH held as $SPAWN_TREEHOUSE_LEASE_HOLDER (treehouse said: ${SPAWN_LEASE_RELEASE_OUT:-nothing}); release it with: (cd '$PROJ_ABS' && treehouse return --force --if-lease-holder '$SPAWN_TREEHOUSE_LEASE_HOLDER' '$SPAWN_TREEHOUSE_LEASE_PATH')" >&2
   fi
   if [ "$SPAWN_TREEHOUSE_PROJECT_LOCK_HELD" = 1 ]; then
     SPAWN_TREEHOUSE_PROJECT_LOCK_HELD=0
@@ -3789,7 +3789,7 @@ elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
     [ "$(real_path_or_raw "$spawn_other_wt")" = "$spawn_wt_claim" ] || continue
     SPAWN_TREEHOUSE_LEASE_PENDING=0
     echo "error: the pool offered '$WT', which task $spawn_other_id's own record still names as its working copy; refusing to launch task $ID into it and reset another worker's work" >&2
-    echo "That copy is now held under '$SPAWN_TREEHOUSE_LEASE_HOLDER' so it is not offered again; reconcile whichever record is wrong (bin/fm-crew-state.sh $spawn_other_id), then release it with: treehouse return --force --if-lease-holder '$SPAWN_TREEHOUSE_LEASE_HOLDER' '$WT'" >&2
+    echo "That copy is now held under '$SPAWN_TREEHOUSE_LEASE_HOLDER' so it is not offered again; reconcile whichever record is wrong (bin/fm-crew-state.sh $spawn_other_id), then release it with: (cd '$PROJ_ABS' && treehouse return --force --if-lease-holder '$SPAWN_TREEHOUSE_LEASE_HOLDER' '$WT')" >&2
     echo "Re-running this spawn is safe: it is given a different copy." >&2
     exit 1
   done
@@ -4783,7 +4783,7 @@ if [ "$SPAWN_BACKLOG_COMMIT_STATUS" -ne 0 ]; then
     if spawn_fresh_commit_rollback; then
       SPAWN_LEASE_RECOVERY=
       if [ -n "$SPAWN_TREEHOUSE_LEASE_HOLDER" ]; then
-        SPAWN_LEASE_RECOVERY="; the removed record was what named this task's pool claim, so release it with: treehouse return --force --if-lease-holder '$SPAWN_TREEHOUSE_LEASE_HOLDER' '$WT'"
+        SPAWN_LEASE_RECOVERY="; the removed record was what named this task's pool claim, so release it with: (cd '$PROJ_ABS' && treehouse return --force --if-lease-holder '$SPAWN_TREEHOUSE_LEASE_HOLDER' '$WT')"
       fi
       echo "error: task $ID's backlog item could not be moved to In flight ($FM_BACKLOG_TRANSITION_ERROR); its record was removed so no worker is left that the backlog does not own - close out endpoint $T and local copy $WT by hand, then re-run the spawn$SPAWN_LEASE_RECOVERY" >&2
     else
