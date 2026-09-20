@@ -307,8 +307,10 @@
           <option value="branch">Project + branch</option>
           <option value="latest">Latest first</option>
           <option value="oldest">Oldest first</option>
+          <!-- Approved proposal section 6 names flat as its own selector entry. -->
           <option value="none">Nothing — one flat list</option>
         </select>
+        <!-- Approved proposal section 4: a state filter, so things are findable without scrolling. -->
         <select id="statefilter" title="Filter by state">
           <option value="">Any state</option>
           <option value="stuck">Stuck</option>
@@ -327,6 +329,7 @@
   <main class="main" id="main"></main>
 </div>
 
+<!-- Approved proposal section 3: everything the captain types is logged, a note included. -->
 <dialog id="note-dlg">
   <form method="dialog" class="dlg">
     <h3>Note to firstmate</h3>
@@ -434,6 +437,7 @@ function haystack(it){
     .filter(Boolean).join(' ').toLowerCase();
 }
 
+// Approved proposal section 4: the named state filter, so things are findable without scrolling.
 function passesState(it){
   switch (state.sfilter){
     case 'stuck':    return isStuck(it);
@@ -455,6 +459,7 @@ function visible(){
 // "Latest first" and "Oldest first" drop the grouping entirely and order by the
 // best time each row actually has. A row with no honest time is never given a
 // position among the dated ones: it sits in its own tail and says why.
+// 'none' is approved proposal section 6's flat entry: unsorted, not Latest first.
 const FLAT = new Set(['none','latest','oldest']);
 function groupOf(it){
   const p = projectOf(it);
@@ -730,9 +735,10 @@ async function poll(){
     if (!res.ok && res.status !== 304) throw new Error('HTTP ' + res.status);
     if (state.connected === false){
       state.connected = true;
+      state.error = null;
       $('#live').innerHTML = '<span class="beat"></span>Live';
+      renderWatcher();
     }
-    if (state.error){ state.error = null; renderWatcher(); }
     if (res.status === 304) return;
     state.etag = res.headers.get('ETag');
     const next = await res.json();

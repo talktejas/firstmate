@@ -87,7 +87,8 @@ class Records:
     def _run(self, args, timeout):
         env = dict(os.environ, FM_HOME=self.home)
         return subprocess.run(
-            args, capture_output=True, text=True, timeout=timeout, env=env, check=False
+            args, capture_output=True, text=True, timeout=timeout, env=env,
+            stdin=subprocess.DEVNULL, check=False
         )
 
     def refresh(self, min_interval=1.0):
@@ -211,7 +212,7 @@ def send_answer(home_path, item, text):
                 [os.path.join(BIN, "fm-captain-hold.sh"), "answer", item["id"],
                  "--decision-file", tmp],
                 capture_output=True, text=True, timeout=SEND_TIMEOUT,
-                env=env, check=False,
+                env=env, stdin=subprocess.DEVNULL, check=False,
             )
         finally:
             os.unlink(tmp)
@@ -223,7 +224,7 @@ def send_answer(home_path, item, text):
         args.append(text)
         proc = subprocess.run(
             args, capture_output=True, text=True, timeout=SEND_TIMEOUT,
-            env=env, check=False,
+            env=env, stdin=subprocess.DEVNULL, check=False,
         )
         route = f"fm-send.sh {item['id']}"
     detail = (proc.stdout + proc.stderr).strip()[:600]
@@ -231,10 +232,13 @@ def send_answer(home_path, item, text):
 
 
 def send_note(home_path, text):
+    # Approved proposal section 3: the captain's words are logged even when they
+    # answer no item, so a note with no addressee is a channel this surface owes.
     proc = subprocess.run(
         [os.path.join(BIN, "fm-inbox.sh"), "note", text],
         capture_output=True, text=True, timeout=SEND_TIMEOUT,
-        env=dict(os.environ, FM_HOME=home_path), check=False,
+        env=dict(os.environ, FM_HOME=home_path),
+        stdin=subprocess.DEVNULL, check=False,
     )
     detail = (proc.stdout + proc.stderr).strip()[:600]
     return proc.returncode == 0, "fm-inbox.sh note", detail
@@ -374,7 +378,13 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if path == "/api/note":
-            ok, route, detail = send_note(self.records.home, text)
+            # Approved proposal section 3: a note attached to no item still goes
+            # in the captain's log, so this endpoint is part of that promise.
+            try:
+                ok, route, detail = send_note(self.records.home, text)
+            except subprocess.SubprocessError as exc:
+                self._json(502, {"ok": False, "error": f"delivery failed: {exc}"})
+                return
             warn = record_said(self.records.home, {
                 "at": utc_now(), "kind": "note", "home": "main",
                 "text": text, "route": route, "delivered": ok, "detail": detail,

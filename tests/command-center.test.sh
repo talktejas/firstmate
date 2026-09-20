@@ -347,6 +347,35 @@ test_answering_a_hold_records_the_captains_words_and_clears_the_item() {
   pass "an answer reaches the task record, the captain's log, and leaves the list"
 }
 
+# A firstmate script that reads stdin must not be able to block the server on
+# whatever terminal it was started in. "-" is fm-inbox.sh's read-from-stdin
+# argument, so this server is started with a stdin that stays open and silent.
+test_a_script_that_reads_stdin_cannot_hang_the_server() {
+  local home port code
+  home="$TMP_ROOT/stdin"
+  seed_home "$home"
+  port=$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1]);s.close()')
+  sleep 45 | FM_ROOT_OVERRIDE="$ROOT" python3 "$SERVER" --port "$port" --home "$home" \
+    > "$home/server.log" 2>&1 &
+  SERVER_PID=$!
+  local ready=
+  for _ in $(seq 1 60); do
+    curl -sf -m 2 -o /dev/null "http://127.0.0.1:$port/" && { ready=1; break; }
+    kill -0 "$SERVER_PID" 2>/dev/null || break
+    sleep 1
+  done
+  [ -n "$ready" ] || fail "the server did not start"
+  code=$(curl -s -m 15 -o /dev/null -w '%{http_code}' -X POST \
+    -H 'Content-Type: application/json' -d '{"text":"-"}' \
+    "http://127.0.0.1:$port/api/note")
+  stop_server
+  case "$code" in
+    200|502) ;;
+    *) fail "the note endpoint never answered (got '$code'): a child read the server's stdin" ;;
+  esac
+  pass "a note that would read stdin is answered instead of hanging the server"
+}
+
 trap stop_server EXIT
 
 test_only_live_captain_holds_are_carded
@@ -359,3 +388,4 @@ test_fingerprint_changes_only_when_a_record_moves
 test_server_serves_the_page_and_the_records
 test_server_refuses_bad_input_before_running_anything
 test_answering_a_hold_records_the_captains_words_and_clears_the_item
+test_a_script_that_reads_stdin_cannot_hang_the_server
