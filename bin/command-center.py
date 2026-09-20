@@ -303,10 +303,13 @@ def send_answer(home_path, item, text):
             # Killed mid-flight: the steer may already sit on the worker's
             # inbox, and saying "not sent" is what invites a second delivery.
             return "unknown", route, str(exc), mode
-        # fm-send.sh distinguishes only confirmed (0) from unconfirmed (3); its
-        # remaining nonzero exits conflate a refusal with a delivery it could
-        # not read back, so delivery is genuinely unknown and unknown is what a
-        # surface that never guesses has to say.
+        # fm-send.sh reports confirmed (0), typed-plane unconfirmed (3) and
+        # inbox-plane delivered-but-not-closed (4); its remaining nonzero exits
+        # conflate a refusal with a delivery it could not read back, so delivery
+        # is genuinely unknown and unknown is what a surface that never guesses
+        # has to say. Exit 4 is a delivered steer whose decision-close append
+        # failed, and this server still reads it as unknown; reporting it as its
+        # own outcome is a separate change.
         outcome = {0: "sent", 3: "unknown"}.get(proc.returncode, "unknown")
     detail = (proc.stdout + proc.stderr).strip()
     return outcome, route, detail[:600], mode
