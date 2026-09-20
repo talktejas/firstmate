@@ -614,11 +614,11 @@ test_budget_too_small_for_one_observation_is_reported() {
   mutate_record "$home" delivery '.records[0].checked_at="2026-09-15T08:00:00Z"'
   /bin/date +%s > "$home/forge/clock"
   printf 'exhaust\n' > "$home/forge/fault"
-  expected='contributions: observation needs more than the 2s poll budget for https://github.com/o/r/pull/8; raise FM_CHECK_TIMEOUT to at least 123s'
+  expected='contributions: observation needs more than the 2s poll budget for https://github.com/o/r/pull/8; raise FM_CHECK_TIMEOUT to at least 138s'
   out=$(with_home "$home" env FM_CONTRIBUTIONS_BUDGET=2 "$ROOT/bin/fm-contributions.sh" poll) \
     || fail 'poll failed when its whole budget went to one observation'
   [ "$out" = "$expected" ] || fail "a budget too small for one observation was not reported: $out"
-  jq -e --arg now "$NOW" --arg error 'forge observation needs more than the 2s poll budget; raise FM_CHECK_TIMEOUT to at least 123s' '
+  jq -e --arg now "$NOW" --arg error 'forge observation needs more than the 2s poll budget; raise FM_CHECK_TIMEOUT to at least 138s' '
     .records[0].checked_at == $now and .records[0].error == $error' \
     "$home/data/delivery/contributions.json" >/dev/null \
     || fail 'a budget too small for one observation left no actionable evidence'

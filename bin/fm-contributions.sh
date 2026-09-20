@@ -33,16 +33,18 @@
 # poll consumes fm-fleet-snapshot.sh --contribution-input, a local-only read,
 # and spends at most FM_CONTRIBUTIONS_BUDGET seconds on forge reads (default
 # 20). The watcher kills this check at FM_CHECK_TIMEOUT (default 30) seconds,
-# so the budget is cut to FM_CHECK_TIMEOUT minus three: 27 seconds by default.
-# Each gh call is bounded by the remaining budget and
-# FM_CONTRIBUTIONS_CALL_TIMEOUT seconds (default 15, cut below the budget so a
-# per-call kill is never mistaken for the deadline). The 15-second default
-# leaves headroom over the 12.2-second slow-link forge call observed in the
-# contributions-poll incident. A PR costs eight sequential calls, so observing
-# one at that bound needs 8 x 15 = 120 seconds of budget and therefore
-# FM_CHECK_TIMEOUT 123. When the whole budget goes to one PR and it still does
-# not finish, the poll records that URL unavailable naming the bound it needs,
-# rather than leaving it silently unobserved poll after poll.
+# so the budget is capped at FM_CHECK_TIMEOUT minus three: 27 seconds by
+# default, which leaves the default 20 untouched. Each gh call is bounded by
+# the remaining budget and FM_CONTRIBUTIONS_CALL_TIMEOUT seconds (default 15,
+# cut below the budget so a per-call kill is never mistaken for the deadline).
+# The 15-second default leaves headroom over the 12.2-second slow-link forge
+# call observed in the contributions-poll incident. A PR costs eight
+# sequential calls, so observing one at that bound needs 8 x 15 = 120 seconds
+# of forge time plus the local work between reads; the advised bound carries a
+# ninth call of margin for it, so FM_CHECK_TIMEOUT 9 x 15 + 3 = 138. When the
+# whole budget goes to one PR and it still does not finish, the poll records
+# that URL unavailable naming the bound it needs, rather than leaving it
+# silently unobserved poll after poll.
 # Oldest observations go first, so a large corpus progresses across polls.
 # Each distinct URL is observed once per poll and applied to every owner. A
 # final observation applies to every owner without another forge read. When
@@ -100,11 +102,11 @@ case "$MAX_AGE" in ''|*[!0-9]*) fail 'invalid freshness bound' ;; esac
 case "$BUDGET" in ''|*[!0-9]*|0) fail 'poll budget must be a whole number of seconds' ;; esac
 case "$CALL_TIMEOUT" in ''|*[!0-9]*|0) fail 'per-call timeout must be a whole number of seconds' ;; esac
 case "$CHECK_TIMEOUT" in ''|*[!0-9]*|0) CHECK_TIMEOUT=30 ;; esac
-# Eight sequential calls observe one PR, and fm_run_timed plus the watcher's
-# own kill need the same three-second margin the mail and tool-update checks
-# leave, so this is the watcher bound one observation costs at this per-call
-# timeout.
-NEEDED_CHECK_TIMEOUT=$((8 * CALL_TIMEOUT + 3))
+# Eight sequential calls observe one PR; a ninth call of margin covers the
+# local work between reads, and the three seconds are the same kill margin the
+# mail and tool-update checks leave. This is the watcher bound one observation
+# needs at this per-call timeout.
+NEEDED_CHECK_TIMEOUT=$((9 * CALL_TIMEOUT + 3))
 # The watcher kills this check at FM_CHECK_TIMEOUT; a budget past that bound
 # would be killed mid-observation with nothing recorded.
 BUDGET_MAX=$((CHECK_TIMEOUT - 3))
