@@ -1225,6 +1225,7 @@ fm_firstmate_root_home() {
 FM_LOCAL_STATES_ERROR=
 FM_LOCAL_STATES_ERROR_HOME=
 FM_LOCAL_STATES_ERROR_REGISTRY=
+# shellcheck disable=SC2034 # The FM_LOCAL_STATES_ERROR* output globals are read by the sourcing caller's refusal.
 collect_local_firstmate_states() {  # <record-state-dir>
   local record_state=$1 root home reg line child known existing i=0
   local -a homes
