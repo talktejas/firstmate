@@ -229,6 +229,31 @@ epoch_of() {  # <file>
   [ -e "$1" ] && stat -c '%Y' "$1" 2>/dev/null || printf ''
 }
 
+# ONE KNOWN MACHINE LINE NEVER REACHES HIS SCREEN. A no-mistakes ask-user gate
+# reports itself as `ask-user findings=<ids> file=<path>` (bin/fm-dod-lib.sh
+# rule 6): ids and a path, with the content deliberately left in the file
+# rather than the line. That is bookkeeping, not something firstmate said to
+# him, so such a row is stated plainly from what is known instead.
+#
+# EVERY OTHER NOTE IS THE WORKER'S OWN SENTENCE AND IS SHOWN AS WRITTEN. The
+# options he is being asked to choose between are the whole value of the row,
+# and a path or an id in the middle of a question is a far smaller price than
+# losing the question.
+status_line() {  # <note> <verb> <project>
+  local note=$1 verb=$2 project=$3 said
+  case "$note" in
+    'ask-user findings='*' file='*) ;;
+    *) printf '%s\n' "$note"; return 0 ;;
+  esac
+  said='stopped and needs a decision from you'
+  [ "$verb" = blocked ] && said='stopped and cannot go on'
+  if [ -n "$project" ]; then
+    printf 'A worker on %s %s.\n' "$project" "$said"
+  else
+    printf 'A worker %s.\n' "$said"
+  fi
+}
+
 # One item object. `source` says which record it came from, because the two are
 # answered through different commands and the server must not guess.
 emit_item() {  # <home-id> <state-dir> <id> <source> <key> <title> <detail> <repo> <kind>
@@ -301,7 +326,7 @@ scan_home() {  # <home-id> <home-name> <home-path>
   local hid=$1 hpath=$3 backlog
   local state=$hpath/state
   local id title repo kind since hold body
-  local task key verb note
+  local task key verb note project line
 
   backlog=$(backlog_path "$hpath") || backlog=
   if [ -n "$backlog" ] && [ -r "$backlog" ]; then
@@ -321,11 +346,13 @@ scan_home() {  # <home-id> <home-name> <home-path>
   [ -d "$state" ] || return 0
   while IFS=$'\t' read -r task key verb note; do
     [ -n "$task" ] || continue
+    project=$(meta_get "$state/$task.meta" project | sed 's#.*/##')
+    line=$(status_line "$note" "$verb" "$project")
     # `blocked` and `needs-decision` both stop a worker, but they mean different
     # things to the person answering, so the verb travels with the item.
     STATUS_VERB=$verb
-    emit_item "$hid" "$state" "$task" status "$key" "$note" "$note" \
-      "$(meta_get "$state/$task.meta" project | sed 's#.*/##')" ""
+    emit_item "$hid" "$state" "$task" status "$key" "$line" "$line" \
+      "$project" ""
     unset STATUS_VERB
   done < <(scan_open_decisions "$state")
 }

@@ -8,6 +8,7 @@ set -u
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 SCAN="$ROOT/bin/command-center-scan.sh"
+RECORD="$ROOT/bin/fm-captain-message.sh"
 SERVER="$ROOT/bin/command-center.py"
 TMP_ROOT=$(fm_test_tmproot command-center)
 
@@ -357,6 +358,20 @@ post() {  # <port> <path> <json>
     "http://127.0.0.1:$1$2"
 }
 
+# The click does not wait on a shell command: the server records his words and
+# answers at once, then writes the outcome under the same sid. The page shows
+# that second row in place, and so do these tests.
+wait_outcome() {  # <home> <sid>  -> the resolved record row on stdout
+  local home=$1 sid=$2 row
+  for _ in $(seq 1 160); do
+    row=$(jq -c --arg s "$sid" 'select(.sid == $s and .outcome != "sending")' \
+      "$home/data/command-center/said.jsonl" 2>/dev/null | tail -1)
+    [ -n "$row" ] && { printf '%s\n' "$row"; return 0; }
+    sleep 0.25
+  done
+  return 1
+}
+
 test_server_serves_the_page_and_the_records() {
   local home port body
   home="$TMP_ROOT/http"
@@ -502,7 +517,7 @@ test_server_refuses_bad_input_before_running_anything() {
 # The whole point of the surface: his words reach the durable record, and the
 # one thing firstmate does not keep is kept here.
 test_answering_a_hold_records_the_captains_words_and_clears_the_item() {
-  local home port result
+  local home port result resolved
   home="$TMP_ROOT/answer"
   mkdir -p "$home/data" "$home/state"
   FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
@@ -518,8 +533,11 @@ test_answering_a_hold_records_the_captains_words_and_clears_the_item() {
   port=$SERVER_PORT
   result=$(post "$port" /api/answer \
     '{"home":"main","id":"cc-answer","source":"hold","key":"cc-answer","text":"Green. Blue reads as disabled."}')
-  assert_contains "$result" '"ok":true' "the answer was not delivered"
-  assert_contains "$result" 'fm-captain-hold.sh answer' \
+  assert_contains "$result" '"ok":true' "the answer was not accepted"
+  resolved=$(wait_outcome "$home" "$(jq -r .sid <<<"$result")") \
+    || fail "the outcome of the send never reached the record"
+  assert_contains "$resolved" '"outcome":"sent"' "the answer was not delivered"
+  assert_contains "$resolved" 'fm-captain-hold.sh answer' \
     "a held decision was not answered through the script that owns decision records"
 
   assert_grep 'Green. Blue reads as disabled.' "$home/data/backlog.md" \
@@ -544,7 +562,7 @@ test_answering_a_hold_records_the_captains_words_and_clears_the_item() {
 # Work held pending his answer is not: answering it must lift the hold so the
 # work resumes, because marking unstarted work complete cannot be undone.
 test_answering_held_work_releases_it_instead_of_closing_it() {
-  local home port shown
+  local home port shown result
   home="$TMP_ROOT/release"
   mkdir -p "$home/data" "$home/state"
   FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
@@ -558,9 +576,11 @@ test_answering_held_work_releases_it_instead_of_closing_it() {
 
   start_server "$home" || fail "the server did not start"
   port=$SERVER_PORT
-  assert_contains "$(post "$port" /api/answer \
-      '{"home":"main","id":"cc-work","source":"hold","key":"cc-work","text":"Go with green."}')" \
-    '"ok":true' "held work could not be answered"
+  result=$(post "$port" /api/answer \
+    '{"home":"main","id":"cc-work","source":"hold","key":"cc-work","text":"Go with green."}')
+  assert_contains "$result" '"ok":true' "held work could not be answered"
+  wait_outcome "$home" "$(jq -r .sid <<<"$result")" >/dev/null \
+    || fail "the outcome of the send never reached the record"
   assert_equals "release" \
     "$(curl -s -m 30 "http://127.0.0.1:$port/api/said" \
         | jq -r '[.said[] | select(.item == "cc-work")][0].mode')" \
@@ -578,7 +598,7 @@ test_answering_held_work_releases_it_instead_of_closing_it() {
 
 # Closing real work as done is not a guess worth making.
 test_a_held_row_with_no_kind_is_refused_rather_than_guessed() {
-  local home port result
+  local home port result resolved
   home="$TMP_ROOT/nokind"
   mkdir -p "$home/data" "$home/state"
   {
@@ -589,10 +609,12 @@ test_a_held_row_with_no_kind_is_refused_rather_than_guessed() {
   port=$SERVER_PORT
   result=$(post "$port" /api/answer \
     '{"home":"main","id":"cc-bare","source":"hold","key":"cc-bare","text":"Green."}')
+  resolved=$(wait_outcome "$home" "$(jq -r .sid <<<"$result")") \
+    || fail "the outcome of the send never reached the record"
   stop_server
-  assert_contains "$result" '"outcome":"failed"' \
+  assert_contains "$resolved" '"outcome":"failed"' \
     "a row that cannot be classified was answered anyway"
-  assert_contains "$result" 'cannot tell a question from work' \
+  assert_contains "$resolved" 'cannot tell a question from work' \
     "the refusal did not say why nothing was sent"
   assert_not_contains "$(cat "$home/data/backlog.md")" 'Green.' \
     "a refused send still reached the task record"
@@ -623,13 +645,13 @@ test_a_note_of_just_a_dash_is_queued_and_never_hangs_the_server() {
   # is just a note, and it must reach the inbox like any other.
   body=$(curl -s -m 15 -X POST -H 'Content-Type: application/json' \
     -d '{"text":"-"}' "http://127.0.0.1:$port/api/note")
-  stop_server
   [ -n "$body" ] || fail "the note endpoint never answered: a child read the server's stdin"
-  assert_contains "$body" '"outcome":"sent"' \
+  assert_contains "$(wait_outcome "$home" "$(jq -r .sid <<<"$body")")" '"outcome":"sent"' \
     "a note of exactly a dash was not reported as queued"
   assert_equals "-" \
     "$(cat "$home"/state/inbox/*.note 2>/dev/null | sed -n '/^--$/,$p' | tail -n +2)" \
     "a note of exactly a dash never reached the inbox"
+  stop_server
   pass "a note of exactly a dash is queued, and no child can hang the server"
 }
 
@@ -802,6 +824,565 @@ $out"
   pass "the page's $out decision rules hold"
 }
 
+# --- what firstmate SAID to him ---------------------------------------------
+# The whole point of the page: firstmate's work records are not a record of the
+# messages it sent him, so bin/fm-captain-message.sh writes them down and the
+# server reads them back.
+say() {  # <home> <title> <text> [extra args...]
+  local home=$1 title=$2 text=$3
+  shift 3
+  FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$RECORD" --title "$title" "$@" "$text"
+}
+
+test_a_message_names_the_project_the_worktree_and_the_branch() {
+  local home row wt
+  home="$TMP_ROOT/record"
+  seed_home "$home"
+  wt="$home/wt"
+  git init -q "$wt"
+  git -C "$wt" checkout -q -b fm/colour
+  printf 'project=/home/captain/p/demo\nworktree=%s\n' "$wt" > "$home/state/cc-live.meta"
+
+  say "$home" "The colour call is ready" "Blue or green?" --task cc-live >/dev/null \
+    || fail "the recorder refused a message"
+  row=$(tail -1 "$home/data/captain-messages.jsonl")
+
+  assert_equals demo "$(jq -r .project <<<"$row")" \
+    "a message recorded against a task did not carry its project"
+  assert_equals "$wt" "$(jq -r .worktree <<<"$row")" \
+    "a message recorded against a task did not carry its worktree"
+  assert_equals fm/colour "$(jq -r .branch <<<"$row")" \
+    "a message recorded against a task did not carry its branch"
+  assert_equals "Blue or green?" "$(jq -r .text <<<"$row")" \
+    "the message text was not recorded"
+  pass "a recorded message names its project, its worktree and its branch"
+}
+
+test_a_field_nothing_knows_is_recorded_as_unknown_not_guessed() {
+  local home row
+  home="$TMP_ROOT/unknown"
+  seed_home "$home"
+  say "$home" "Nothing to do with a project" "A fleet-wide note." >/dev/null \
+    || fail "the recorder refused a message with no task"
+  row=$(tail -1 "$home/data/captain-messages.jsonl")
+  assert_equals null "$(jq -r '.project // "null"' <<<"$row")" \
+    "a project nothing recorded was filled in with a guess"
+  assert_equals null "$(jq -r '.branch // "null"' <<<"$row")" \
+    "a branch nothing recorded was filled in with a guess"
+  pass "a field nothing knows is recorded as unknown rather than guessed"
+}
+
+test_the_recorder_refuses_a_message_with_no_title_or_no_text() {
+  local home
+  home="$TMP_ROOT/refuse"
+  seed_home "$home"
+  ! FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$RECORD" "no title given" 2>/dev/null \
+    || fail "a message with no title was recorded anyway"
+  ! say "$home" "A title" "   " 2>/dev/null \
+    || fail "an empty message was recorded anyway"
+  pass "the recorder refuses a message with no title or no text"
+}
+
+# THE ONE THING THAT DECIDES WHETHER THIS IS DONE. He was away; firstmate spoke
+# several times; he opens the page and every one of them is there, newest first,
+# with nothing dropped and nothing added that he never saw.
+test_every_message_sent_while_he_was_away_comes_back_in_order() {
+  local home port body i titles
+  home="$TMP_ROOT/away"
+  seed_home "$home"
+  for i in 1 2 3 4 5; do
+    say "$home" "Message $i" "Body of message $i" --project demo >/dev/null
+  done
+  start_server "$home" || fail "the server did not start"
+  port=$SERVER_PORT
+  body=$(curl -s -m 30 "http://127.0.0.1:$port/api/messages")
+  stop_server
+
+  assert_equals 5 "$(jq '.messages | length' <<<"$body")" \
+    "a message firstmate sent while he was away did not come back"
+  titles=$(jq -r '[.messages[].title] | join(",")' <<<"$body")
+  assert_equals "Message 5,Message 4,Message 3,Message 2,Message 1" "$titles" \
+    "the messages did not come back newest first, in order"
+  assert_equals "Body of message 3" \
+    "$(jq -r '.messages[] | select(.title == "Message 3") | .text' <<<"$body")" \
+    "a message came back without the text he was meant to read"
+  assert_not_contains "$body" 'cc-live' \
+    "internal bookkeeping he was never sent was served as one of his messages"
+  pass "every message sent while he was away comes back, in order, with nothing else"
+}
+
+test_a_reply_takes_the_answer_route_when_the_task_is_still_waiting() {
+  local home port id body resolved
+  home="$TMP_ROOT/reply-answer"
+  seed_home "$home"
+  id=$(say "$home" "Blue or green?" "The colour call is yours." --task cc-live --question) \
+    || fail "the recorder refused the message"
+  start_server "$home" || fail "the server did not start"
+  port=$SERVER_PORT
+  body=$(post "$port" /api/reply "$(jq -cn --arg m "$id" '{msg:$m,text:"Go blue."}')")
+  resolved=$(wait_outcome "$home" "$(jq -r .sid <<<"$body")") \
+    || fail "the outcome of the reply never reached the record"
+  stop_server
+
+  assert_contains "$resolved" '"outcome":"sent"' "the reply was not delivered"
+  # The page holds its do-not-resend state by item as well as by message, so a
+  # reply that steers an item has to say which one: otherwise the same worker is
+  # reachable a second time from the waiting list while this is still in flight.
+  assert_equals "main/hold/cc-live/cc-live" "$(jq -r '.item_key // ""' <<<"$body")" \
+    "the reply did not name the item it steers"
+  assert_contains "$resolved" 'fm-captain-hold.sh answer cc-live' \
+    "a reply about a task still waiting did not take the answer route"
+  assert_equals "$id" \
+    "$(jq -r 'select(.text == "Go blue.") | .msg' "$home/data/command-center/said.jsonl" | tail -1)" \
+    "the reply was not recorded against the message it answered"
+  assert_contains "$(cat "$home/data/backlog.md")" 'Go blue.' \
+    "his exact words did not reach the durable record"
+  pass "a reply about a task still waiting is answered through the answer route"
+}
+
+test_a_reply_with_nothing_waiting_is_queued_for_firstmate() {
+  local home port id body resolved
+  home="$TMP_ROOT/reply-note"
+  seed_home "$home"
+  id=$(say "$home" "PR is green" "https://example.invalid/pr/1 is ready to merge.") \
+    || fail "the recorder refused the message"
+  start_server "$home" || fail "the server did not start"
+  port=$SERVER_PORT
+  body=$(post "$port" /api/reply "$(jq -cn --arg m "$id" '{msg:$m,text:"Merge it."}')")
+  resolved=$(wait_outcome "$home" "$(jq -r .sid <<<"$body")") \
+    || fail "the outcome of the reply never reached the record"
+  stop_server
+
+  assert_contains "$resolved" '"outcome":"sent"' "the reply was not queued"
+  assert_equals "" "$(jq -r '.item_key // ""' <<<"$body")" \
+    "a reply that steers nothing named an item anyway"
+  assert_contains "$resolved" 'fm-inbox.sh note' \
+    "a reply with nothing waiting on it did not reach firstmate as a note"
+  assert_contains "$(cat "$home"/state/inbox/*.note 2>/dev/null)" 'Merge it.' \
+    "his reply never reached firstmate's own inbox"
+  pass "a reply with nothing waiting on it is queued for firstmate"
+}
+
+test_a_reply_to_a_message_this_home_never_recorded_is_refused() {
+  local home port code
+  home="$TMP_ROOT/reply-unknown"
+  seed_home "$home"
+  say "$home" "Something" "Anything." >/dev/null
+  start_server "$home" || fail "the server did not start"
+  port=$SERVER_PORT
+  code=$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+    -H 'Content-Type: application/json' -d '{"msg":"m-never-written","text":"hi"}' \
+    "http://127.0.0.1:$port/api/reply")
+  stop_server
+  assert_equals 404 "$code" \
+    "a reply naming a message that was never recorded was acted on anyway"
+  pass "a reply names a recorded message or it is refused"
+}
+
+# A task id is not unique across homes (bin/fm-backend-hometag-lib.sh), and a
+# message record does not say which home it came from - the log does. A reply
+# resolved against ANOTHER home's waiting task would steer a worker in an
+# installation he was never talking about.
+test_a_reply_never_resolves_its_task_against_another_home() {
+  local home mate port id body resolved
+  home="$TMP_ROOT/reply-crosshome"
+  mate="$TMP_ROOT/reply-crosshome-mate"
+  seed_home "$home"
+  seed_home "$mate"
+  # cc-live is waiting in the OTHER home only: this home's copy is plain work.
+  sed -i 's/^- \[ \] cc-live .*$/- [ ] cc-live - Blue or green? (repo: demo) (kind: ship) (since 2026-09-01)/' \
+    "$home/data/backlog.md"
+  printf -- '- mate - synthetic scope (home: %s; scope: reviews; projects: demo; added 2026-07-14)\n' \
+    "$mate" > "$home/data/secondmates.md"
+  id=$(say "$home" "Blue or green?" "The colour call is yours." --task cc-live --question) \
+    || fail "the recorder refused the message"
+  start_server "$home" || fail "the server did not start"
+  port=$SERVER_PORT
+  body=$(post "$port" /api/reply "$(jq -cn --arg m "$id" '{msg:$m,text:"Go blue."}')")
+  resolved=$(wait_outcome "$home" "$(jq -r .sid <<<"$body")") \
+    || fail "the outcome of the reply never reached the record"
+  stop_server
+
+  assert_contains "$resolved" 'fm-inbox.sh note' \
+    "a reply was resolved against a task waiting in another home"
+  assert_not_contains "$(cat "$mate/data/backlog.md")" 'Go blue.' \
+    "his words were delivered into an unrelated installation"
+  pass "a reply never resolves its task against another home"
+}
+
+# "Every one" is the whole requirement: the list he opens is not allowed to stop
+# at the old 500-line cap and say nothing about the messages it left out.
+test_every_message_is_served_past_the_old_cap() {
+  local home port body i
+  home="$TMP_ROOT/msgmany"
+  seed_home "$home"
+  mkdir -p "$home/data"
+  for i in $(seq 1 600); do
+    jq -cn --arg id "m$i" --arg t "Message $i" \
+      '{id:$id, at:"2026-09-01T10:00:00Z", title:$t, text:$t,
+        task:null, project:null, worktree:null, branch:null}'
+  done > "$home/data/captain-messages.jsonl"
+  start_server "$home" || fail "the server did not start"
+  port=$SERVER_PORT
+  body=$(curl -s -m 30 "http://127.0.0.1:$port/api/messages")
+  stop_server
+
+  assert_equals 600 "$(jq '.messages | length' <<<"$body")" \
+    "messages past the old cap were dropped from the list"
+  assert_equals 0 "$(jq '.dropped' <<<"$body")" \
+    "a complete list claimed rows were dropped"
+  assert_equals "Message 1" \
+    "$(jq -r '.messages[-1].title' <<<"$body")" \
+    "the oldest message was not served"
+  pass "every message is served, and a shortened list would say how many are missing"
+}
+
+# THE WORST THING THIS PAGE COULD DO. A task collects several messages over its
+# life: the question, then the PR, then the result. A reply to the PR message
+# must never be written as the answer that closes the colour question.
+test_a_reply_to_a_message_that_is_not_a_question_never_answers_a_decision() {
+  local home port id body resolved
+  home="$TMP_ROOT/reply-notaquestion"
+  seed_home "$home"
+  say "$home" "Blue or green?" "The colour call is yours." --task cc-live --question >/dev/null \
+    || fail "the recorder refused the question"
+  id=$(say "$home" "The PR is up" "https://example.invalid/pr/1 for the colour work." --task cc-live) \
+    || fail "the recorder refused the message"
+  start_server "$home" || fail "the server did not start"
+  port=$SERVER_PORT
+  body=$(post "$port" /api/reply "$(jq -cn --arg m "$id" '{msg:$m,text:"Merge it."}')")
+  resolved=$(wait_outcome "$home" "$(jq -r .sid <<<"$body")") \
+    || fail "the outcome of the reply never reached the record"
+  stop_server
+
+  assert_contains "$resolved" 'fm-inbox.sh note' \
+    "a reply to a message that was not a question took the answer route"
+  assert_not_contains "$(cat "$home/data/backlog.md")" 'Merge it.' \
+    "words about a PR were written as the answer that closes an unrelated decision"
+  assert_contains "$(cat "$home"/state/inbox/*.note 2>/dev/null)" 'Merge it.' \
+    "his reply never reached firstmate at all"
+  pass "a reply to a message that is not a question never answers a decision"
+}
+
+# A reply that cannot rule out the answer route must not quietly become a note:
+# he would be told his steer was delivered while the worker stayed stopped.
+test_a_reply_is_refused_while_no_scan_has_been_read() {
+  local home shim realjq port id code ready
+  home="$TMP_ROOT/reply-unscanned"
+  seed_home "$home"
+  id=$(say "$home" "Blue or green?" "The colour call is yours." --task cc-live --question) \
+    || fail "the recorder refused the message"
+  shim="$TMP_ROOT/reply-unscanned-shim"
+  mkdir -p "$shim"
+  realjq=$(command -v jq) || fail "jq is required for this test"
+  cat > "$shim/jq" <<EOF
+#!/usr/bin/env bash
+case " \$* " in *'_row:"item"'*) exit 1 ;; esac
+exec "$realjq" "\$@"
+EOF
+  chmod +x "$shim/jq"
+
+  port=$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1]);s.close()')
+  PATH="$shim:$PATH" FM_ROOT_OVERRIDE="$ROOT" python3 "$SERVER" \
+    --port "$port" --home "$home" > "$home/server.log" 2>&1 &
+  SERVER_PID=$!
+  ready=
+  for _ in $(seq 1 60); do
+    curl -s -m 2 -o /dev/null "http://127.0.0.1:$port/" && { ready=1; break; }
+    kill -0 "$SERVER_PID" 2>/dev/null || break
+    sleep 1
+  done
+  [ -n "$ready" ] || fail "the server did not start"
+
+  code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' \
+    -d "$(jq -cn --arg m "$id" '{msg:$m,text:"Go blue."}')" \
+    "http://127.0.0.1:$port/api/reply")
+  stop_server
+  assert_equals 503 "$code" \
+    "a reply was routed off records that were never read"
+  assert_equals "" "$(cat "$home"/state/inbox/*.note 2>/dev/null || true)" \
+    "a reply fell through to the note route while no scan had been read"
+  pass "a reply is refused while no scan has been read"
+}
+
+# The page polls this on the item cadence, so an unchanged log must cost a stat
+# rather than a full parse and re-serialize of every message ever recorded.
+test_an_unchanged_message_log_answers_the_poll_without_resending_it() {
+  local home port etag code
+  home="$TMP_ROOT/msgetag"
+  seed_home "$home"
+  say "$home" "One" "First." >/dev/null
+  start_server "$home" || fail "the server did not start"
+  port=$SERVER_PORT
+  etag=$(curl -s -D - -o /dev/null "http://127.0.0.1:$port/api/messages" \
+    | sed -n 's/^[Ee][Tt]ag: *//p' | tr -d '\r')
+  [ -n "$etag" ] || fail "the message list served no change check"
+  code=$(curl -s -o /dev/null -w '%{http_code}' -H "If-None-Match: $etag" \
+    "http://127.0.0.1:$port/api/messages")
+  assert_equals 304 "$code" "an unchanged message log was served in full again"
+  say "$home" "Two" "Second." >/dev/null
+  code=$(curl -s -o /dev/null -w '%{http_code}' -H "If-None-Match: $etag" \
+    "http://127.0.0.1:$port/api/messages")
+  stop_server
+  assert_equals 200 "$code" "a new message was hidden behind a stale change check"
+  pass "an unchanged message log answers the poll without resending it"
+}
+
+# His own words are a list too: a reply missing from a thread reads as a message
+# he never answered, which is an invitation to send the same steer twice.
+test_his_own_words_are_served_whole_and_never_shortened_quietly() {
+  local home port body i
+  home="$TMP_ROOT/saidmany"
+  seed_home "$home"
+  mkdir -p "$home/data/command-center"
+  for i in $(seq 1 600); do
+    jq -cn --arg t "word $i" '{at:"2026-09-01T10:00:00Z", kind:"note", home:"main",
+      text:$t, route:"fm-inbox.sh note", outcome:"sent"}'
+  done > "$home/data/command-center/said.jsonl"
+  start_server "$home" || fail "the server did not start"
+  port=$SERVER_PORT
+  body=$(curl -s -m 30 "http://127.0.0.1:$port/api/said")
+  stop_server
+  assert_equals 600 "$(jq '.said | length' <<<"$body")" \
+    "his own words past the old cap were dropped from the record"
+  assert_equals 0 "$(jq '.dropped' <<<"$body")" \
+    "a complete list of his words claimed rows were dropped"
+  pass "his own words are served whole, and a shortened list would say so"
+}
+
+# A torn append is a message gone. The page may not claim this is every one.
+test_a_line_that_cannot_be_parsed_is_counted_as_dropped() {
+  local home port body
+  home="$TMP_ROOT/msgtorn"
+  seed_home "$home"
+  say "$home" "One" "First." >/dev/null
+  printf '{"id":"m-torn","at":"2026-09-0\n' >> "$home/data/captain-messages.jsonl"
+  start_server "$home" || fail "the server did not start"
+  port=$SERVER_PORT
+  body=$(curl -s -m 30 "http://127.0.0.1:$port/api/messages")
+  stop_server
+  assert_equals 1 "$(jq '.messages | length' <<<"$body")" \
+    "a torn line was served as a message"
+  assert_equals 1 "$(jq '.dropped' <<<"$body")" \
+    "a line that could not be parsed was dropped without saying so"
+  pass "a line that cannot be parsed is counted as dropped"
+}
+
+# HIS WORDS COME BACK AT ONCE. He reported the click freezing while the command
+# ran. The answer must arrive before the command finishes, with his words
+# already durable, and the outcome must land on the record afterwards.
+test_the_click_returns_before_the_command_finishes() {
+  local home slowbin port f result started elapsed
+  home="$TMP_ROOT/instant"
+  seed_home "$home"
+  slowbin="$TMP_ROOT/instant-bin"
+  mkdir -p "$slowbin"
+  for f in "$ROOT"/bin/*; do ln -s "$f" "$slowbin/$(basename "$f")"; done
+  rm -f "$slowbin/fm-captain-hold.sh"
+  printf '#!/usr/bin/env bash\nsleep 6\nexit 0\n' > "$slowbin/fm-captain-hold.sh"
+  chmod +x "$slowbin/fm-captain-hold.sh"
+
+  port=$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1]);s.close()')
+  FM_ROOT_OVERRIDE="$ROOT" python3 "$slowbin/command-center.py" \
+    --port "$port" --home "$home" > "$home/server.log" 2>&1 &
+  SERVER_PID=$!
+  local ready=
+  for _ in $(seq 1 60); do
+    curl -sf -m 2 -o /dev/null "http://127.0.0.1:$port/" && { ready=1; break; }
+    kill -0 "$SERVER_PID" 2>/dev/null || break
+    sleep 1
+  done
+  [ -n "$ready" ] || fail "the server did not start"
+
+  started=$(date +%s)
+  result=$(post "$port" /api/answer \
+    '{"home":"main","id":"cc-live","source":"hold","key":"cc-live","text":"Go blue."}')
+  elapsed=$(( $(date +%s) - started ))
+  assert_contains "$result" '"ok":true' "the click was refused"
+  [ "$elapsed" -lt 5 ] \
+    || fail "the click waited ${elapsed}s for the command instead of returning at once"
+  assert_grep 'Go blue.' "$home/data/command-center/said.jsonl" \
+    "his words were not durable before the click returned"
+  assert_contains "$(wait_outcome "$home" "$(jq -r .sid <<<"$result")")" '"outcome":"sent"' \
+    "the outcome never landed on the record after the command finished"
+  stop_server
+  pass "the click returns before the command finishes, with his words already durable"
+}
+
+# A read that FAILED is not the state of the log: caching it would answer 304 to
+# every later poll and leave the page saying his record could not be read long
+# after it could.
+test_a_failed_read_is_never_cached_as_the_state_of_the_log() {
+  local home port headers etag body
+  if [ "$(id -u)" = 0 ]; then
+    pass "running as root; the unreadable-log case cannot be staged"
+    return
+  fi
+  home="$TMP_ROOT/msgetagfail"
+  seed_home "$home"
+  say "$home" "Something he must not lose" "The whole point of the page." >/dev/null
+  start_server "$home" || fail "the server did not start"
+  port=$SERVER_PORT
+  chmod 000 "$home/data/captain-messages.jsonl"
+  headers=$(curl -s -D - -o /dev/null "http://127.0.0.1:$port/api/messages")
+  etag=$(printf '%s' "$headers" | sed -n 's/^[Ee][Tt]ag: *//p' | tr -d '\r')
+  chmod 600 "$home/data/captain-messages.jsonl"
+  assert_equals "" "$etag" \
+    "a failed read was served with a live change check"
+  body=$(curl -s -m 30 "http://127.0.0.1:$port/api/messages")
+  stop_server
+  assert_contains "$body" 'Something he must not lose' \
+    "the repaired log never came back after one unreadable moment"
+  pass "a failed read is never cached as the state of the log"
+}
+
+# A captain-facing message is often a bullet list, and a log whose whole purpose
+# is that no message is lost may not refuse one for how it starts.
+test_the_recorder_takes_a_body_that_looks_like_a_flag() {
+  local home id
+  home="$TMP_ROOT/dashbody"
+  seed_home "$home"
+  id=$(say "$home" "Two things" "- the first thing
+- the second thing") || fail "a message whose body is a bullet list was refused"
+  assert_contains "$(jq -r --arg i "$id" 'select(.id == $i) | .text' \
+    "$home/data/captain-messages.jsonl")" '- the first thing' \
+    "the bullet list was not recorded as the message text"
+  id=$(say "$home" "Asking" "help") || fail "a message of exactly help was refused"
+  assert_equals help \
+    "$(jq -r --arg i "$id" 'select(.id == $i) | .text' "$home/data/captain-messages.jsonl")" \
+    "a message of exactly help printed usage instead of being recorded"
+  pass "the recorder takes a body that looks like a flag"
+}
+
+# The one machine line that never reaches his screen: a no-mistakes ask-user
+# gate reports itself as ids plus a path, with the content deliberately left in
+# the file. Everything else is the worker's own question, and the options he is
+# being asked to choose between are the whole value of the row.
+test_the_ask_user_machine_line_is_stated_plainly_and_real_questions_are_not() {
+  local home out row
+  home="$TMP_ROOT/plain"
+  mkdir -p "$home/data" "$home/state"
+  printf '# Backlog\n' > "$home/data/backlog.md"
+  printf 'needs-decision [key=k-mach]: ask-user findings=status-line-timestamp-has-no-reader file=/home/c/p/fm/data/nm-1-findings.txt\n' \
+    > "$home/state/t-machine.status"
+  printf 'project=/home/captain/p/demo\nkind=ship\n' > "$home/state/t-machine.meta"
+  printf 'needs-decision [key=k-opts]: Ship with the current cap of 500, or raise it to 2000 - your call, see data/limits.md\n' \
+    > "$home/state/t-options.status"
+  printf 'project=/home/captain/p/demo\nkind=ship\n' > "$home/state/t-options.meta"
+  printf 'blocked [key=k-short]: Which palette?\n' > "$home/state/t-short.status"
+
+  out=$(scan "$home") || fail "the scan failed"
+  row=$(printf '%s' "$out" | jq -c '.items[] | select(.id == "t-machine")')
+  assert_not_contains "$row" 'findings=' \
+    "the ask-user machine line was rendered as something firstmate said to him"
+  assert_not_contains "$row" 'nm-1-findings.txt' \
+    "a file path from the machine line reached a row he reads"
+  assert_contains "$(printf '%s' "$row" | jq -r .title)" 'A worker on demo' \
+    "the machine row was not stated plainly from what is known"
+
+  # His decision content survives intact, path and hyphens and all: losing the
+  # options is far worse than showing him a path inside a sentence.
+  assert_equals 'Ship with the current cap of 500, or raise it to 2000 - your call, see data/limits.md' \
+    "$(printf '%s' "$out" | jq -r '.items[] | select(.id == "t-options") | .title')" \
+    "the worker's own question was replaced instead of shown"
+  assert_equals 'Which palette?' \
+    "$(printf '%s' "$out" | jq -r '.items[] | select(.id == "t-short") | .title')" \
+    "a short question a person would say out loud was thrown away"
+  pass "the ask-user machine line is stated plainly and real questions are shown as written"
+}
+
+test_a_send_that_cannot_run_at_all_still_records_an_outcome() {
+  local home bin port f result
+  home="$TMP_ROOT/norunner"
+  seed_home "$home"
+  bin="$TMP_ROOT/norunner-bin"
+  mkdir -p "$bin"
+  for f in "$ROOT"/bin/*; do ln -s "$f" "$bin/$(basename "$f")"; done
+  # The script that owns the delivery is gone: subprocess.run raises, and that
+  # is not a SubprocessError.
+  rm -f "$bin/fm-captain-hold.sh"
+
+  port=$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1]);s.close()')
+  FM_ROOT_OVERRIDE="$ROOT" python3 "$bin/command-center.py" \
+    --port "$port" --home "$home" > "$home/server.log" 2>&1 &
+  SERVER_PID=$!
+  local ready=
+  for _ in $(seq 1 60); do
+    curl -sf -m 2 -o /dev/null "http://127.0.0.1:$port/" && { ready=1; break; }
+    kill -0 "$SERVER_PID" 2>/dev/null || break
+    sleep 1
+  done
+  [ -n "$ready" ] || fail "the server did not start"
+
+  result=$(post "$port" /api/answer \
+    '{"home":"main","id":"cc-live","source":"hold","key":"cc-live","text":"Go blue."}')
+  assert_contains "$(wait_outcome "$home" "$(jq -r .sid <<<"$result")")" '"outcome":"unknown"' \
+    "a send that could not run at all left the record saying it was going out"
+  stop_server
+  pass "a send that cannot run at all still records an outcome"
+}
+
+# A message the recorder never marked as a question has no answer route to rule
+# out, so a backlog that will not parse has nothing to say about where it goes.
+test_a_reply_that_is_not_a_question_is_sent_even_with_no_scan() {
+  local home shim realjq port id body
+  home="$TMP_ROOT/reply-noscan-note"
+  seed_home "$home"
+  id=$(say "$home" "The PR is up" "Ready when you are.") \
+    || fail "the recorder refused the message"
+  shim="$TMP_ROOT/reply-noscan-note-shim"
+  mkdir -p "$shim"
+  realjq=$(command -v jq) || fail "jq is required for this test"
+  cat > "$shim/jq" <<EOF
+#!/usr/bin/env bash
+case " \$* " in *'_row:"item"'*) exit 1 ;; esac
+exec "$realjq" "\$@"
+EOF
+  chmod +x "$shim/jq"
+
+  port=$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1]);s.close()')
+  PATH="$shim:$PATH" FM_ROOT_OVERRIDE="$ROOT" python3 "$SERVER" \
+    --port "$port" --home "$home" > "$home/server.log" 2>&1 &
+  SERVER_PID=$!
+  local ready=
+  for _ in $(seq 1 60); do
+    curl -s -m 2 -o /dev/null "http://127.0.0.1:$port/" && { ready=1; break; }
+    kill -0 "$SERVER_PID" 2>/dev/null || break
+    sleep 1
+  done
+  [ -n "$ready" ] || fail "the server did not start"
+
+  body=$(post "$port" /api/reply "$(jq -cn --arg m "$id" '{msg:$m,text:"Merge it."}')")
+  assert_contains "$body" '"ok":true' \
+    "a reply with no answer route to rule out was refused because a backlog would not parse"
+  assert_contains "$(wait_outcome "$home" "$(jq -r .sid <<<"$body")")" 'fm-inbox.sh note' \
+    "the reply never reached firstmate as a note"
+  stop_server
+  assert_contains "$(cat "$home"/state/inbox/*.note 2>/dev/null)" 'Merge it.' \
+    "his words never reached firstmate's own inbox"
+  pass "a reply that is not a question is sent even with no scan"
+}
+
+test_an_unreadable_message_log_is_reported_not_shown_as_empty() {
+  local home port body
+  if [ "$(id -u)" = 0 ]; then
+    pass "running as root; the unreadable-message-log case cannot be staged"
+    return
+  fi
+  home="$TMP_ROOT/msgread"
+  seed_home "$home"
+  say "$home" "Something he must not lose" "The whole point of the page." >/dev/null
+  start_server "$home" || fail "the server did not start"
+  port=$SERVER_PORT
+  chmod 000 "$home/data/captain-messages.jsonl"
+  body=$(curl -s -m 30 "http://127.0.0.1:$port/api/messages")
+  chmod 600 "$home/data/captain-messages.jsonl"
+  stop_server
+  assert_contains "$body" 'could not be read' \
+    "an unreadable message log was served as an empty one"
+  pass "an unreadable message log is reported rather than shown as empty"
+}
+
 trap stop_server EXIT
 
 test_only_live_captain_holds_are_carded
@@ -829,3 +1410,24 @@ test_the_send_outcome_is_decided_by_the_exit_code_alone
 test_concurrent_polls_produce_one_scan
 test_the_pages_decision_rules_hold
 test_the_server_serves_the_pages_decision_rules
+test_a_message_names_the_project_the_worktree_and_the_branch
+test_a_field_nothing_knows_is_recorded_as_unknown_not_guessed
+test_the_recorder_refuses_a_message_with_no_title_or_no_text
+test_every_message_sent_while_he_was_away_comes_back_in_order
+test_a_reply_takes_the_answer_route_when_the_task_is_still_waiting
+test_a_reply_with_nothing_waiting_is_queued_for_firstmate
+test_a_reply_to_a_message_this_home_never_recorded_is_refused
+test_an_unreadable_message_log_is_reported_not_shown_as_empty
+test_a_reply_never_resolves_its_task_against_another_home
+test_every_message_is_served_past_the_old_cap
+test_a_reply_to_a_message_that_is_not_a_question_never_answers_a_decision
+test_a_reply_is_refused_while_no_scan_has_been_read
+test_an_unchanged_message_log_answers_the_poll_without_resending_it
+test_his_own_words_are_served_whole_and_never_shortened_quietly
+test_a_line_that_cannot_be_parsed_is_counted_as_dropped
+test_the_click_returns_before_the_command_finishes
+test_a_failed_read_is_never_cached_as_the_state_of_the_log
+test_the_recorder_takes_a_body_that_looks_like_a_flag
+test_the_ask_user_machine_line_is_stated_plainly_and_real_questions_are_not
+test_a_send_that_cannot_run_at_all_still_records_an_outcome
+test_a_reply_that_is_not_a_question_is_sent_even_with_no_scan

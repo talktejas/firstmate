@@ -22,15 +22,24 @@
 # a forgotten tab leaks. The change check is a stat sweep costing ~30ms, so the
 # expensive scan runs once per actual change however many tabs are open.
 #
-# IT STORES ONE THING. Firstmate already keeps the questions and the answers
-# that close a decision, so copying those here would create a second truth that
-# can drift. What firstmate does NOT keep is the captain's own words in three
-# cases: a steer to a worker is deleted with the task's steering inbox at
-# teardown (bin/fm-teardown.sh), an unsent draft never existed, and terminal
-# text is only scrollback. So this appends every word he sends to one
-# append-only log, <home>/data/command-center/said.jsonl, and stores nothing
-# else. Drafts and read state stay in the browser, because they are his and
-# this runs on his machine.
+# IT STORES TWO THINGS, AND ONLY BECAUSE NOTHING ELSE DOES.
+#
+# data/captain-messages.jsonl is what firstmate SAID to the captain, appended by
+# bin/fm-captain-message.sh as firstmate says it. The terminal was the only
+# other copy and a terminal scrolls, so the page's default list is that log: it
+# is the whole point of this surface, and firstmate's own work records are not
+# a substitute for it.
+#
+# data/command-center/said.jsonl is what HE said back. Firstmate already keeps
+# the questions and the answers that close a decision, so copying those here
+# would create a second truth that can drift. What firstmate does NOT keep is
+# the captain's own words in three cases: a steer to a worker is deleted with
+# the task's steering inbox at teardown (bin/fm-teardown.sh), an unsent draft
+# never existed, and terminal text is only scrollback. So this appends every
+# word he sends to that log, and stores nothing else.
+#
+# Drafts and read state stay in the browser, because they are his and this runs
+# on his machine.
 #
 # TRUST BOUNDARY. It binds loopback only and runs firstmate's own scripts with
 # the captain's authority, which is the point of it; it is not an authenticated
@@ -39,6 +48,7 @@
 # set first, and text reaches scripts as an argument or a file, never a shell
 # string.
 import argparse
+import collections
 import hashlib
 import json
 import os
@@ -48,6 +58,7 @@ import sys
 import tempfile
 import threading
 import time
+import uuid
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -171,6 +182,36 @@ class Records:
                 return home["path"]
         return None
 
+    def waiting_question(self, task_id, key):
+        """The decision a recorded QUESTION asked about, or None when it is settled.
+
+        Only the decision the message itself named can answer it. A task
+        collects several messages over its life - a question, then a PR, then a
+        result - so answering whatever decision the task happens to be stopped
+        on now would write his reply to a question he was not looking at. A key
+        names a stopped worker's own decision; no key means the captain hold
+        this home filed.
+
+        Only THIS home's items can answer it. The message log belongs to the
+        home this server was started on, and two homes on one machine can hold
+        the same task id (bin/fm-backend-hometag-lib.sh), so matching across
+        them would deliver his words to an unrelated worker.
+        """
+        if not task_id or not ID_RE.match(task_id):
+            return None
+        view = self.view()
+        mine = {h["id"] for h in view.get("homes", [])
+                if os.path.realpath(h["path"]) == os.path.realpath(self.home)}
+        for it in view.get("items", []):
+            if it["id"] != task_id or it["home"] not in mine:
+                continue
+            if key:
+                if it["source"] == "status" and (it.get("key") or "") == key:
+                    return it
+            elif it["source"] == "hold":
+                return it
+        return None
+
     def item(self, home_id, task_id, source, key):
         # A task can be waiting twice at once - captain-held AND stopped on its
         # own status record - and the two are answered by different commands, so
@@ -185,6 +226,11 @@ class Records:
 def item_key(item):
     """The identity the page uses too (itemKey in bin/command-center.html)."""
     return "/".join([item["home"], item["source"], item["id"], item.get("key") or ""])
+
+
+def message_log(home):
+    """What firstmate said to him. bin/fm-captain-message.sh is its only writer."""
+    return os.path.join(home, "data", "captain-messages.jsonl")
 
 
 def said_log(home):
@@ -213,27 +259,83 @@ def record_said(home, entry):
         sys.stderr.write(f"command-center: could not write {path}: {exc}\n")
 
 
-def read_said(home, limit=500):
-    """Returns (rows, error). A log that is not there yet is honestly empty; one
-    that cannot be READ is a different state, and reporting it as empty would
-    tell the captain he has never typed anything."""
-    path = said_log(home)
-    rows = []
+def read_log(path, limit=500):
+    """Returns (rows, error, dropped), newest first.
+
+    A log that is not there yet is honestly empty; one that cannot be READ is a
+    different state, and reporting it as empty would tell the captain he has
+    never typed anything - or that firstmate never said anything to him.
+
+    `dropped` is every line the list does not carry, whether the limit cut it
+    or it could not be parsed at all, because a list shortened without saying
+    so is the same silent loss this page exists to end.
+
+    Only `limit` rows are ever held at once: the log is append-only and never
+    pruned, so materialising all of it to keep the tail would make the cap a
+    comment rather than a bound.
+    """
+    rows = collections.deque(maxlen=limit)
+    lines = 0
     try:
         with open(path, encoding="utf-8") as fh:
             for line in fh:
                 line = line.strip()
                 if not line:
                     continue
+                lines += 1
                 try:
                     rows.append(json.loads(line))
                 except json.JSONDecodeError:
                     continue
     except FileNotFoundError:
-        return [], None
+        return [], None, 0
     except OSError as exc:
-        return [], f"the record could not be read: {exc}"
-    return rows[-limit:][::-1], None
+        return [], f"the record could not be read: {exc}", 0
+    return list(rows)[::-1], None, max(0, lines - len(rows))
+
+
+# He reads his own words and firstmate's, not a page of either: the whole log
+# is served, and the cap is only there so an unbounded file cannot exhaust this
+# process. The reply thread under a message is read out of the said log, so a
+# shortened said log would make an answered message read as unanswered.
+LOG_LIMIT = 20000
+
+
+def read_said(home, limit=LOG_LIMIT):
+    return read_log(said_log(home), limit)
+
+
+def read_messages(home, limit=LOG_LIMIT):
+    return read_log(message_log(home), limit)
+
+
+def log_etag(path):
+    """A change check over the log's own (mtime, size), not its contents.
+
+    The page polls this on the item cadence, so an unchanged log must cost a
+    stat rather than a full parse and re-serialize of every message.
+    """
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    return hashlib.sha256(
+        f"{st.st_mtime_ns}/{st.st_size}".encode()).hexdigest()[:32]
+
+
+def find_message(home, msg_id):
+    """The message a reply names, read back from the log rather than trusted.
+
+    The whole log is read because the reply is rare and the log is one line per
+    message; a reply to a message this home never recorded is refused.
+    """
+    rows, error, _ = read_messages(home)
+    if error:
+        return None, error
+    for row in rows:
+        if row.get("id") == msg_id:
+            return row, None
+    return None, None
 
 
 def send_answer(home_path, item, text):
@@ -315,6 +417,41 @@ def send_answer(home_path, item, text):
     return outcome, route, detail[:600], mode
 
 
+def deliver(home, said, run, route_hint="", invalidate=None):
+    """Record what he typed, then carry the delivery out behind the answer.
+
+    The click may not wait on a shell command: he types, it is recorded, and he
+    moves on. So the durable record is written FIRST with outcome `sending`,
+    and the same record is written again under the same `sid` when the command
+    answers - delivered, failed or unknown, read from the exit code exactly as
+    before. The page folds the two by `sid` and shows the outcome in place.
+
+    Returns the sid. The thread is not a daemon: a delivery already started must
+    finish even if the server is asked to stop.
+    """
+    sid = uuid.uuid4().hex[:12]
+    record_said(home, dict(said, sid=sid, at=utc_now(), outcome="sending"))
+
+    def carry_out():
+        # The ONLY place a send's outcome now exists is the row below, so every
+        # way the command can fail has to reach it. A thread that died on a
+        # missing script or an unwritable temp dir would leave the record saying
+        # his words are going out for as long as the server runs.
+        try:
+            result = run()
+        except Exception as exc:                               # noqa: BLE001
+            result = ("unknown", route_hint, str(exc))
+        outcome, route, detail = result[0], result[1], result[2]
+        extra = {"mode": result[3]} if len(result) > 3 else {}
+        record_said(home, dict(said, sid=sid, at=utc_now(), outcome=outcome,
+                               route=route, detail=detail, **extra))
+        if invalidate is not None and outcome != "failed":
+            invalidate()
+
+    threading.Thread(target=carry_out, name="cc-deliver").start()
+    return sid
+
+
 def send_note(home_path, text):
     # Approved proposal section 3: the captain's words are logged even when they
     # answer no item, so a note with no addressee is a channel this surface owes.
@@ -361,6 +498,25 @@ class Handler(BaseHTTPRequestHandler):
 
     def _json(self, code, obj):
         self._send(code, dump(obj))
+
+    def _log_response(self, name, path, read):
+        """Serve one log under a change check, but never cache a FAILED read.
+
+        A read error carries no rows, and its (mtime, size) is the same one a
+        successful read of the repaired file would have: caching it would answer
+        304 to every later poll and leave the page saying his record could not
+        be read long after it could.
+        """
+        etag = log_etag(path)
+        if etag and self.headers.get("If-None-Match") == etag:
+            self.send_response(304)
+            self.send_header("ETag", etag)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        rows, error, dropped = read(self.records.home)
+        self._send(200, dump({name: rows, "error": error, "dropped": dropped}),
+                   etag=None if error else etag)
 
     def _body(self):
         """Read the declared body first, on every path including a refusal.
@@ -456,9 +612,13 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, dump(view), etag=etag)
             return
 
+        if path == "/api/messages":
+            self._log_response("messages", message_log(self.records.home),
+                               read_messages)
+            return
+
         if path == "/api/said":
-            rows, error = read_said(self.records.home)
-            self._json(200, {"said": rows, "error": error})
+            self._log_response("said", said_log(self.records.home), read_said)
             return
 
         self._send(404, b"not found", "text/plain; charset=utf-8")
@@ -483,18 +643,70 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/note":
             # Approved proposal section 3: a note attached to no item still goes
             # in the captain's log, so this endpoint is part of that promise.
-            try:
-                outcome, route, detail = send_note(self.records.home, text)
-            except subprocess.SubprocessError as exc:
-                outcome, route, detail = "unknown", "fm-inbox.sh note", str(exc)
-            ok = outcome == "sent"
-            record_said(self.records.home, {
-                "at": utc_now(), "kind": "note", "home": "main",
-                "text": text, "route": route, "outcome": outcome, "detail": detail,
-            })
-            self._json(200 if ok else 502,
-                       {"ok": ok, "outcome": outcome, "route": route,
-                        "detail": detail})
+            sid = deliver(self.records.home,
+                          {"kind": "note", "home": "main", "text": text},
+                          lambda: send_note(self.records.home, text),
+                          route_hint="fm-inbox.sh note")
+            self._json(202, {"ok": True, "sid": sid, "outcome": "sending"})
+            return
+
+        if path == "/api/reply":
+            # A reply to something firstmate SAID. Where it goes is decided by
+            # the recorded message, never by the browser: a message the recorder
+            # marked as a QUESTION is answered as that question, and anything
+            # else reaches firstmate as a note, because a reply with nowhere to
+            # be delivered is still his words. A message that is not a question
+            # is never written as the answer to some other decision.
+            msg_id = payload.get("msg")
+            if not isinstance(msg_id, str) or not ID_RE.match(msg_id):
+                self._json(400, {"ok": False, "error": "unknown message"})
+                return
+            message, log_error = find_message(self.records.home, msg_id)
+            if log_error is not None:
+                self._json(503, {"ok": False, "error": log_error})
+                return
+            if message is None:
+                self._json(404, {"ok": False, "error": "no such message"})
+                return
+            item = None
+            if message.get("question"):
+                # Only a QUESTION has an answer route to rule out. With no
+                # published scan it cannot be ruled out, and falling through to
+                # the note route would tell him his steer was delivered while
+                # the worker stayed stopped. A message that is not a question is
+                # routed by the record alone, so no scan can change where it
+                # goes and a scan that failed must not stop it.
+                self.records.refresh(min_interval=0)
+                if self.records.etag is None:
+                    self._json(503, {"ok": False,
+                                     "error": self.records.error
+                                     or "the records have not been read yet"})
+                    return
+                item = self.records.waiting_question(
+                    message.get("task"), message.get("question_key") or "")
+            home_path = self.records.home_path(item["home"]) if item else None
+            if item and home_path:
+                said = {"kind": "answer", "home": item["home"], "item": item["id"],
+                        "source": item["source"], "key": item.get("key"),
+                        "item_key": item_key(item), "title": item.get("title"),
+                        "sent_count": len(item.get("sent") or [])}
+                run = lambda: send_answer(home_path, item, text)   # noqa: E731
+                hint = "fm-send.sh " + item["id"]
+                invalidate = self.records.invalidate
+            else:
+                said = {"kind": "note", "home": "main",
+                        "title": message.get("title")}
+                run = lambda: send_note(self.records.home, text)   # noqa: E731
+                hint = "fm-inbox.sh note"
+                invalidate = None
+            sid = deliver(self.records.home, dict(said, msg=msg_id, text=text),
+                          run, route_hint=hint, invalidate=invalidate)
+            # The item this reply is steering, when it took the answer route.
+            # The page holds the do-not-resend state by item as well as by
+            # message, so the same worker cannot be reached twice from the other
+            # surface while this is still in flight.
+            self._json(202, {"ok": True, "sid": sid, "outcome": "sending",
+                             "item_key": said.get("item_key")})
             return
 
         if path == "/api/answer":
@@ -518,20 +730,16 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(404, {"ok": False,
                                  "error": "that item is no longer waiting for you"})
                 return
-            outcome, route, detail, mode = send_answer(home_path, item, text)
-            ok = outcome == "sent"
-            record_said(self.records.home, {
-                "at": utc_now(), "kind": "answer", "home": home_id, "item": task_id,
-                "source": item["source"], "key": item.get("key"),
-                "item_key": item_key(item), "title": item.get("title"),
-                "text": text, "route": route, "outcome": outcome, "mode": mode,
-                "detail": detail,
-            })
-            if outcome != "failed":
-                self.records.invalidate()     # force a rescan on the next poll
-            self._json(200 if ok else 502,
-                       {"ok": ok, "outcome": outcome, "route": route,
-                        "detail": detail})
+            sid = deliver(
+                self.records.home,
+                {"kind": "answer", "home": home_id, "item": task_id,
+                 "source": item["source"], "key": item.get("key"),
+                 "item_key": item_key(item), "title": item.get("title"),
+                 "text": text, "sent_count": len(item.get("sent") or [])},
+                lambda: send_answer(home_path, item, text),
+                route_hint="fm-send.sh " + task_id,
+                invalidate=self.records.invalidate)
+            self._json(202, {"ok": True, "sid": sid, "outcome": "sending"})
             return
 
         self._json(404, {"ok": False, "error": "not found"})
