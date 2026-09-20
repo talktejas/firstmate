@@ -107,7 +107,7 @@ It runs firstmate's scripts with your authority and has no authentication of its
 Remote secondmate homes are not polled: reaching one needs the remote transport, which is not a cost a three-second poll may pay.
 Only local homes appear.
 
-A home on a non-markdown backlog backend reports `backlog_readable: false` rather than appearing empty.
+A home whose holds are hidden from the page — one on a non-markdown backlog backend, or one whose backlog file is there but cannot be read — reports `backlog_readable: false`, and the page says so in its own band rather than letting the list look short. A markdown home whose backlog file does not exist yet is a different thing: it holds nothing, so it reports readable and empty and gets no band.
 
 ## Reading it without the page
 

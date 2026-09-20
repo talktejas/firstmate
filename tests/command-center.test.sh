@@ -254,7 +254,33 @@ test_an_unreadable_backlog_is_reported_not_shown_as_empty() {
     "a home whose backlog could not be read was not reported as unreadable"
   assert_equals "0" "$(printf '%s' "$out" | jq -r '[.items[] | select(.source == "hold")] | length')" \
     "the fixture no longer proves the held rows go missing when the backlog is unreadable"
+
+  # A backlog that is there but cannot be opened hides holds just the same.
+  if [ "$(id -u)" != 0 ]; then
+    chmod 000 "$home/data/backlog.md"
+    out=$(scan "$home")
+    chmod 600 "$home/data/backlog.md"
+    assert_equals "false" \
+      "$(printf '%s' "$out" | jq -r '.homes[] | select(.id == "main") | .backlog_readable')" \
+      "a backlog present but unopenable was reported as readable"
+  fi
   pass "an unreadable backlog is reported rather than shown as empty"
+}
+
+# A home that simply has no backlog file yet holds nothing, and saying its holds
+# are missing would be the same false claim pointing the other way.
+test_a_home_with_no_backlog_yet_is_empty_not_unreadable() {
+  local home out
+  home="$TMP_ROOT/fresh"
+  mkdir -p "$home/state"
+
+  out=$(scan "$home")
+  assert_equals "true" \
+    "$(printf '%s' "$out" | jq -r '.homes[] | select(.id == "main") | .backlog_readable')" \
+    "a fresh home with no backlog file yet was reported as unreadable"
+  assert_equals "0" "$(printf '%s' "$out" | jq -r '.items | length')" \
+    "a home holding nothing reported items"
+  pass "a home with no backlog yet is empty rather than unreadable"
 }
 
 test_fingerprint_changes_only_when_a_record_moves() {
@@ -677,6 +703,7 @@ test_body_survives_the_record_separator
 test_a_title_keeps_a_trailing_parenthetical
 test_only_captain_kind_holds_are_his_to_answer
 test_an_unreadable_backlog_is_reported_not_shown_as_empty
+test_a_home_with_no_backlog_yet_is_empty_not_unreadable
 test_deferred_hold_reports_its_date
 test_branch_states_are_honest
 test_status_decisions_are_carded_with_their_verb

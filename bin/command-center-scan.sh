@@ -22,7 +22,9 @@
 # captain wrote gets lost. The markdown backend file is the durable record
 # itself, carries the untruncated hold reason and body, and its path is read
 # from .tasks.toml rather than assumed. A home on a non-markdown backend is
-# reported with `backlog_readable: false` rather than silently shown as empty.
+# reported with `backlog_readable: false` rather than silently shown as empty,
+# as is one whose backlog file exists but cannot be read. A markdown home with
+# no backlog file yet holds nothing, and is reported readable and empty.
 #
 # FINGERPRINT. `--fingerprint` stats every status log, task meta, steering
 # inbox and backlog across all homes and hashes the result. It is the cheap
@@ -30,7 +32,10 @@
 # actually moved.
 #
 # Output: one JSON object on stdout.
-#   homes[]  id, name, path, watcher_beat_epoch, backlog_readable
+#   homes[]  id, name, path, watcher_beat_epoch,
+#            backlog_readable  false ONLY when holds are hidden: an unsupported
+#                              backend, or a backlog file present but unreadable.
+#                              An absent file on the markdown backend is true.
 #   items[]  one per thing waiting on the captain:
 #     home, id, source (hold|status), key, title, detail, repo, kind,
 #     project, worktree, branch, branch_state (branch|detached|not-started),
@@ -318,9 +323,19 @@ command_scan() {
   produced=$(
     while IFS=$'\t' read -r hid hname hpath; do
       [ -n "$hpath" ] || continue
+      # Cannot be READ and does not exist YET are different facts. A backend
+      # that yields no path, or a file that is there but unreadable, hides holds
+      # from the captain. A markdown home whose backlog is simply absent is a
+      # fresh home holding nothing, and saying otherwise is a false alarm.
       backlog=$(backlog_path "$hpath") || backlog=
       readable=false
-      { [ -n "$backlog" ] && [ -r "$backlog" ]; } && readable=true
+      if [ -z "$backlog" ]; then
+        readable=false
+      elif [ -e "$backlog" ]; then
+        [ -r "$backlog" ] && readable=true
+      else
+        readable=true
+      fi
       beat=$(epoch_of "$hpath/state/.last-watcher-beat")
       jq -cn --arg id "$hid" --arg name "$hname" --arg path "$hpath" \
         --arg beat "$beat" --argjson readable "$readable" \

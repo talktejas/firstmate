@@ -288,7 +288,7 @@
         <h1>Command Center</h1>
         <span class="live" id="live"><span class="beat"></span>Live</span>
       </div>
-      <div class="watcher" id="watcher"><span class="beat"></span><span>Checking…</span></div>
+      <div id="watcher"><div class="watcher"><span class="beat"></span><span>Checking…</span></div></div>
       <div class="search">
         <span class="mag">⌕</span>
         <input id="q" type="search" autocomplete="off"
@@ -506,44 +506,48 @@ function renderHomes(){
   }).join('');
 }
 
+// STANDING RULE for every notice slot on this page: two independent persistent
+// facts never share one slot, and no notice returns early over another. Each
+// one that applies is rendered; none of them can push another off the screen.
 function renderWatcher(){
-  const el = $('#watcher');
-  if (state.error){
-    el.className = 'watcher'; el.style.background = 'var(--hot-soft)';
-    el.innerHTML = `<span class="lamp dead"></span><span><b>Cannot read the records.</b> ${esc(state.error)}</span>`;
-    return;
-  }
-  // A home on a non-markdown backend contributes no held rows at all, so the
-  // list is SHORT rather than empty - and short with no notice reads as "nothing
-  // is waiting on you", the one claim this page never makes without evidence.
-  const unread = (state.view.homes || []).filter(h => h.backlog_readable === false);
-  el.style.background = '';
-  if (unread.length){
-    el.className = 'watcher'; el.style.background = 'var(--hot-soft)';
-    el.innerHTML = `<span class="lamp dead"></span><span><b>The backlog of
-      ${unread.map(h => esc(h.name)).join(', ')} could not be read.</b> Anything held
-      for you there is missing from this list — this is not the whole of it.</span>`;
-    return;
-  }
-  const stale = (state.view.homes || []).filter(h =>
+  const notices = [];
+  const band = (tone, lamp, html) =>
+    `<div class="watcher" style="background:var(--${tone})"><span class="lamp ${lamp}"></span>
+     <span>${html}</span></div>`;
+  const homes = state.view.homes || [];
+
+  if (state.error)
+    notices.push(band('hot-soft', 'dead',
+      `<b>Cannot read the records.</b> ${esc(state.error)}`));
+
+  // Holds HIDDEN from him - an unsupported backend, or a backlog that is there
+  // and cannot be read. A home with no backlog file yet simply holds nothing.
+  const unread = homes.filter(h => h.backlog_readable === false);
+  if (unread.length)
+    notices.push(band('hot-soft', 'dead',
+      `<b>The backlog of ${unread.map(h => esc(h.name)).join(', ')} could not be read.</b>
+       Anything held for you there is missing from this list — this is not the whole of it.`));
+
+  const stale = homes.filter(h =>
     !h.watcher_beat_epoch || nowSecs() - h.watcher_beat_epoch > 300);
-  if (stale.length){
-    el.style.background = 'var(--warn-soft)';
-    el.innerHTML = `<span class="lamp unknown"></span><span><b>Firstmate is not watching
-      ${stale.map(h => esc(h.name)).join(', ')}.</b> An answer you send there is saved, but
-      nothing will ring it until firstmate is back.</span>`;
-    return;
+  if (stale.length)
+    notices.push(band('warn-soft', 'unknown',
+      `<b>Firstmate is not watching ${stale.map(h => esc(h.name)).join(', ')}.</b>
+       An answer you send there is saved, but nothing will ring it until firstmate is back.`));
+
+  if (!homes.length){
+    notices.push(band('warn-soft', 'unknown',
+      `<b>No homes read yet.</b> Nothing here is a statement about firstmate's health.`));
+  } else {
+    const fresh = homes.filter(h => !stale.includes(h));
+    if (fresh.length){
+      const ago = nowSecs() - Math.max(...fresh.map(h => h.watcher_beat_epoch));
+      notices.push(`<div class="watcher"><span class="beat"></span><span><b>Firstmate is up.</b>
+        Last heard from ${ago < 60 ? ago + ' seconds' : Math.round(ago/60) + ' minutes'}
+        ago.</span></div>`);
+    }
   }
-  if (!(state.view.homes || []).length){
-    el.style.background = 'var(--warn-soft)';
-    el.innerHTML = `<span class="lamp unknown"></span><span><b>No homes read yet.</b>
-      Nothing here is a statement about firstmate's health.</span>`;
-    return;
-  }
-  const newest = Math.max(...state.view.homes.map(h => h.watcher_beat_epoch || 0));
-  const ago = nowSecs() - newest;
-  el.innerHTML = `<span class="beat"></span><span><b>Firstmate is up.</b>
-    Last heard from ${ago < 60 ? ago + ' seconds' : Math.round(ago/60) + ' minutes'} ago.</span>`;
+  $('#watcher').innerHTML = notices.join('');
 }
 
 function itemRow(it){
