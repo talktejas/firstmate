@@ -347,6 +347,10 @@ jobs:
         if: always()
         run: |
           set -eu
+          if [ ! -f "$RUNNER_TEMP/fm-herdr/sessions-before.json" ]; then
+            echo "::warning::skipping lab session cleanup: pre-suite snapshot is absent because install did not run"
+            exit 0
+          fi
           bin/fm-herdr-ci-cleanup.sh teardown "$RUNNER_TEMP/fm-herdr/sessions-before.json" || {
             echo "::warning::lab session cleanup reported a problem; see logs"
             # Surface diagnostics without weakening the suite result above.
