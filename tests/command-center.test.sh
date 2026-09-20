@@ -894,7 +894,7 @@ test_a_reply_takes_the_answer_route_when_the_task_is_still_waiting() {
   local home port id body
   home="$TMP_ROOT/reply-answer"
   seed_home "$home"
-  id=$(say "$home" "Blue or green?" "The colour call is yours." --task cc-live) \
+  id=$(say "$home" "Blue or green?" "The colour call is yours." --task cc-live --question) \
     || fail "the recorder refused the message"
   start_server "$home" || fail "the server did not start"
   port=$SERVER_PORT
@@ -962,7 +962,7 @@ test_a_reply_never_resolves_its_task_against_another_home() {
     "$home/data/backlog.md"
   printf -- '- mate - synthetic scope (home: %s; scope: reviews; projects: demo; added 2026-07-14)\n' \
     "$mate" > "$home/data/secondmates.md"
-  id=$(say "$home" "Blue or green?" "The colour call is yours." --task cc-live) \
+  id=$(say "$home" "Blue or green?" "The colour call is yours." --task cc-live --question) \
     || fail "the recorder refused the message"
   start_server "$home" || fail "the server did not start"
   port=$SERVER_PORT
@@ -1001,6 +1001,155 @@ test_every_message_is_served_past_the_old_cap() {
     "$(jq -r '.messages[-1].title' <<<"$body")" \
     "the oldest message was not served"
   pass "every message is served, and a shortened list would say how many are missing"
+}
+
+# THE WORST THING THIS PAGE COULD DO. A task collects several messages over its
+# life: the question, then the PR, then the result. A reply to the PR message
+# must never be written as the answer that closes the colour question.
+test_a_reply_to_a_message_that_is_not_a_question_never_answers_a_decision() {
+  local home port id body
+  home="$TMP_ROOT/reply-notaquestion"
+  seed_home "$home"
+  say "$home" "Blue or green?" "The colour call is yours." --task cc-live --question >/dev/null \
+    || fail "the recorder refused the question"
+  id=$(say "$home" "The PR is up" "https://example.invalid/pr/1 for the colour work." --task cc-live) \
+    || fail "the recorder refused the message"
+  start_server "$home" || fail "the server did not start"
+  port=$SERVER_PORT
+  body=$(post "$port" /api/reply "$(jq -cn --arg m "$id" '{msg:$m,text:"Merge it."}')")
+  stop_server
+
+  assert_contains "$body" 'fm-inbox.sh note' \
+    "a reply to a message that was not a question took the answer route"
+  assert_not_contains "$(cat "$home/data/backlog.md")" 'Merge it.' \
+    "words about a PR were written as the answer that closes an unrelated decision"
+  assert_contains "$(cat "$home"/state/inbox/*.note 2>/dev/null)" 'Merge it.' \
+    "his reply never reached firstmate at all"
+  pass "a reply to a message that is not a question never answers a decision"
+}
+
+# A reply that cannot rule out the answer route must not quietly become a note:
+# he would be told his steer was delivered while the worker stayed stopped.
+test_a_reply_is_refused_while_no_scan_has_been_read() {
+  local home shim realjq port id code ready
+  home="$TMP_ROOT/reply-unscanned"
+  seed_home "$home"
+  id=$(say "$home" "Blue or green?" "The colour call is yours." --task cc-live --question) \
+    || fail "the recorder refused the message"
+  shim="$TMP_ROOT/reply-unscanned-shim"
+  mkdir -p "$shim"
+  realjq=$(command -v jq) || fail "jq is required for this test"
+  cat > "$shim/jq" <<EOF
+#!/usr/bin/env bash
+case " \$* " in *'_row:"item"'*) exit 1 ;; esac
+exec "$realjq" "\$@"
+EOF
+  chmod +x "$shim/jq"
+
+  port=$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1]);s.close()')
+  PATH="$shim:$PATH" FM_ROOT_OVERRIDE="$ROOT" python3 "$SERVER" \
+    --port "$port" --home "$home" > "$home/server.log" 2>&1 &
+  SERVER_PID=$!
+  ready=
+  for _ in $(seq 1 60); do
+    curl -s -m 2 -o /dev/null "http://127.0.0.1:$port/" && { ready=1; break; }
+    kill -0 "$SERVER_PID" 2>/dev/null || break
+    sleep 1
+  done
+  [ -n "$ready" ] || fail "the server did not start"
+
+  code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' \
+    -d "$(jq -cn --arg m "$id" '{msg:$m,text:"Go blue."}')" \
+    "http://127.0.0.1:$port/api/reply")
+  stop_server
+  assert_equals 503 "$code" \
+    "a reply was routed off records that were never read"
+  assert_equals "" "$(cat "$home"/state/inbox/*.note 2>/dev/null || true)" \
+    "a reply fell through to the note route while no scan had been read"
+  pass "a reply is refused while no scan has been read"
+}
+
+# The page polls this on the item cadence, so an unchanged log must cost a stat
+# rather than a full parse and re-serialize of every message ever recorded.
+test_an_unchanged_message_log_answers_the_poll_without_resending_it() {
+  local home port etag code
+  home="$TMP_ROOT/msgetag"
+  seed_home "$home"
+  say "$home" "One" "First." >/dev/null
+  start_server "$home" || fail "the server did not start"
+  port=$SERVER_PORT
+  etag=$(curl -s -D - -o /dev/null "http://127.0.0.1:$port/api/messages" \
+    | sed -n 's/^[Ee][Tt]ag: *//p' | tr -d '\r')
+  [ -n "$etag" ] || fail "the message list served no change check"
+  code=$(curl -s -o /dev/null -w '%{http_code}' -H "If-None-Match: $etag" \
+    "http://127.0.0.1:$port/api/messages")
+  assert_equals 304 "$code" "an unchanged message log was served in full again"
+  say "$home" "Two" "Second." >/dev/null
+  code=$(curl -s -o /dev/null -w '%{http_code}' -H "If-None-Match: $etag" \
+    "http://127.0.0.1:$port/api/messages")
+  stop_server
+  assert_equals 200 "$code" "a new message was hidden behind a stale change check"
+  pass "an unchanged message log answers the poll without resending it"
+}
+
+# His own words are a list too: a reply missing from a thread reads as a message
+# he never answered, which is an invitation to send the same steer twice.
+test_his_own_words_are_served_whole_and_never_shortened_quietly() {
+  local home port body i
+  home="$TMP_ROOT/saidmany"
+  seed_home "$home"
+  mkdir -p "$home/data/command-center"
+  for i in $(seq 1 600); do
+    jq -cn --arg t "word $i" '{at:"2026-09-01T10:00:00Z", kind:"note", home:"main",
+      text:$t, route:"fm-inbox.sh note", outcome:"sent"}'
+  done > "$home/data/command-center/said.jsonl"
+  start_server "$home" || fail "the server did not start"
+  port=$SERVER_PORT
+  body=$(curl -s -m 30 "http://127.0.0.1:$port/api/said")
+  stop_server
+  assert_equals 600 "$(jq '.said | length' <<<"$body")" \
+    "his own words past the old cap were dropped from the record"
+  assert_equals 0 "$(jq '.dropped' <<<"$body")" \
+    "a complete list of his words claimed rows were dropped"
+  pass "his own words are served whole, and a shortened list would say so"
+}
+
+# A torn append is a message gone. The page may not claim this is every one.
+test_a_line_that_cannot_be_parsed_is_counted_as_dropped() {
+  local home port body
+  home="$TMP_ROOT/msgtorn"
+  seed_home "$home"
+  say "$home" "One" "First." >/dev/null
+  printf '{"id":"m-torn","at":"2026-09-0\n' >> "$home/data/captain-messages.jsonl"
+  start_server "$home" || fail "the server did not start"
+  port=$SERVER_PORT
+  body=$(curl -s -m 30 "http://127.0.0.1:$port/api/messages")
+  stop_server
+  assert_equals 1 "$(jq '.messages | length' <<<"$body")" \
+    "a torn line was served as a message"
+  assert_equals 1 "$(jq '.dropped' <<<"$body")" \
+    "a line that could not be parsed was dropped without saying so"
+  pass "a line that cannot be parsed is counted as dropped"
+}
+
+# The turn-end check: a decision waiting on him that no recorded question asks
+# about is a question he was asked and cannot see.
+test_the_turn_end_check_names_a_question_he_cannot_see() {
+  local home out status
+  home="$TMP_ROOT/unrecorded"
+  seed_home "$home"
+  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$RECORD" unrecorded 2>&1); status=$?
+  assert_equals 1 "$status" \
+    "a captain hold with no recorded message passed the turn-end check"
+  assert_contains "$out" 'cc-live' \
+    "the check did not name the decision he cannot see"
+
+  say "$home" "Blue or green?" "The colour call is yours." --task cc-live --question >/dev/null
+  say "$home" "Hosting region" "Where should it live?" --task cc-deferred --question >/dev/null
+  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$RECORD" unrecorded 2>&1); status=$?
+  assert_equals 0 "$status" \
+    "the check still complained about a decision whose question was recorded: $out"
+  pass "the turn-end check names a question he cannot see, and stays quiet once it is recorded"
 }
 
 test_an_unreadable_message_log_is_reported_not_shown_as_empty() {
@@ -1060,3 +1209,9 @@ test_a_reply_to_a_message_this_home_never_recorded_is_refused
 test_an_unreadable_message_log_is_reported_not_shown_as_empty
 test_a_reply_never_resolves_its_task_against_another_home
 test_every_message_is_served_past_the_old_cap
+test_a_reply_to_a_message_that_is_not_a_question_never_answers_a_decision
+test_a_reply_is_refused_while_no_scan_has_been_read
+test_an_unchanged_message_log_answers_the_poll_without_resending_it
+test_his_own_words_are_served_whole_and_never_shortened_quietly
+test_a_line_that_cannot_be_parsed_is_counted_as_dropped
+test_the_turn_end_check_names_a_question_he_cannot_see

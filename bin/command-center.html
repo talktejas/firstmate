@@ -402,7 +402,7 @@ const esc = s => String(s == null ? '' : s)
 const state = {
   tab:'messages', group:'project', sfilter:'', q:'', homes:new Set(),
   open:null, view:{homes:[],items:[]}, said:[], messages:[], msgError:null,
-  msgDropped:0,
+  msgDropped:0, saidDropped:0, msgEtag:null,
   msgRead:false, etag:null,
   sending:false, flash:null, error:null, seen:load('cc.seen',{}), draft:load('cc.draft',{}),
   note:load('cc.note',''), outcome:load('cc.outcome',{}), scanned:false, saidError:null,
@@ -683,7 +683,12 @@ function renderWords(){
   const note = state.saidError
     ? `<div class="archive-note" style="background:var(--warn-soft)"><b>The record could
        not be read.</b> ${esc(state.saidError)} Anything below is only what this browser
-       still holds.</div>` : '';
+       still holds.</div>`
+    : state.saidDropped
+    ? `<div class="archive-note" style="background:var(--warn-soft)"><b>This list is
+       shortened.</b> ${state.saidDropped} older entr${state.saidDropped === 1 ? 'y is' : 'ies are'}
+       not shown. All of them are still in
+       <span class="mono">data/command-center/said.jsonl</span>.</div>` : '';
   if (!rows.length){
     $('#list').innerHTML = head + note + `<div class="empty">${
       state.saidError ? 'The record could not be read.' : 'Nothing yet.'}</div>`;
@@ -862,6 +867,16 @@ function renderMessagePane(m){
   // The same verdict an answer gets, on the same route: a reply to a waiting
   // task IS a steer, so an unconfirmed delivery forbids a second one here too.
   const verdict = SEND_VERDICT[(state.outcome[key] || {}).outcome];
+  // Where it is about to go, by the rule the server routes by. He is told
+  // before he sends, because a reply delivered as the answer to a question he
+  // was not looking at is the worst thing this page could do.
+  const target = replyTarget(m, state.view.items);
+  const going = target.kind === 'answer'
+    ? `Answers <b>${esc(target.item.title)}</b> — the question this message asked, and
+       nothing else.`
+    : target.settled
+    ? 'Nothing is waiting on that question any more, so this goes to firstmate as a note.'
+    : 'This message was not a question, so this goes to firstmate as a note — never as the answer to another decision.';
   const replies = repliesTo(m).slice().reverse();   // the log is newest first
   const cell = (label, value, na) =>
     `<div><dt>${label}</dt><dd class="${value ? '' : 'na'}">${esc(value || na)}</dd></div>`;
@@ -885,6 +900,10 @@ function renderMessagePane(m){
       ${cell('Branch', m.branch, 'Not recorded')}
     </div>
     <div class="body">${para(m.text) || '<p class="quiet">No text recorded.</p>'}</div>
+    ${state.saidDropped ? `<div class="archive-note" style="background:var(--warn-soft)"><b>Your
+       own words are shortened here.</b> ${state.saidDropped} older entr${
+       state.saidDropped === 1 ? 'y is' : 'ies are'} not shown, so a reply you
+       sent long ago may be missing from the thread below.</div>` : ''}
     ${thread ? `<div class="thread"><h3>What you said back</h3>${thread}</div>` : ''}
     <div class="reply">
       <label for="reply">Your reply — in your own words</label>
@@ -900,7 +919,7 @@ function renderMessagePane(m){
         ${draft.trim() ? '<span class="draft-flag">Draft kept</span>' : ''}
         <span class="send-note" id="sendnote">${verdict
           ? verdict.note + ' <span class="mono">' + esc(state.outcome[key].detail || '') + '</span>'
-          : 'Goes to the worker still waiting on this task, or to firstmate itself when nothing is.'}</span>
+          : going}</span>
       </div>
     </div>
   </div>`;
@@ -1061,8 +1080,13 @@ async function poll(){
 // the page must not go blank about it because a backlog could not be parsed.
 async function loadMessages(){
   try {
-    const res = await fetch('/api/messages');
+    // The log is append-only, so an unchanged one answers 304 and this poll
+    // costs a stat rather than a parse of every message firstmate ever sent.
+    const res = await fetch('/api/messages', {
+      headers: state.msgEtag ? {'If-None-Match': state.msgEtag} : {} });
+    if (res.status === 304){ state.msgRead = true; return false; }
     if (!res.ok) throw new Error('HTTP ' + res.status);
+    state.msgEtag = res.headers.get('ETag');
     const body = await res.json();
     const rows = body.messages || [];
     const before = state.messages.length + '/' + (state.messages[0] || {}).id;
@@ -1085,6 +1109,7 @@ async function loadSaid(){
       const body = await res.json();
       state.said = body.said || [];
       state.saidError = body.error || null;
+      state.saidDropped = body.dropped || 0;
     }
   } catch (e) { /* the list still works without it */ }
 }

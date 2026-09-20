@@ -125,6 +125,26 @@ function orderRows(rows, group, newestDefault) {
   return dated.concat(undated);
 }
 
+// --- where a reply is about to go -----------------------------------------------
+// The same rule the server routes by (waiting_question in
+// bin/command-center.py), so the pane can tell him what his reply will do
+// BEFORE he sends it rather than after.
+//
+// Only a message the recorder marked as a question is answerable, and only
+// against the decision it named: a task collects several messages over its
+// life, so routing by task id alone would write his reply as the answer to
+// whatever decision that task happens to be stopped on. Everything else is a
+// note to firstmate, which is his words reaching firstmate without being
+// delivered as an answer to a question he was not looking at.
+function replyTarget(message, items) {
+  if (!message.question) return { kind: 'note' };
+  const key = message.question_key || '';
+  const item = (items || []).find(it => it.home === 'main' && it.id === message.task
+    && (key ? it.source === 'status' && (it.key || '') === key
+            : it.source === 'hold'));
+  return item ? { kind: 'answer', item } : { kind: 'note', settled: true };
+}
+
 // The identity the server uses too (item_key in bin/command-center.py).
 function itemKey(it) {
   return [it.home, it.source, it.id, it.key || ''].join('/');
@@ -132,4 +152,5 @@ function itemKey(it) {
 
 if (typeof module === 'object' && module.exports)
   module.exports = { pollFacts, tense, transportFailure, verdictFor,
-                     releaseVerdicts, itemKey, shapeMessage, orderRows };
+                     releaseVerdicts, itemKey, shapeMessage, orderRows,
+                     replyTarget };

@@ -48,6 +48,7 @@
 # set first, and text reaches scripts as an argument or a file, never a shell
 # string.
 import argparse
+import collections
 import hashlib
 import json
 import os
@@ -180,12 +181,15 @@ class Records:
                 return home["path"]
         return None
 
-    def waiting_task(self, task_id):
-        """The scanned item for a task, or None when nothing is waiting on it.
+    def waiting_question(self, task_id, key):
+        """The decision a recorded QUESTION asked about, or None when it is settled.
 
-        A message names a task; whether that task is still stopped on a decision
-        is the scan's answer, not the browser's. A task waiting twice at once
-        resolves to its status record, which is the one a worker is sitting on.
+        Only the decision the message itself named can answer it. A task
+        collects several messages over its life - a question, then a PR, then a
+        result - so answering whatever decision the task happens to be stopped
+        on now would write his reply to a question he was not looking at. A key
+        names a stopped worker's own decision; no key means the captain hold
+        this home filed.
 
         Only THIS home's items can answer it. The message log belongs to the
         home this server was started on, and two homes on one machine can hold
@@ -197,14 +201,15 @@ class Records:
         view = self.view()
         mine = {h["id"] for h in view.get("homes", [])
                 if os.path.realpath(h["path"]) == os.path.realpath(self.home)}
-        found = None
         for it in view.get("items", []):
             if it["id"] != task_id or it["home"] not in mine:
                 continue
-            if it["source"] == "status":
+            if key:
+                if it["source"] == "status" and (it.get("key") or "") == key:
+                    return it
+            elif it["source"] == "hold":
                 return it
-            found = found or it
-        return found
+        return None
 
     def item(self, home_id, task_id, source, key):
         # A task can be waiting twice at once - captain-held AND stopped on its
@@ -260,16 +265,23 @@ def read_log(path, limit=500):
     different state, and reporting it as empty would tell the captain he has
     never typed anything - or that firstmate never said anything to him.
 
-    `dropped` is how many older rows the limit cut, because a list shortened
-    without saying so is the same silent loss this page exists to end.
+    `dropped` is every line the list does not carry, whether the limit cut it
+    or it could not be parsed at all, because a list shortened without saying
+    so is the same silent loss this page exists to end.
+
+    Only `limit` rows are ever held at once: the log is append-only and never
+    pruned, so materialising all of it to keep the tail would make the cap a
+    comment rather than a bound.
     """
-    rows = []
+    rows = collections.deque(maxlen=limit)
+    lines = 0
     try:
         with open(path, encoding="utf-8") as fh:
             for line in fh:
                 line = line.strip()
                 if not line:
                     continue
+                lines += 1
                 try:
                     rows.append(json.loads(line))
                 except json.JSONDecodeError:
@@ -278,21 +290,36 @@ def read_log(path, limit=500):
         return [], None, 0
     except OSError as exc:
         return [], f"the record could not be read: {exc}", 0
-    return rows[-limit:][::-1], None, max(0, len(rows) - limit)
+    return list(rows)[::-1], None, max(0, lines - len(rows))
 
 
-def read_said(home, limit=500):
+# He reads his own words and firstmate's, not a page of either: the whole log
+# is served, and the cap is only there so an unbounded file cannot exhaust this
+# process. The reply thread under a message is read out of the said log, so a
+# shortened said log would make an answered message read as unanswered.
+LOG_LIMIT = 20000
+
+
+def read_said(home, limit=LOG_LIMIT):
     return read_log(said_log(home), limit)
 
 
-# He reads his own messages, so the whole log is served rather than a page of
-# it; the cap is only there so an unbounded file cannot exhaust this process,
-# and whatever it cuts is reported.
-MESSAGE_LIMIT = 20000
-
-
-def read_messages(home, limit=MESSAGE_LIMIT):
+def read_messages(home, limit=LOG_LIMIT):
     return read_log(message_log(home), limit)
+
+
+def log_etag(path):
+    """A change check over the log's own (mtime, size), not its contents.
+
+    The page polls this on the item cadence, so an unchanged log must cost a
+    stat rather than a full parse and re-serialize of every message.
+    """
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    return hashlib.sha256(
+        f"{st.st_mtime_ns}/{st.st_size}".encode()).hexdigest()[:32]
 
 
 def find_message(home, msg_id):
@@ -531,14 +558,21 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if path == "/api/messages":
+            etag = log_etag(message_log(self.records.home))
+            if etag and self.headers.get("If-None-Match") == etag:
+                self.send_response(304)
+                self.send_header("ETag", etag)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
             rows, error, dropped = read_messages(self.records.home)
-            self._json(200, {"messages": rows, "error": error,
-                             "dropped": dropped})
+            self._send(200, dump({"messages": rows, "error": error,
+                                  "dropped": dropped}), etag=etag)
             return
 
         if path == "/api/said":
-            rows, error, _ = read_said(self.records.home)
-            self._json(200, {"said": rows, "error": error})
+            rows, error, dropped = read_said(self.records.home)
+            self._json(200, {"said": rows, "error": error, "dropped": dropped})
             return
 
         self._send(404, b"not found", "text/plain; charset=utf-8")
@@ -579,11 +613,11 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/api/reply":
             # A reply to something firstmate SAID. Where it goes is decided by
-            # the recorded message, never by the browser: if it named a task
-            # that is still waiting on him, the reply is that answer and takes
-            # the answer route unchanged; otherwise it is a note, because a
-            # reply with nowhere to be delivered is still his words and still
-            # has to reach firstmate.
+            # the recorded message, never by the browser: a message the recorder
+            # marked as a QUESTION is answered as that question, and anything
+            # else reaches firstmate as a note, because a reply with nowhere to
+            # be delivered is still his words. A message that is not a question
+            # is never written as the answer to some other decision.
             msg_id = payload.get("msg")
             if not isinstance(msg_id, str) or not ID_RE.match(msg_id):
                 self._json(400, {"ok": False, "error": "unknown message"})
@@ -596,7 +630,17 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(404, {"ok": False, "error": "no such message"})
                 return
             self.records.refresh(min_interval=0)
-            item = self.records.waiting_task(message.get("task"))
+            if self.records.etag is None:
+                # With no published scan the answer route cannot be ruled out,
+                # and falling through to the note route would tell him his steer
+                # was delivered while the worker stayed stopped.
+                self._json(503, {"ok": False,
+                                 "error": self.records.error
+                                 or "the records have not been read yet"})
+                return
+            item = (self.records.waiting_question(
+                message.get("task"), message.get("question_key") or "")
+                if message.get("question") else None)
             home_path = self.records.home_path(item["home"]) if item else None
             if item and home_path:
                 outcome, route, detail, mode = send_answer(home_path, item, text)

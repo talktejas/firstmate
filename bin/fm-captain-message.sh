@@ -15,16 +15,32 @@
 # Usage:
 #   fm-captain-message.sh --title <title> [options] <text>...
 #   fm-captain-message.sh --title <title> [options] -        (body from stdin)
+#   fm-captain-message.sh unrecorded
 #
 #   --title <t>     the short line the captain sees in the list. required.
 #   --task <id>     a task in this home; fills project, worktree and branch from
 #                   its own record unless the flags below override them.
 #   --project <p>   --worktree <path>   --branch <b>
+#   --question           this message IS the question waiting on him, so his
+#                        reply in the command center answers it.
+#   --question-key <k>   the stopped worker's own decision key it asks about;
+#                        implies --question. Omit it for a captain hold, which
+#                        has no key.
+#
+# WHETHER A MESSAGE IS A QUESTION IS RECORDED, NEVER GUESSED. A task collects
+# several messages over its life - the question, then the PR, then the result -
+# so a reply routed by task id alone would be written as the answer to whatever
+# decision that task happens to be stopped on. Only a message marked here is
+# answerable, and only against the decision it names.
 #
 # The captain's standing rule is that every item names its project, its worktree
 # and its branch, so --task exists to make supplying all three one flag rather
 # than three chances to leave one out. A field nothing knows is recorded as null
 # and shown as unknown; it is never guessed.
+#
+# `unrecorded` is the turn-end check: it names every decision this home is
+# holding for the captain that no recorded question asks about, because such a
+# decision is one he was asked about and cannot see. Advisory and fail-open.
 #
 # Environment:
 #   FM_HOME   operational home whose data/ is written (default: the code root).
@@ -47,7 +63,46 @@ fail() {
 
 command -v jq >/dev/null 2>&1 || fail "jq is required"
 
-title='' task='' project='' worktree='' branch=''
+# The turn-end check. What is waiting on the captain is the command center's
+# scan to answer, not this script's, so it asks that one rather than parsing
+# the backlog a second time.
+if [ "${1-}" = unrecorded ]; then
+  scan="$SCRIPT_DIR/command-center-scan.sh"
+  [ -x "$scan" ] || exit 0
+  view=$(FM_HOME="$FM_HOME" "$scan" 2>/dev/null) || exit 0
+  waiting=$(printf '%s' "$view" | jq -r '
+    .items[] | select(.home == "main")
+    | [.source, .id, (.key // "")] | @tsv' 2>/dev/null) || exit 0
+  asked=$(jq -r 'select(.question == true)
+    | [(.task // ""), (.question_key // "")] | @tsv' "$LOG" 2>/dev/null || true)
+  missing=''
+  while IFS=$'\t' read -r source id key; do
+    [ -n "$id" ] || continue
+    case "$source" in
+      hold)   want=$(printf '%s\t' "$id") ;;
+      status) want=$(printf '%s\t%s' "$id" "$key") ;;
+      *)      continue ;;
+    esac
+    printf '%s\n' "$asked" | grep -Fxq "$want" && continue
+    missing="$missing$id "
+  done <<EOF
+$waiting
+EOF
+  [ -n "$missing" ] || exit 0
+  rule='━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+  {
+    printf '●%s\n' "$rule"
+    printf '●  THE CAPTAIN WAS ASKED SOMETHING HE CANNOT SEE\n'
+    printf '●  Waiting on him with no recorded message: %s\n' "$missing"
+    printf '●  Record what you actually said to him, with the same words:\n'
+    printf '●      bin/fm-captain-message.sh --title <title> --task <id> --question <text>\n'
+    printf '●  Until then the command center cannot show him the question (AGENTS.md section 9).\n'
+    printf '●%s\n' "$rule"
+  } >&2
+  exit 1
+fi
+
+title='' task='' project='' worktree='' branch='' question=0 question_key=''
 while [ $# -gt 0 ]; do
   case "$1" in
     --title)    title=${2-}; shift 2 ;;
@@ -55,6 +110,8 @@ while [ $# -gt 0 ]; do
     --project)  project=${2-}; shift 2 ;;
     --worktree) worktree=${2-}; shift 2 ;;
     --branch)   branch=${2-}; shift 2 ;;
+    --question) question=1; shift ;;
+    --question-key) question_key=${2-}; question=1; shift 2 ;;
     -h|--help|help) usage; exit 0 ;;
     --) shift; break ;;
     -)  break ;;
@@ -99,10 +156,12 @@ line=$(jq -cn \
   --arg id "$id" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   --arg title "$title" --arg text "$text" --arg task "$task" \
   --arg project "$project" --arg worktree "$worktree" \
-  --arg branch "$branch" '
+  --arg branch "$branch" --argjson question "$question" \
+  --arg question_key "$question_key" '
   def n: if . == "" then null else . end;
   {id:$id, at:$at, title:$title, text:$text,
    task:($task|n), project:($project|n), worktree:($worktree|n),
-   branch:($branch|n)}')
+   branch:($branch|n), question:($question == 1),
+   question_key:($question_key|n)}')
 printf '%s\n' "$line" >> "$LOG"
 printf '%s\n' "$id"

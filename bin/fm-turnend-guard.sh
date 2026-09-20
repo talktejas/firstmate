@@ -167,6 +167,14 @@ fi
 # so this exempts them while guarding every real secondmate home.
 fm_primary_scope_matches "$FM_ROOT" "$STATE" || exit 0
 
+# AGENTS.md section 9: a captain-facing message firstmate never recorded is one
+# he cannot get back, so the turn boundary is where the absence is noticed. It
+# is advisory and fail-open - it prints and never changes this guard's own exit
+# contract (bin/fm-captain-message.sh, docs/command-center.md).
+if [ -x "$SCRIPT_DIR/fm-captain-message.sh" ]; then
+  "$SCRIPT_DIR/fm-captain-message.sh" unrecorded || true
+fi
+
 # --- the actual predicate ----------------------------------------------------
 # shellcheck source=bin/fm-wake-lib.sh
 . "$SCRIPT_DIR/fm-wake-lib.sh"

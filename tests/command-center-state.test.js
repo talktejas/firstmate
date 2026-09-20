@@ -7,7 +7,7 @@ const assert = require('assert');
 const path = require('path');
 const {
   pollFacts, tense, transportFailure, verdictFor, releaseVerdicts, itemKey,
-  shapeMessage, orderRows,
+  shapeMessage, orderRows, replyTarget,
 } = require(path.join(__dirname, '..', 'bin', 'command-center-state.js'));
 
 // Quiet on success: tests/command-center.test.sh runs this and reports the
@@ -219,6 +219,38 @@ test('a scan never re-offers a reply whose delivery was unconfirmed', () => {
   const kept = releaseVerdicts(verdicts, { items: [] });
   assert.deepStrictEqual(kept, verdicts,
     'a message verdict was released by a scan that knows nothing about it');
+});
+
+// --- where a reply is about to go ---------------------------------------------
+// A task collects several messages over its life, so only the message the
+// recorder marked as a question may be answered, and only against the decision
+// it named. Everything else is a note.
+const hold = { home: 'main', id: 't1', source: 'hold', key: '', title: 'Blue or green?' };
+const stopped = { home: 'main', id: 't1', source: 'status', key: 'k1', title: 'Which shape?' };
+
+test('a reply to a question answers that question and nothing else', () => {
+  assert.deepStrictEqual(
+    replyTarget({ question: true, task: 't1' }, [hold]),
+    { kind: 'answer', item: hold });
+  assert.deepStrictEqual(
+    replyTarget({ question: true, task: 't1', question_key: 'k1' }, [stopped, hold]),
+    { kind: 'answer', item: stopped });
+});
+
+test('a reply to a message that is not a question is a note', () => {
+  assert.strictEqual(replyTarget({ task: 't1' }, [hold]).kind, 'note',
+    'a message nobody recorded as a question was made answerable');
+  assert.strictEqual(replyTarget({ question: true, task: 't1', question_key: 'other' },
+                                 [stopped]).kind, 'note',
+    'a question was answered against a decision it never named');
+  assert.strictEqual(replyTarget({ question: true, task: 't1' }, []).kind, 'note',
+    'a settled question still claimed the answer route');
+});
+
+test('a question is never answered against another home', () => {
+  assert.strictEqual(
+    replyTarget({ question: true, task: 't1' },
+                [Object.assign({}, hold, { home: 'mate' })]).kind, 'note');
 });
 
 process.exit(failures ? 1 : 0);
