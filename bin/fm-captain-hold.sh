@@ -240,7 +240,12 @@ CAPTAIN_META_LOCK=
 CAPTAIN_META_LOCK_HELD=0
 CAPTAIN_CONTROL_LOCK=
 CAPTAIN_CONTROL_LOCK_HELD=0
+CAPTAIN_DROP_ERR=
 captain_hold_cleanup() {
+  if [ -n "$CAPTAIN_DROP_ERR" ]; then
+    rm -f -- "$CAPTAIN_DROP_ERR"
+    CAPTAIN_DROP_ERR=
+  fi
   if [ "$CAPTAIN_META_LOCK_HELD" = 1 ]; then
     fm_lock_release "$CAPTAIN_META_LOCK" || true
     CAPTAIN_META_LOCK_HELD=0
@@ -1683,13 +1688,26 @@ EOF
       || fail "the configured backlog is not addressable, so no attested captain call may be dropped from the $origin inventory (data directory $DATA)${FM_BACKLOG_TRANSITION_ERROR:+: $FM_BACKLOG_TRANSITION_ERROR}"
     [ -z "$FM_BACKLOG_AXI_FILE" ] || [ -r "$FM_BACKLOG_AXI_FILE" ] \
       || fail "the configured backlog could not be read, so no attested captain call may be dropped from the $origin inventory: $FM_BACKLOG_AXI_FILE is absent or unreadable"
+    # The listing read is bounded the way every row read here is, and the bound
+    # is set inside the substitution so it cannot leak past this one call: an
+    # unbounded call while the metadata lock is held is exactly the hang the
+    # bound exists to prevent, and a bound hit is an unreadable backlog too.
     probe_rc=0
-    reason=$(fm_backlog_row_list "$DATA" 2>&1) || probe_rc=$?
-    [ "$probe_rc" -eq 0 ] \
-      || fail "the configured backlog could not be read, so no attested captain call may be dropped from the $origin inventory (data directory $DATA)${reason:+: $(printf '%s' "$reason" | tr '\n' ' ')}"
+    reason=$(FM_TASKS_AXI_TIMEOUT=${FM_TASKS_AXI_TIMEOUT:-${FM_BACKLOG_ROW_TIMEOUT_SECS:-10}} \
+      fm_backlog_row_list "$DATA" 2>&1) || probe_rc=$?
+    case "$probe_rc" in
+      0) : ;;
+      124|137)
+        fail "the backlog backend exceeded its read bound listing this home's backlog, so no attested captain call may be dropped from the $origin inventory (data directory $DATA)"
+        ;;
+      *)
+        fail "the configured backlog could not be read, so no attested captain call may be dropped from the $origin inventory (data directory $DATA)${reason:+: $(printf '%s' "$reason" | tr '\n' ' ')}"
+        ;;
+    esac
   fi
   drop_err=$(umask 077; mktemp "${TMPDIR:-/tmp}/fm-captain-hold-drop-err.XXXXXX") \
     || fail "cannot stage the inventory-drop resolution diagnostics"
+  CAPTAIN_DROP_ERR=$drop_err
   while IFS= read -r entry; do
     [ -n "$entry" ] || continue
     ! list_has_key "$keys" "$entry" || continue
@@ -1715,6 +1733,7 @@ EOF
 $(printf '%s\n' "$previous" | tr ',' '\n')
 EOF
   rm -f -- "$drop_err"
+  CAPTAIN_DROP_ERR=
 
   status_file="$STATE/$origin.status"
   open=$(status_open_decisions "$status_file")

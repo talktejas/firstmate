@@ -874,9 +874,11 @@ test_answered_inventory_allows_repair_and_teardown() {
   printf 'The captain settled this call.\n' > "$home/settled-answer.txt"
 
   # Dropping a call that is still held and unanswered would put it out of
-  # verify's reach, so completion refuses it and names it.
+  # verify's reach, so completion refuses it and names it. The refusal is also
+  # an exit path, so it must not strand the staging file it read through.
+  mkdir -p "$home/tmp"
   set +e
-  err=$(run_captain "$home" complete "$id" "$settled" 2>&1 >/dev/null)
+  err=$(export TMPDIR="$home/tmp"; run_captain "$home" complete "$id" "$settled" 2>&1 >/dev/null)
   rc=$?
   set -e
   [ "$rc" -ne 0 ] || fail "completion dropped a still-held, unanswered captain call"
@@ -884,6 +886,9 @@ test_answered_inventory_allows_repair_and_teardown() {
   assert_equals "decision_keys=$active,$settled" \
     "$(grep '^decision_keys=' "$home/state/$id.meta" | tail -1)" \
     "the refused drop still rewrote the attested inventory"
+  assert_equals "0" \
+    "$(find "$home/tmp" -name 'fm-captain-hold-drop-err.*' | wc -l | tr -d ' ')" \
+    "the refused drop stranded its resolution-diagnostics staging file"
 
   run_captain "$home" answer "$settled" --decision-file "$home/settled-answer.txt" >/dev/null \
     || fail "could not close the settled inventory call through the answer path"
@@ -926,6 +931,56 @@ test_answered_inventory_allows_repair_and_teardown() {
   pass "answered inventories verify, corrected completion replaces them without dropping a live call, teardown proceeds, and missing ids refuse"
 }
 
+
+# A wedged backend is not an empty one either. The readability probe runs while
+# this origin's metadata lock is held, so it carries the same read bound every
+# other backlog read here carries: the gate refuses by name instead of blocking
+# every other command that needs that lock behind an unbounded listing read.
+test_wedged_backlog_listing_does_not_hang_the_completion_gate() {
+  local home id call rc err
+  home=$(make_home drift-wedged-listing)
+  id=sample-wedged-listing-scout
+  call=sample-wedged-listing-call
+  mkdir -p "$home/data/$id"
+  tasks_in "$home" add "$id" "Investigate the wedged listing" --kind scout \
+    --repo sample --start >/dev/null || fail "could not create the wedged-listing scout"
+  write_origin_meta "$home" "$id"
+  printf 'done: report complete\n' > "$home/state/$id.status"
+  printf '# Report\n\nThe investigation is complete.\n' > "$home/data/$id/report.md"
+  run_captain "$home" hold "$call" --title "Choose an option" \
+    --reason "captain must choose" --repo sample >/dev/null \
+    || fail "could not hold the wedged-listing call"
+  run_captain "$home" complete "$id" "$call" >/dev/null \
+    || fail "could not attest the wedged-listing inventory"
+
+  # A backend that answers every read but never returns from a listing.
+  cat > "$home/fakebin/tasks-axi" <<'SH'
+#!/usr/bin/env bash
+for arg in "$@"; do
+  [ "$arg" = list ] || continue
+  while :; do sleep 0.1; done
+done
+exec "$REAL_TASKS_AXI" "$@"
+SH
+  chmod +x "$home/fakebin/tasks-axi"
+
+  set +e
+  err=$(export FM_BACKLOG_ROW_TIMEOUT_SECS=1
+        run_captain "$home" complete "$id" --none 2>&1 >/dev/null)
+  rc=$?
+  set -e
+  rm -f "$home/fakebin/tasks-axi"
+  [ "$rc" -ne 0 ] || fail "--none cleared a live inventory against a wedged backlog listing"
+  assert_contains "$err" "read bound" \
+    "the refusal did not name the exceeded read bound as its reason"
+  assert_equals "decision_keys=$call" \
+    "$(grep '^decision_keys=' "$home/state/$id.meta" | tail -1)" \
+    "a wedged backlog listing still rewrote the attested inventory"
+
+  run_captain "$home" verify "$id" >/dev/null \
+    || fail "the preserved inventory stopped verifying once the backend answered again"
+  pass "a wedged backlog listing refuses under its read bound instead of hanging the completion gate"
+}
 
 # Drift is a statement about the backlog, not about the backend: when the
 # configured backlog cannot be read, every id fails to resolve alike, and
@@ -4210,6 +4265,7 @@ test_completion_gate_attests_and_transfers
 test_answer_records_and_closes
 test_answered_inventory_allows_repair_and_teardown
 test_unreadable_backlog_does_not_drift_clear_an_inventory
+test_wedged_backlog_listing_does_not_hang_the_completion_gate
 test_release_frees_held_work
 test_hold_stamp_precedes_hold_visibility
 test_interrupted_answer_preserves_hold_age
