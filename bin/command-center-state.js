@@ -144,6 +144,17 @@ function foldSaid(rows) {
   return kept;
 }
 
+// --- the surfaces one send touches ----------------------------------------------
+// The box he typed it in, and - when a reply took the answer route - the item
+// it steered as well. Everything the page says about a send is said on all of
+// them and taken back from all of them, or one surface warns him about a
+// delivery the other has already confirmed.
+function sendKeys(box, item) {
+  return [box, item]
+    .filter(Boolean)
+    .filter((k, i, all) => all.indexOf(k) === i);
+}
+
 // --- what one send is, taking the page's own surrender into account --------------
 // The record is written when the click is accepted and again when the command
 // answers, so a row still reading `sending` is a send with no answer yet. But
@@ -243,4 +254,4 @@ if (typeof module === 'object' && module.exports)
                      releaseVerdicts, itemKey, shapeMessage, orderRows,
                      replyTarget, foldSaid, wordsAfter,
                      listSignature, mayRelease, logRead,
-                     sendState };
+                     sendState, sendKeys };

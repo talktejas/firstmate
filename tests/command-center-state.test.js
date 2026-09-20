@@ -8,7 +8,7 @@ const path = require('path');
 const {
   pollFacts, tense, transportFailure, verdictFor, releaseVerdicts, itemKey,
   shapeMessage, orderRows, replyTarget, foldSaid, wordsAfter,
-  listSignature, mayRelease, logRead, sendState,
+  listSignature, mayRelease, logRead, sendState, sendKeys,
 } = require(path.join(__dirname, '..', 'bin', 'command-center-state.js'));
 
 // Quiet on success: tests/command-center.test.sh runs this and reports the
@@ -370,6 +370,21 @@ test('a released send is never still going out', () => {
                                { a: { key: 'k', released: true } }), 'sent',
     'an outcome that arrived late supersedes the page giving up');
   assert.strictEqual(sendState(undefined, undefined), undefined);
+});
+
+// --- the surfaces one send touches ---------------------------------------------
+// A reply on the answer route is a steer at an item as well as a reply to a
+// message, and everything said about it must be said - and taken back - on
+// both, or one surface warns him about a delivery the other has confirmed.
+test('a send is said on every surface it touches, once each', () => {
+  assert.deepStrictEqual(sendKeys('msg/m1', 'main/hold/t1/t1'),
+    ['msg/m1', 'main/hold/t1/t1']);
+  assert.deepStrictEqual(sendKeys('main/hold/t1/t1', null), ['main/hold/t1/t1'],
+    'an answer sent from the item itself has one surface');
+  assert.deepStrictEqual(sendKeys('main/hold/t1/t1', 'main/hold/t1/t1'),
+    ['main/hold/t1/t1'], 'one surface named twice is still one surface');
+  assert.deepStrictEqual(sendKeys('', ''), [],
+    'a note hangs off nothing, so there is no surface to hold state against');
 });
 
 process.exit(failures ? 1 : 0);

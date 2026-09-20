@@ -913,7 +913,7 @@ function renderMessagePane(m){
       <div class="msg-text">${esc(r.text)}</div>
       <div class="proof">${wordOutcome(r)}</div>
     </div>`).join('');
-  $('#main').innerHTML = `<div class="main-inner">
+  paintMain(`<div class="main-inner">
     <div class="crumbs">
       <span class="kind k-decision">firstmate said</span>
       <span class="sep">·</span><span>${esc(localTime(m.at))}</span>
@@ -950,7 +950,7 @@ function renderMessagePane(m){
           : failedNote(key) || going}</span>
       </div>
     </div>
-  </div>`;
+  </div>`);
   const ta = $('#reply');
   ta.addEventListener('input', () => {
     state.draft[key] = ta.value;
@@ -967,10 +967,10 @@ function renderMain(){
   }
   const it = (state.view.items || []).find(i => itemKey(i) === state.open);
   if (!it){
-    $('#main').innerHTML = `<div class="blank"><strong>Pick something on the left.</strong>
+    paintMain(`<div class="blank"><strong>Pick something on the left.</strong>
       <span>Everything firstmate has said to you, newest first, with a box to reply in.<br>
       <b>Waiting on you</b> is the queue it is still holding — questions and stopped workers.<br>
-      New things appear on their own — you never reload, and you never get a new link.</span></div>`;
+      New things appear on their own — you never reload, and you never get a new link.</span></div>`);
     return;
   }
   const L = LISTEN[it.listen] || LISTEN.unknown;
@@ -996,7 +996,7 @@ function renderMain(){
       <b>Nobody is listening to this one right now.</b> Your answer is written down and will
       not be lost, but it sits unread until firstmate restarts the worker.</div>` : '';
 
-  $('#main').innerHTML = `<div class="main-inner">
+  paintMain(`<div class="main-inner">
     <div class="crumbs">
       <span class="src"><span class="dot" style="background:${homeColour(it.home)}"></span>${esc(homeOf(it.home).name)}</span>
       <span class="sep">·</span><span class="kind k-${it.source === 'hold' ? 'decision' : 'blocker'}">${it.source === 'hold' ? 'decision' : esc(it.status_verb || 'blocked')}</span>
@@ -1036,7 +1036,7 @@ function renderMain(){
                                                     : 'the worker’s steering inbox') + '.'}</span>
       </div>
     </div>
-  </div>`;
+  </div>`);
 
   const ta = $('#reply');
   ta.addEventListener('input', () => {
@@ -1045,6 +1045,23 @@ function renderMain(){
     $('#send').disabled = !ta.value.trim() || state.sending || !!verdict || going;
     renderList();
   });
+}
+
+// ONE OWNER OF THE PANE'S HTML. Whatever rebuilds it, his typing survives: the
+// box, its text (from cc.draft), its focus and its caret. So no caller ever has
+// to choose between showing him the truth and letting him type - which is the
+// choice that took his cursor on one path and left the pane stale on another.
+function paintMain(html){
+  const box = $('#reply');
+  const typing = box && document.activeElement === box
+    ? {start: box.selectionStart, end: box.selectionEnd, scroll: box.scrollTop}
+    : null;
+  $('#main').innerHTML = html;
+  const next = $('#reply');
+  if (!typing || !next) return;
+  next.focus({preventScroll: true});
+  next.setSelectionRange(typing.start, typing.end);
+  next.scrollTop = typing.scroll;
 }
 
 function render(){
@@ -1188,18 +1205,22 @@ function applyOutcomes(){
     const held = state.pending[r.sid];
     if (held){
       delete state.pending[r.sid];
-      // wordsAfter comes from bin/command-center-state.js.
+      // wordsAfter and sendKeys come from bin/command-center-state.js: what an
+      // arrived outcome does to his words, and every surface it is said on.
+      const surfaces = sendKeys(held.key, held.item);
       if (wordsAfter(r) === 'clear'){
-        // It landed, and only now may his words leave the box.
+        // It landed, and only now may his words leave the box - and no surface
+        // may go on warning about a delivery the record has since confirmed.
         if (held.key === 'note') noteText('');
         else delete state.draft[held.key];
-        delete state.failed[held.key];
+        for (const k of surfaces) delete state.failed[k];
       } else {
-        // It did not land. His words go back where he typed them and the row he
-        // sent from says so, rather than only the record he may never open.
+        // It did not land. His words go back where he typed them and every row
+        // he could send it from again says so.
         if (held.key === 'note') noteText(held.text);
         else state.draft[held.key] = held.text;
-        state.failed[held.key] = {outcome: r.outcome, detail: r.detail || ''};
+        for (const k of surfaces)
+          state.failed[k] = {outcome: r.outcome, detail: r.detail || ''};
       }
       save('cc.draft', state.draft);
       save('cc.pending', state.pending);
@@ -1208,7 +1229,7 @@ function applyOutcomes(){
     // A reply to a recorded question carries BOTH: the message he answered
     // from and the item it steered. An unconfirmed delivery forbids a second
     // one from either surface, so the verdict is held against both.
-    const keys = [r.msg ? 'msg/' + r.msg : '', r.item_key || ''].filter(Boolean);
+    const keys = sendKeys(r.msg ? 'msg/' + r.msg : '', r.item_key);
     if (!keys.length) continue;
     const verdict = verdictFor(r.source || 'status', r.outcome, r.detail,
                                r.sent_count || 0);
@@ -1267,8 +1288,7 @@ function reconcilePending(read){
     const warning = {outcome: 'unknown',
       detail: 'nothing ever reported what became of it: the page or the server '
             + 'stopped before the command answered'};
-    for (const k of [held.key, held.item].filter(Boolean))
-      state.failed[k] = warning;
+    for (const k of sendKeys(held.key, held.item)) state.failed[k] = warning;
     changed = true;
   }
   if (changed){
@@ -1500,23 +1520,15 @@ Promise.all([loadSaid(), loadMessages()]).then(([said]) => {
 });
 setInterval(poll, POLL_MS);
 // The message log is a local file read, so it is polled on the same cadence and
-// re-rendered only when a message actually arrived. Only the LIST is redrawn: a
-// recorded message never changes, so rebuilding the pane would take his cursor
-// out of the reply he is typing for nothing.
-setInterval(async () => { if (await loadMessages()) renderList(); }, POLL_MS);
+// re-rendered only when a message actually arrived - his typing survives the
+// re-render either way, because paintMain owns that.
+setInterval(async () => { if (await loadMessages()) render(); }, POLL_MS);
 // The outcome of a send is written to the record by the thread carrying the
 // delivery out, so the record is polled on the same cadence and behind the same
 // change check. An unchanged record costs a stat.
 setInterval(async () => {
   const said = await loadSaid();
-  if (!(reconcilePending(said.read) || said.changed)) return;
-  // Everything around him is updated, but the pane is left alone while he is
-  // typing in it: the same rule the message poll above follows, because every
-  // send he makes produces exactly this change a few seconds later.
-  renderList();
-  const box = $('#reply');
-  if (box && document.activeElement === box) return;
-  render();
+  if (reconcilePending(said.read) || said.changed) render();
 }, POLL_MS);
 setInterval(renderList, 30000);   // keep the ages and stuck flags honest
 </script>
