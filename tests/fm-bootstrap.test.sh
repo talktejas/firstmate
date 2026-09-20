@@ -40,7 +40,10 @@ unset TMUX TMUX_PANE HERDR_ENV HERDR_PANE_ID HERDR_SESSION HERDR_SOCKET_PATH \
   CMUX_WORKSPACE_ID CMUX_SURFACE_ID CMUX_SOCKET_PATH CMUX_TAB_ID CMUX_PANEL_ID 2>/dev/null || true
 
 # A fake toolchain where every required tool is present and gh is authenticated.
-# treehouse's `get --help` advertises --lease only when FM_FAKE_TREEHOUSE_LEASE_HELP=1.
+# treehouse advertises the pool-claim flags only when FM_FAKE_TREEHOUSE_LEASE_HELP=1:
+# `get --lease`/`--lease-holder` that takes a claim and `return --if-lease-holder`
+# that releases exactly it. FM_FAKE_TREEHOUSE_LEASE_HELP=getonly is the build that
+# can take a claim it can never release.
 make_fake_toolchain() {
   local dir=$1 fakebin
   fakebin=$(fm_fakebin "$dir")
@@ -65,12 +68,17 @@ SH
   chmod +x "$fakebin/gh"
   cat > "$fakebin/treehouse" <<'SH'
 #!/usr/bin/env bash
-if [ "${1:-}" = get ] && [ "${2:-}" = --help ]; then
-  if [ "${FM_FAKE_TREEHOUSE_LEASE_HELP:-}" = 1 ]; then
-    printf '%s\n' 'Usage: treehouse get [--lease] [--lease-holder <holder>]'
-  else
-    printf '%s\n' 'Usage: treehouse get'
-  fi
+if [ "${2:-}" = --help ]; then
+  case "${1:-}:${FM_FAKE_TREEHOUSE_LEASE_HELP:-}" in
+    get:1|get:getonly)
+      printf '%s\n' 'Usage: treehouse get [--lease] [--lease-holder <holder>]' ;;
+    get:*)
+      printf '%s\n' 'Usage: treehouse get' ;;
+    return:1)
+      printf '%s\n' 'Usage: treehouse return [--force] [--if-lease-holder <holder>]' ;;
+    return:*)
+      printf '%s\n' 'Usage: treehouse return [--force]' ;;
+  esac
   exit 0
 fi
 exit 0
@@ -305,6 +313,7 @@ test_bootstrap_reporting() {
     esac
   done <<'ROWS'
 treehouse --lease support is accepted silently^1^0.2.4^1^manual^empty^^
+treehouse that leases but cannot release reports an upgrade^getonly^0.2.4^1^-^grep^MISSING: treehouse (install: curl -fsSL https://kunchenguid.github.io/treehouse/install.sh | sh)^NEEDS_GH_AUTH
 treehouse without --lease reports an upgrade, gh auth is fine^0^0.2.4^1^-^grep^MISSING: treehouse (install: curl -fsSL https://kunchenguid.github.io/treehouse/install.sh | sh)^NEEDS_GH_AUTH
 compatible tasks-axi is silent by default^1^0.2.4^1^-^empty^^
 missing tasks-axi is required by default^1^-^1^-^exact^MISSING: tasks-axi (install: npm install -g tasks-axi)^

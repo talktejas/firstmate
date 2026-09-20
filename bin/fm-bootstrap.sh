@@ -938,8 +938,19 @@ NO_MISTAKES_MIN=1.46.0
 GH_AXI_MIN=0.1.29
 LAVISH_AXI_MIN=0.1.46
 
+treehouse_advertises_flag() {  # <subcommand> <flag>
+  treehouse "$1" --help 2>&1 |
+    grep -Eq "(^|[^[:alnum:]_-])$2([^[:alnum:]_-]|$)"
+}
+
+# Both halves of a task's pool claim, not just the half that takes it: the spawn
+# leases the slot with `get --lease --lease-holder` and every release path -
+# aborted spawn, operator recovery - matches on `return --if-lease-holder`, so a
+# build carrying only the first leaves claims nothing can release.
 treehouse_supports_lease() {
-  treehouse get --help 2>&1 | grep -Eq '(^|[^[:alnum:]_-])--lease([^[:alnum:]_-]|$)'
+  treehouse_advertises_flag get --lease &&
+    treehouse_advertises_flag get --lease-holder &&
+    treehouse_advertises_flag return --if-lease-holder
 }
 
 # Shared semantic-version floor for the tool gates below. A version string that

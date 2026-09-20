@@ -31,7 +31,8 @@ make_home() {  # <name>
 ## Done
 EOF
   fakebin=$(fm_fakebin "$home")
-  fm_fake_exit0 "$fakebin" tmux treehouse no-mistakes gh gh-axi
+  fm_fake_exit0 "$fakebin" tmux no-mistakes gh gh-axi
+  fm_test_fake_treehouse_lease "$fakebin"
   printf '%s\n' "$home"
 }
 
@@ -240,7 +241,8 @@ archive = "data/done-archive.md"
 done_keep = 10
 EOF
   fb=$(fm_fakebin "$home")
-  fm_fake_exit0 "$fb" tmux treehouse no-mistakes gh gh-axi
+  fm_fake_exit0 "$fb" tmux no-mistakes gh gh-axi
+  fm_test_fake_treehouse_lease "$fb"
   printf '%s\n' "$home|$graph/.beads"
 }
 
@@ -1299,7 +1301,8 @@ test_secondmate_hold_stays_in_authoritative_home() {
 ## Done
 EOF
   fakebin=$(fm_fakebin "$mate")
-  fm_fake_exit0 "$fakebin" tmux treehouse no-mistakes gh gh-axi
+  fm_fake_exit0 "$fakebin" tmux no-mistakes gh gh-axi
+  fm_test_fake_treehouse_lease "$fakebin"
   origin=sample-mate-review
   mkdir -p "$mate/data/$origin"
   tasks_in "$mate" add "$origin" "Investigate secondmate sample" --kind scout --repo sample --start >/dev/null
@@ -1356,7 +1359,8 @@ test_secondmate_home_publishes_holds_and_answers() {
 ## Done
 EOF
   fakebin=$(fm_fakebin "$mate")
-  fm_fake_exit0 "$fakebin" tmux treehouse no-mistakes gh gh-axi
+  fm_fake_exit0 "$fakebin" tmux no-mistakes gh gh-axi
+  fm_test_fake_treehouse_lease "$fakebin"
   channel="$parent/state/channel-mate.status"
   decision="$mate/decision.txt"
 
@@ -2901,7 +2905,7 @@ SH
   assert_not_contains "$show" "Deliverable of the finished work" \
     "the deliverable was recorded before destructive cleanup succeeded"
 
-  fm_fake_exit0 "$home/fakebin" treehouse
+  fm_test_fake_treehouse_lease "$home/fakebin"
   bootstrap=$(PATH="$home/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$home" \
     FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
     FM_CONFIG_OVERRIDE="$home/config" FM_BOOTSTRAP_NETWORK=skip \
@@ -2957,7 +2961,7 @@ SH
   printf 'Proceed with the reported result.\n' > "$home/answer.txt"
   run_captain "$home" answer "$id" --decision-file "$home/answer.txt" >/dev/null \
     || fail "the captain could not answer before cleanup replay"
-  fm_fake_exit0 "$home/fakebin" treehouse
+  fm_test_fake_treehouse_lease "$home/fakebin"
   bootstrap=$(PATH="$home/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$home" \
     FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
     FM_CONFIG_OVERRIDE="$home/config" FM_BOOTSTRAP_NETWORK=skip \
@@ -3082,7 +3086,7 @@ SH
   assert_contains "$show" "state: done" "the relocated report kept the answered call open"
   assert_contains "$show" "held: no" "the relocated report kept the answered call held"
 
-  fm_fake_exit0 "$home/fakebin" treehouse
+  fm_test_fake_treehouse_lease "$home/fakebin"
   bootstrap=$(PATH="$home/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$home" \
     FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$data" \
     FM_CONFIG_OVERRIDE="$home/config" FM_BOOTSTRAP_NETWORK=skip \

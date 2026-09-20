@@ -1434,7 +1434,7 @@ The Herdr refusal when a shell accepts the command but does not move is not exer
 
 Measured 2026-09-10 on macOS aarch64 against Herdr 0.9.0 (protocol 22) and Pi 0.85.1 in an isolated `fm-lab-` session (upstream issue #4115, duplicates #3639, #3487, #2908, #3545).
 
-Herdr keeps a Pi registration after the Pi process has exited to a shell when a nested interactive shell sits under the pane's top shell, which is the crew shape `treehouse get` leaves behind; a plain `/quit` directly under the top shell, and a `kill -9` of Pi, both released it on this version.
+Herdr keeps a Pi registration after the Pi process has exited to a shell when a nested interactive shell sits under the pane's top shell, which is the crew shape the spawn-time `(cd -- '<worktree>' && exec $SHELL)` subshell leaves behind; a plain `/quit` directly under the top shell, and a `kill -9` of Pi, both released it on this version.
 Reproduced in the lab with a nested `zsh` under the pane shell, then `pi` with no prompt, then `/quit`:
 
 ```sh
@@ -1520,6 +1520,47 @@ Observed guarantees: `fm-afk-launch.sh start` refused on the Pi primary and `con
 The current catch-up reporting boundary is pinned by `tests/fm-afk-return.test.sh` and the same live entry point: Bearings continues through a pending return catch-up, projects its posture as an action-free warning outside Captain's Call, and drops that warning after the gate clears, while an active away window still refuses.
 The fixture captures submitted input through Pi's `input` extension hook, so the lab agent directory needs no provider credentials.
 The daemon injection transport into a live composer keeps its coverage in `tests/fm-afk-inject-herdr-e2e.test.sh` for the harnesses that still run the daemon, and the dedicated Herdr daemon workspace topology is covered by `tests/fm-afk-launch.test.sh` and preserves the captain tab's pane count.
+
+## Treehouse worktree pool
+
+The pool claim `bin/fm-spawn.sh` takes on a task worktree was verified on 2026-09-17 with treehouse v2.1.0 on Linux (WSL2).
+`bin/fm-install-treehouse.sh` pins that same v2.1.0 for CI, so the real-Herdr lane runs against the flag surface recorded here; 2.0.1 ships `get --lease --lease-holder` but no `return --if-lease-holder`, which is below the floor `bin/fm-bootstrap.sh` gates on.
+A task whose agent is not currently running leaves no process inside its copy, and a lease is what keeps that idle-looking copy from being handed to the next spawn and reset.
+
+```sh
+treehouse get --lease --lease-holder 'fm:demo-task@/home/fm/state'
+treehouse status --json
+printf 'pwd -P\nexit\n' | treehouse get
+```
+
+Observed output, with the pool root shortened:
+
+```text
+.treehouse/repo-b871d3/1/repo
+[{"name":"1","path":".../1/repo","status":"leased","lease_id":"84cf5022d6c3160e356d7a09de20d763","lease_holder":"fm:demo-task@/home/fm/state","leased_at":"2026-09-17T18:37:42.418019618+07:00","processes":[]}]
+.treehouse/repo-b871d3/2/repo
+```
+
+The leased slot carries no process and is still not handed to the later plain `get`, which allocates a different slot, and the holder label is readable back from the pool's own status.
+
+The release every claim depends on is holder-matched, verified on 2026-09-20 with the same build against the slot leased above.
+
+```sh
+treehouse return --force --if-lease-holder 'fm:other@/home/fm/state' .../1/repo
+treehouse return --force --if-lease-holder 'fm:demo-task@/home/fm/state' .../1/repo
+treehouse status --json
+```
+
+Observed output, with the pool root shortened:
+
+```text
+failed to return worktree: lease precondition failed: lease holder does not match worktree .../1/repo
+🌳 Worktree returned to pool.
+[{"name":"1","path":".../1/repo","status":"available","lease_id":"","lease_holder":"","leased_at":null,"processes":[]}]
+```
+
+A holder that does not match leaves the lease in place and exits 1, so a release can never take back a slot some later allocation already owns; the matching holder returns the slot and clears the label. `bin/fm-bootstrap.sh` gates on this flag alongside `get --lease`, so a build without it is reported as a treehouse upgrade rather than leaving claims nothing can release.
+[`tests/fm-spawn-worktree-lease.test.sh`](../../tests/fm-spawn-worktree-lease.test.sh) is the command that refreshes this record; it skips when treehouse is not installed.
 
 ## Zellij
 

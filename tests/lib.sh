@@ -351,6 +351,7 @@ fm_fakebin() {
 fm_fake_exit0() {
   local fakebin=$1 tool
   shift
+  [ "$#" -gt 0 ] || return 0
   for tool in "$@"; do
     cat > "$fakebin/$tool" <<'SH'
 #!/usr/bin/env bash
@@ -358,6 +359,69 @@ exit 0
 SH
     chmod +x "$fakebin/$tool"
   done
+}
+
+# fm_test_fake_treehouse_lease <fakebin>
+# Stands in for the pool: `treehouse get --lease` prints the leased worktree
+# (FM_FAKE_LEASE_PATH, defaulting to the path the fake pane will report), every
+# call is appended to FM_TREEHOUSE_LOG when set, and everything else exits 0.
+#
+# `get` and `return` model the real flag surface (treehouse v2.1.0, recorded in
+# docs/verification/runtime-backends.md): a flag neither subcommand accepts is
+# rejected the way treehouse rejects it, so a caller spelling a flag this build
+# does not have fails here instead of passing on argv text alone. When
+# FM_TREEHOUSE_LOG is set the holder label `get --lease-holder` recorded is kept
+# beside it, and `return --if-lease-holder` releases the slot only when the
+# label matches - the lease precondition the real pool enforces.
+fm_test_fake_treehouse_lease() {
+  local fakebin=$1
+  cat > "$fakebin/treehouse" <<'SH'
+#!/usr/bin/env bash
+set -u
+if [ -n "${FM_TREEHOUSE_LOG:-}" ]; then
+  { printf 'treehouse'; for a in "$@"; do printf '\x1f%s' "$a"; done; printf '\n'; } >> "$FM_TREEHOUSE_LOG"
+fi
+holder_state=${FM_TREEHOUSE_LOG:+$FM_TREEHOUSE_LOG.holder}
+sub=${1:-}
+shift || true
+lease=0 holder= want_holder= have_want_holder=0
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --help|-h)
+      case "$sub" in
+        get) printf '%s\n' '      --lease' '      --lease-holder string' ;;
+        return) printf '%s\n' '      --force' '      --if-lease-holder string' ;;
+      esac
+      exit 0
+      ;;
+    --lease) [ "$sub" = get ] || { echo "unknown flag: $1" >&2; exit 1; }; lease=1 ;;
+    --lease-holder) [ "$sub" = get ] || { echo "unknown flag: $1" >&2; exit 1; }; holder=${2:-}; shift ;;
+    --if-lease-holder) [ "$sub" = return ] || { echo "unknown flag: $1" >&2; exit 1; }; want_holder=${2:-}; have_want_holder=1; shift ;;
+    --force) [ "$sub" = return ] || { echo "unknown flag: $1" >&2; exit 1; } ;;
+    --*) echo "unknown flag: $1" >&2; exit 1 ;;
+  esac
+  shift
+done
+case "$sub" in
+  get)
+    if [ "$lease" = 1 ]; then
+      [ -z "$holder_state" ] || printf '%s\n' "$holder" > "$holder_state"
+      printf '%s\n' "${FM_FAKE_LEASE_PATH:-${FM_FAKE_PANE_PATH:-}}"
+    fi
+    ;;
+  return)
+    if [ "$have_want_holder" = 1 ] && [ -n "$holder_state" ]; then
+      if [ "$want_holder" != "$(cat "$holder_state" 2>/dev/null)" ]; then
+        echo "failed to return worktree: lease precondition failed: lease holder does not match" >&2
+        exit 1
+      fi
+    fi
+    [ -z "$holder_state" ] || rm -f "$holder_state"
+    ;;
+esac
+exit 0
+SH
+  chmod +x "$fakebin/treehouse"
 }
 
 # fm_fake_crash_injector <fakebin>
