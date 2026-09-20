@@ -1506,10 +1506,13 @@ document.addEventListener('click', async e => {
       delete state.outcome[k];
       delete state.failed[k];
     }
-    // And the record of the send itself, so the next load cannot read it as a
-    // send still going out and lock the box again.
+    // And the record of a send still in flight, so the next load cannot read it
+    // as one still going out and lock the box again. A send already RELEASED
+    // locks nothing (isSending skips it), and its entry is the only record that
+    // the page gave up on it: deciding to send again releases the lock, it does
+    // not rewrite what happened before.
     for (const [sid, held] of Object.entries(state.pending))
-      if (held.key === state.open || held.item === state.open)
+      if (!held.released && (held.key === state.open || held.item === state.open))
         delete state.pending[sid];
     save('cc.outcome', state.outcome);
     save('cc.pending', state.pending); save('cc.failed', state.failed);
