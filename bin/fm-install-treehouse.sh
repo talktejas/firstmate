@@ -3,8 +3,8 @@
 #
 # Used only by the required real-Herdr CI lane for E2E scripts that genuinely
 # need treehouse (spawn worktree acquisition). Same pin/checksum discipline as
-# fm-install-herdr.sh: official release URL, exact asset, SHA-256, bounded
-# download, post-install version check. Never a floating package-manager latest.
+# fm-install-herdr.sh: official release URL, exact asset, SHA-256, bounded and
+# retried download, post-install version check. Never a floating package-manager latest.
 #
 # Usage:
 #   fm-install-treehouse.sh <destination-directory>
@@ -54,7 +54,8 @@ TMP=$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/fm-treehouse.XXXXXX")
 trap 'rm -rf "$TMP"' EXIT
 
 printf 'fm-install-treehouse.sh: downloading %s from %s\n' "$ARCHIVE" "$URL" >&2
-curl -fsSL --max-filesize "$FM_TREEHOUSE_CI_MAX_BYTES" "$URL" -o "$TMP/$ARCHIVE" \
+curl -fsSL --retry 3 --retry-delay 2 --retry-all-errors \
+  --max-filesize "$FM_TREEHOUSE_CI_MAX_BYTES" "$URL" -o "$TMP/$ARCHIVE" \
   || die "download failed for $URL (bounded at $FM_TREEHOUSE_CI_MAX_BYTES bytes)"
 
 if command -v sha256sum >/dev/null 2>&1; then
