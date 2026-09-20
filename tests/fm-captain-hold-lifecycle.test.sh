@@ -971,12 +971,12 @@ SH
 
   # Re-attesting the same inventory drops nothing, so it never reaches the
   # listing read and succeeds exactly as it did before the drop guard existed.
-  (export FM_BACKLOG_ROW_TIMEOUT_SECS=1
-   run_captain "$home" complete "$id" "$call" >/dev/null) \
+  FM_BACKLOG_ROW_TIMEOUT_SECS=1 \
+    run_captain "$home" complete "$id" "$call" >/dev/null \
     || fail "a re-attestation that drops nothing was refused over the backlog listing"
 
   set +e
-  err=$(export FM_BACKLOG_ROW_TIMEOUT_SECS=1 FM_TEST_SHOW_FAILS=1
+  err=$(FM_BACKLOG_ROW_TIMEOUT_SECS=1 FM_TEST_SHOW_FAILS=1 \
         run_captain "$home" complete "$id" --none 2>&1 >/dev/null)
   rc=$?
   set -e
