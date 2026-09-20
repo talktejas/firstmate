@@ -1,0 +1,26 @@
+
+=== 1. dispatch with NO --base
+  | warning: /tmp/fmjourney/run2/home/data/ledger-fix/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode local-only - confirm its definition of done matches
+  | spawned ledger-fix harness=codex kind=ship mode=local-only yolo=off window=firstmate:fm-ledger-fix worktree=/tmp/fmjourney/run2/cold-slot
+  PASS  spawn succeeded
+  task record:
+    project=/tmp/fmjourney/run2/projects/ledger
+    kind=ship
+    mode=local-only
+  PASS  no base= recorded: the task owns no base and keeps following the project
+
+=== 2. the worker commits, then the project changes its declared branch under it
+  project now declares: release/2026-10
+
+=== 3. land it
+  | merged fm/ledger-fix into local release/2026-10 (c2ff9fc -> 5218d3f) in /tmp/fmjourney/run2/projects/ledger
+  PASS  landing succeeded with no hand-editing of the task record
+  PASS  landed on the project's CURRENT declaration (release/2026-10)
+  PASS  main untouched
+
+=== 4. clean up
+  | teardown ledger-fix complete (window firstmate:fm-ledger-fix, worktree /tmp/fmjourney/run2/cold-slot)
+  | Backlog: ledger-fix just finished (this home keeps no markdown backlog at /tmp/fmjourney/run2/home/data/backlog.md). Update /tmp/fmjourney/run2/home/data/backlog.md - move ledger-fix to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+  PASS  cleanup accepted the landed work
+
+JOURNEY RESULT: all checks passed

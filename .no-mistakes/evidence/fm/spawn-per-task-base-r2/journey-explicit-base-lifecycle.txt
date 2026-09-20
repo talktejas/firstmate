@@ -1,0 +1,59 @@
+
+=== 1. adversarial: dispatch against a branch the project does not have
+  | warning: /tmp/fmjourney/run/home/data/mc-part-three/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode local-only - confirm its definition of done matches
+  | error: explicit base 'integration/typo' is not a commit for pooled worktree '/tmp/fmjourney/run/cold-slot'; refusing to launch rather than falling back to another base
+  exit=1
+  PASS  refused, naming the branch, instead of falling back to main
+  PASS  no task record was written for the refused dispatch
+  PASS  the pool worktree was left on main, no worker launched
+
+=== 2. adversarial: --base with no value
+  | error: --base requires a value
+  PASS  empty --base refused (exit 1)
+
+=== 3. dispatch part three against the effort's integration branch
+  | warning: /tmp/fmjourney/run/home/data/mc-part-three/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode local-only - confirm its definition of done matches
+  | spawned mc-part-three harness=codex kind=ship mode=local-only yolo=off window=firstmate:fm-mc-part-three worktree=/tmp/fmjourney/run/cold-slot
+  exit=0
+  PASS  spawn succeeded
+  PASS  worker starts on integration/x (carrying parts 1 and 2), not on main
+  worktree log:
+    eadf084 effort part 2
+    0f1fcfd effort part 1
+    3cdfbee seed
+  task record:
+    worktree=/tmp/fmjourney/run/cold-slot
+    project=/tmp/fmjourney/run/projects/multicurrency
+    kind=ship
+    mode=local-only
+    base=integration/x
+  PASS  the dispatched base is recorded with the task
+  PASS  the shared project registry was not touched (still base=main)
+  registry now: - multicurrency [local-only base=main] - lands locally (added 2026-09-17)
+
+=== 4. adversarial: relaunch cannot be handed a different base
+  | error: --relaunch reuses the task's recorded base branch; --base cannot override it
+  PASS  relaunch refuses --base; the task keeps the branch it was created against
+
+=== 5. the worker does part three
+  worker branch: fm/mc-part-three (from integration/x)
+    efa7700 effort part 3
+    eadf084 effort part 2
+    0f1fcfd effort part 1
+
+=== 6. land it
+  | merged fm/mc-part-three into local integration/x (eadf084 -> efa7700) in /tmp/fmjourney/run/projects/multicurrency
+  exit=0
+  PASS  landing succeeded
+  PASS  integration/x received part three
+  PASS  main is untouched: the effort was NOT fast-forwarded into the standing branch
+  main:          3cdfbee seed
+  integration/x: efa7700 effort part 3
+
+=== 7. clean up the task worktree
+  | teardown mc-part-three complete (window firstmate:fm-mc-part-three, worktree /tmp/fmjourney/run/cold-slot)
+  | Backlog: mc-part-three just finished (this home keeps no markdown backlog at /tmp/fmjourney/run/home/data/backlog.md). Update /tmp/fmjourney/run/home/data/backlog.md - move mc-part-three to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+  exit=0
+  PASS  cleanup sees the work as landed on the task's own base
+
+JOURNEY RESULT: all checks passed

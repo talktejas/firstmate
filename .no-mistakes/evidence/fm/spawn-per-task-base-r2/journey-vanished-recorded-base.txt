@@ -1,0 +1,5 @@
+  recorded base: integration/done (deleted: yes)
+  | teardown stale-base complete (window firstmate:fm-stale-base, worktree /tmp/fmjourney/run3/wt)
+  | Backlog: stale-base just finished (this home keeps no markdown backlog at /tmp/fmjourney/run3/home/data/backlog.md). Update /tmp/fmjourney/run3/home/data/backlog.md - move stale-base to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+  exit=0
+  PASS  cleanup fell back to the standing base and removed the task
