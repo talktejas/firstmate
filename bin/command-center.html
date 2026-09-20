@@ -845,7 +845,7 @@ function renderMain(){
   });
 }
 
-function render(){ renderWatcher(); renderList(); renderMain(); }
+function render(){ renderList(); renderMain(); }
 
 function open(key){
   state.open = key;
@@ -865,7 +865,6 @@ function serverAnswered(){
 }
 
 function readSucceeded(){
-  serverAnswered();
   state.confirmed = true;
   state.readAt = nowSecs();
   state.unread = null; state.error = null;
@@ -904,7 +903,10 @@ async function poll(){
     const before = new Set((state.view.items || []).map(itemKey));
     const arrived = (next.items || []).map(itemKey).filter(k => !before.has(k));
     if (next.error){
+      // The read resolved; it is the CONTENT that is stale, and `confirmed`
+      // carries that on its own - so this read still has a time.
       state.error = next.error; state.confirmed = false; state.unread = null;
+      state.readAt = nowSecs();
     } else {
       readSucceeded();
     }
@@ -963,10 +965,15 @@ async function sendAnswer(){
     ({ ok, data } = await post('/api/answer',
       { home: it.home, id: it.id, source: it.source, key: it.key || '', text }));
   } catch (err) {
-    // The request never came back, so the server may have started the send and
-    // been restarted before it could answer: delivery is unknown, not failed,
-    // and on the send route a second try is a second steer.
-    data = { outcome: 'unknown', detail: String(err.message || err) };
+    // The request never came back. On the SEND route the steer may already sit
+    // on the worker's inbox, so delivery is unknown and a second try is a second
+    // steer. A HOLD writes a local record with no delivery plane and
+    // fm-captain-hold.sh documents an exact retry as idempotent, so it is a
+    // plain failure: the hold route has NO locking outcome, in this failure or
+    // any other, because a lock there only blocks the retry that is the fix.
+    data = it.source === 'hold'
+      ? { error: String(err.message || err) }
+      : { outcome: 'unknown', detail: String(err.message || err) };
   } finally {
     state.sending = false;
   }
