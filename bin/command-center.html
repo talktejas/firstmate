@@ -387,7 +387,7 @@ const state = {
   open:null, view:{homes:[],items:[]}, said:[], etag:null,
   sending:false, flash:null, error:null, seen:load('cc.seen',{}), draft:load('cc.draft',{}),
   note:load('cc.note',''), outcome:load('cc.outcome',{}), scanned:false, saidError:null,
-  offline:null,
+  offline:null, unread:null,
 };
 
 // Browser storage, wrapped: a private window or cleared site data must degrade
@@ -523,10 +523,12 @@ function renderWatcher(){
     `<div class="watcher" style="background:var(--${tone})"><span class="lamp ${lamp}"></span>
      <span>${html}</span></div>`;
   const homes = state.view.homes || [];
-  // Two different states. OFFLINE means the fetch itself failed, so nothing can
-  // be sent; a failed SCAN means the server answered and a send still works, so
-  // it may say the list is incomplete and nothing more. Either way the view is
-  // stale, so every fact derived from it is history rather than a claim about now.
+  // Three reachability states, named by what he can DO in each. OFFLINE: the
+  // fetch failed, nothing can be sent. UNREAD: the server answers but no scan
+  // has ever published, so there is no list and it refuses sends too. ERROR: a
+  // scan failed over a list an earlier one published, so the list may be short
+  // but everything on it still answers. The last two leave the view stale, so
+  // facts derived from it are history rather than claims about now.
   const offline = state.connected === false;
   const past = offline || !!state.error;
   // Ages and the stale split are measured against the read itself once it is
@@ -542,6 +544,10 @@ function renderWatcher(){
     notices.push(band('hot-soft', 'dead',
       `<b>Cannot reach the server.</b> ${esc(state.offline || '')} Nothing can be sent
        until it is back.`));
+  if (state.unread)
+    notices.push(band('hot-soft', 'dead',
+      `<b>The records have not been read yet.</b> ${esc(state.unread)} Nothing here can
+       be answered until they are.`));
   if (state.error)
     notices.push(band('hot-soft', 'dead',
       `<b>The last read of the records failed.</b> ${esc(state.error)} This list may be
@@ -567,8 +573,10 @@ function renderWatcher(){
       }${asOf}`));
 
   if (!homes.length){
-    notices.push(band('warn-soft', 'unknown',
-      `<b>No homes read yet.</b> Nothing here is a statement about firstmate's health.`));
+    // The unread band above already says this, and better; it is the same fact.
+    if (!state.unread)
+      notices.push(band('warn-soft', 'unknown',
+        `<b>No homes read yet.</b> Nothing here is a statement about firstmate's health.`));
   } else {
     // Named per home with its own age: the healthiest home's beat is not a
     // figure for the fleet, and this band can now sit beside a stale one.
@@ -847,20 +855,26 @@ async function poll(){
   try {
     const res = await fetch('/api/items', {
       headers: state.etag ? {'If-None-Match': state.etag} : {} });
-    if (res.status === 503){
-      // The server has not read the records yet. Reachable, and not a
-      // disconnection: say so rather than showing a list nobody has read.
-      state.error = (await res.json().catch(() => ({}))).error
-        || 'the records have not been read yet';
-      render();
-      return;
-    }
-    if (!res.ok && res.status !== 304) throw new Error('HTTP ' + res.status);
+    // The fetch resolved, so the server IS reachable whatever it answered. This
+    // is recorded before any early return below, or one of them leaves a
+    // cannot-reach claim standing over a server that is demonstrably answering.
     if (state.connected === false){
       state.connected = true; state.offline = null;
       $('#live').innerHTML = '<span class="beat"></span>Live';
     }
-    if (state.error){ state.error = null; renderWatcher(); }
+    if (res.status === 503){
+      // No scan has ever published, so there is no list and the server refuses
+      // sends too - a different state from a scan that failed over a good one.
+      state.unread = (await res.json().catch(() => ({}))).error
+        || 'the records have not been read yet';
+      state.error = null;
+      render();
+      return;
+    }
+    if (!res.ok && res.status !== 304) throw new Error('HTTP ' + res.status);
+    if (state.unread || state.error){
+      state.unread = null; state.error = null; renderWatcher();
+    }
     if (res.status === 304) return;
     state.etag = res.headers.get('ETag');
     const next = await res.json();

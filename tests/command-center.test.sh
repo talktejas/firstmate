@@ -376,6 +376,47 @@ s.close()
   grep -rl 'smuggled note' "$home" 2>/dev/null | wc -l | tr -d ' '
 }
 
+# When no scan has ever published, there is no list AND the server refuses
+# sends. The page says so as its own state; this pins the half it derives from.
+test_a_server_with_no_scan_yet_refuses_both_the_list_and_a_send() {
+  local home shim realjq port
+  home="$TMP_ROOT/never-scanned"
+  seed_home "$home"
+  shim="$TMP_ROOT/never-shim"
+  mkdir -p "$shim"
+  realjq=$(command -v jq) || fail "jq is required for this test"
+  cat > "$shim/jq" <<EOF
+#!/usr/bin/env bash
+case " \$* " in *'_row:"item"'*) exit 1 ;; esac
+exec "$realjq" "\$@"
+EOF
+  chmod +x "$shim/jq"
+
+  port=$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1]);s.close()')
+  PATH="$shim:$PATH" FM_ROOT_OVERRIDE="$ROOT" python3 "$SERVER" \
+    --port "$port" --home "$home" > "$home/server.log" 2>&1 &
+  SERVER_PID=$!
+  local ready=
+  for _ in $(seq 1 60); do
+    curl -s -m 2 -o /dev/null "http://127.0.0.1:$port/" && { ready=1; break; }
+    kill -0 "$SERVER_PID" 2>/dev/null || break
+    sleep 1
+  done
+  [ -n "$ready" ] || fail "the server did not start"
+
+  assert_equals "503" \
+    "$(curl -s -m 120 -o /dev/null -w '%{http_code}' "http://127.0.0.1:$port/api/items")" \
+    "a server that has never published a scan served a list anyway"
+  assert_equals "503" \
+    "$(curl -s -m 120 -o /dev/null -w '%{http_code}' -X POST \
+        -H 'Content-Type: application/json' \
+        -d '{"home":"main","id":"cc-live","source":"hold","key":"cc-live","text":"Green."}' \
+        "http://127.0.0.1:$port/api/answer")" \
+    "a server that has never published a scan accepted a send"
+  stop_server
+  pass "a server with no scan yet refuses both the list and a send"
+}
+
 # The one free-text field reaches firstmate's own scripts, so it is checked
 # before anything is run, and an unknown item can never select a command.
 test_server_refuses_bad_input_before_running_anything() {
@@ -712,6 +753,7 @@ test_a_scan_that_cannot_read_everything_fails_instead_of_truncating
 test_fingerprint_changes_only_when_a_record_moves
 test_server_serves_the_page_and_the_records
 test_server_refuses_bad_input_before_running_anything
+test_a_server_with_no_scan_yet_refuses_both_the_list_and_a_send
 test_answering_a_hold_records_the_captains_words_and_clears_the_item
 test_answering_held_work_releases_it_instead_of_closing_it
 test_a_held_row_with_no_kind_is_refused_rather_than_guessed
