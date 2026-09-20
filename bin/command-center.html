@@ -1001,6 +1001,8 @@ function renderMessagePane(m){
        nothing else.`
     : target.settled
     ? 'Nothing is waiting on that question any more, so this goes to firstmate as a note.'
+    : m.source === 'transcript'
+    ? 'Firstmate did not record this message as a question, so this goes to firstmate as a note — never to a worker.'
     : 'This message was not a question, so this goes to firstmate as a note — never as the answer to another decision.';
   const replies = repliesTo(m).slice().reverse();   // the log is newest first
   const cell = (label, value, na) =>

@@ -38,7 +38,8 @@ The left list has three tabs.
 **Messages** is the default and is what firstmate said to you: one row per message, newest first, each with its title and its time. A captured message records no project, worktree or branch - the conversation record does not say which project a sentence is about - so those read "Not recorded"; a message written by hand with `bin/fm-captain-message.sh --task` carries all three.
 Click one and the whole message opens with a box to reply in.
 The list opens on the newest 200 and `Show older messages` walks back through the rest a window at a time, saying how many of the log's messages are loaded: the tab's own count is the whole log, and not shipping all of it at once is not the same as dropping any of it. Search is answered from the whole log, however far back a match is, not only from what is on screen.
-A reply goes where your answer would have gone had you been at the terminal: to the worker still waiting on that task if there is one, and to firstmate itself if there is not.
+Where a reply goes depends on how the message was recorded. A message firstmate recorded by hand as a question (`bin/fm-captain-message.sh --question`) is answered as that question: your reply goes to the worker or held task still waiting on that decision, and to firstmate itself once nothing is. A message capture recorded on its own is never a question, so a reply to it always reaches firstmate as a note, never a worker.
+The reply box says which of these it is before you send.
 Your replies appear under the message, so the exchange reads as a conversation.
 
 These are captured automatically: `bin/fm-captain-message-sweep.py` reads the Claude conversation record on disk, which holds every message verbatim, and records every reply firstmate gave - no agent chooses or remembers to record anything. Only what firstmate said to you counts: its working narration between tool calls, a subagent's chatter, and the lines the harness wrote itself are not replies and never become messages.
@@ -48,6 +49,7 @@ The messages already in the log are the dedupe record, so the two runners can ne
 Its first ever run backfills the log from today's local midnight, so the list starts complete for the day it arrives rather than from the moment it landed.
 When capture cannot be shown healthy - it failed, never ran, has not run recently, or found no conversation record to read (a firstmate running on a harness whose conversation record it cannot read) - the Messages list says it may be incomplete rather than quietly showing a short one.
 On such a harness, and for anything said outside the recorded conversation, `bin/fm-captain-message.sh` remains the by-hand recorder (`AGENTS.md` section 9).
+It is also how a question is routed on a Claude primary: firstmate records a question tied to a decision by hand, and when the turn's final message carries the same text as a by-hand row written during that turn, capture keeps that routed row rather than adding a bare copy beside it.
 
 **Waiting on you** is the queue firstmate is still holding, from two kinds of durable record:
 
@@ -126,7 +128,7 @@ Until the records have been read it says the route cannot be told yet rather tha
 
 The server decides the route from the recorded message and the current scan, never from the browser.
 A reply naming a message this home never recorded is refused, and a task id is only ever matched against the home this page was started on, because two homes on one machine can hold the same one.
-A reply to a recorded question whose scan could not be read is reported as a delivery that could not be confirmed, never quietly delivered as a note, because a reply that cannot rule out the answer route must not become one.
+A reply to a recorded question whose scan could not be read is not sent at all and reads as failed, so your words come back and sending again is safe; it is never quietly delivered as a note, because a reply that cannot rule out the answer route must not become one.
 A reply to a message that is not a question is routed by the record alone: no scan can change where it goes, so a backlog that will not parse has nothing to say about it.
 A reply carries the same do-not-resend protection an answer does: on an unconfirmed delivery it keeps your words, stops offering Reply, and waits until you say to send it anyway.
 When the reply steers a worker still waiting, that protection covers the item too, so the same worker cannot be reached a second time by answering it from the waiting list instead.
@@ -157,8 +159,6 @@ Saying to send it anyway releases that send on every surface it was held against
 
 An open item shows one line derived from this record: the last thing you sent about it and what became of it, and a message shows every reply you sent to it.
 Your own words are served whole, and if that list is ever shortened the page says so and says how many rows are missing, because a reply missing from a thread reads as a message you never answered.
-
-An open item shows one line derived from this record: the last thing you sent about it and what became of it, and a message shows every reply you sent to it.
 
 If that log cannot be written the send is refused before anything is delivered: the page says it was not sent and keeps your words in the box, because a send it called accepted while recording nothing would be the one way this page could lose them.
 

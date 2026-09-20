@@ -1033,11 +1033,11 @@ class Handler(BaseHTTPRequestHandler):
             # takes the answer route unchanged, and anything else reaches
             # firstmate as a note, because a reply with nowhere to be delivered
             # is still his words. A message that is not a question is never
-            # written as the answer to some other decision. His words are
-            # durable before this answers; the route is the scan's call and the
-            # scan can be slow, so resolving it and delivering both happen
-            # behind the acceptance (accept_said), and the outcome lands on the
-            # record when known.
+            # written as the answer to some other decision. The route is
+            # decided here, from the snapshot the page itself is showing, so
+            # the item a steer may reach is locked from the moment it is
+            # accepted; only the delivery runs behind the acceptance
+            # (accept_said), and the outcome lands on the record when known.
             msg_id = payload.get("msg")
             if not isinstance(msg_id, str) or not ID_RE.match(msg_id):
                 self._json(400, {"ok": False, "error": "unknown message"})
@@ -1050,26 +1050,29 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(404, {"ok": False, "error": "no such message"})
                 return
             records = self.records
-            question = bool(message.get("question"))
-            task = message.get("task")
-            question_key = message.get("question_key") or ""
+            item = unread = None
+            if message.get("question"):
+                # Only a QUESTION has an answer route to rule out. With no
+                # scan it cannot be ruled out, and falling through to the note
+                # route would record his steer as delivered while the worker
+                # stayed stopped - so nothing is sent and it is reported as
+                # failed, which is what it is: resending is safe.
+                if records.etag is None:
+                    records.refresh()
+                if records.etag is None:
+                    unread = records.error or "the records have not been read yet"
+                else:
+                    item = records.waiting_question(message.get("task"),
+                                                    message.get("question_key") or "")
+            home_path = records.home_path(item["home"]) if item else None
+            if not home_path:
+                item = None
 
             def deliver_reply():
-                item = None
-                if question:
-                    # Only a QUESTION has an answer route to rule out. With no
-                    # published scan it cannot be ruled out, and falling through
-                    # to the note route would record his steer as delivered
-                    # while the worker stayed stopped - so that outcome is
-                    # reported as unknown rather than quietly becoming a note.
-                    records.refresh(min_interval=0)
-                    if records.etag is None:
-                        return {"outcome": "unknown", "route": "", "home": "main",
-                                "detail": records.error
-                                or "the records have not been read yet"}
-                    item = records.waiting_question(task, question_key)
-                home_path = records.home_path(item["home"]) if item else None
-                if item and home_path:
+                if unread:
+                    return {"outcome": "failed", "route": "", "home": "main",
+                            "detail": unread}
+                if item:
                     outcome, route, detail, mode = send_answer(home_path, item, text)
                     if outcome != "failed":
                         records.invalidate()
@@ -1086,14 +1089,16 @@ class Handler(BaseHTTPRequestHandler):
                 return {"resolved": "note", "outcome": outcome, "route": route,
                         "detail": detail, "home": "main"}
 
-            sid, error = accept_said(self.records.home,
-                                     {"kind": "reply", "msg": msg_id,
-                                      "title": message.get("title"), "text": text},
-                                     deliver_reply)
+            entry = {"kind": "reply", "msg": msg_id,
+                     "title": message.get("title"), "text": text}
+            if item:
+                entry["item_key"] = item_key(item)
+            sid, error = accept_said(self.records.home, entry, deliver_reply)
             if error:
                 self._json(503, {"ok": False, "error": error})
                 return
-            self._json(202, {"ok": True, "sid": sid, "outcome": "sending"})
+            self._json(202, {"ok": True, "sid": sid, "outcome": "sending",
+                             "item_key": entry.get("item_key")})
             return
 
         if path == "/api/answer":

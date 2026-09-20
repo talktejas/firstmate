@@ -1021,13 +1021,15 @@ test_a_reply_takes_the_answer_route_when_the_task_is_still_waiting() {
   port=$SERVER_PORT
   body=$(post "$port" /api/reply "$(jq -cn --arg m "$id" '{msg:$m,text:"Go blue."}')")
   assert_contains "$body" '"outcome":"sending"' "the reply was not accepted"
+  # The item a steer may reach is named at acceptance, so the page can lock it
+  # while the delivery is still running.
+  assert_equals "main/hold/cc-live/cc-live" "$(jq -r '.item_key // ""' <<<"$body")" \
+    "the accepted reply did not name the item it is about to steer"
   resolved=$(wait_outcome "$home" "$(jq -r .sid <<<"$body")") \
     || fail "the outcome of the reply never reached the record"
   stop_server
 
   assert_contains "$resolved" '"outcome":"sent"' "the reply was not delivered"
-  # The route is resolved by the delivery behind the acceptance, so the record
-  # of the send is where it says which item it steered.
   assert_equals "main/hold/cc-live/cc-live" "$(jq -r '.item_key // ""' <<<"$resolved")" \
     "the reply did not name the item it steers"
   assert_contains "$resolved" 'fm-captain-hold.sh answer cc-live' \
@@ -1175,8 +1177,8 @@ EOF
   resolved=$(wait_outcome "$home" "$(jq -r .sid <<<"$body")") \
     || fail "the outcome of the reply never reached the record"
   stop_server
-  assert_contains "$resolved" '"outcome":"unknown"' \
-    "a reply was routed off records that were never read"
+  assert_contains "$resolved" '"outcome":"failed"' \
+    "a reply that never left this machine was not reported as safe to resend"
   assert_equals "" "$(cat "$home"/state/inbox/*.note 2>/dev/null || true)" \
     "a reply fell through to the note route while no scan had been read"
   pass "a reply is never delivered as a note while no scan has been read"
@@ -1674,6 +1676,43 @@ test_every_chat_message_is_captured_without_anyone_recording_it() {
   pass "every chat message is captured once, verbatim, with nothing that is not a message"
 }
 
+# A question firstmate records by hand is the only row that knows where his
+# reply goes; the capture of the same turn's final message must not add a bare,
+# unroutable copy beside it - and must not swallow a later turn that says the
+# same words with no hand record behind them.
+test_a_hand_recorded_question_is_not_captured_a_second_time() {
+  local home tdir log id before after
+  home="$TMP_ROOT/handdedupe"
+  tdir="$TMP_ROOT/handdedupe-transcripts"
+  seed_home "$home"
+  mkdir -p "$tdir"
+  before=$(date -u -d '-60 sec' +%Y-%m-%dT%H:%M:%S.000Z)
+  id=$(say "$home" "Blue or green?" "The colour call is yours.
+Blue or green?" --task cc-live --question) || fail "the recorder refused the message"
+  after=$(date -u -d '+60 sec' +%Y-%m-%dT%H:%M:%S.000Z)
+  {
+    jq -cn --arg at "$before" '{type:"user",timestamp:$at,sessionId:"sess-1",
+      message:{role:"user",content:"what next?"}}'
+    entry r-q end_turn false "$after" \
+      '{"type":"text","text":"The colour call is yours.\nBlue or green?"}'
+    jq -cn --arg at "$(date -u -d '+120 sec' +%Y-%m-%dT%H:%M:%S.000Z)" \
+      '{type:"user",timestamp:$at,sessionId:"sess-1",
+        message:{role:"user",content:"say it again"}}'
+    entry r-again end_turn false "$(date -u -d '+180 sec' +%Y-%m-%dT%H:%M:%S.000Z)" \
+      '{"type":"text","text":"The colour call is yours.\nBlue or green?"}'
+  } > "$tdir/sess-1.jsonl"
+
+  sweep "$home" "$tdir" || fail "the sweep failed"
+  rm "$home/state/.captain-message-sweep"
+  sweep "$home" "$tdir" || fail "the cursor-less sweep failed"
+  log="$home/data/captain-messages.jsonl"
+  assert_equals "$id,r-again" "$(jq -rs 'map(.req // .id) | join(",")' "$log")" \
+    "the hand-recorded question was duplicated, or a later turn was swallowed"
+  assert_equals "true" "$(jq -r "select(.id == \"$id\") | .question" "$log")" \
+    "the routed row did not survive as the question"
+  pass "a hand-recorded question stands for its turn's captured message"
+}
+
 # THE REPORTED COMPLAINT: a session started from somewhere else writes its
 # transcript where the derived directory is not looking, so what firstmate said
 # there never reaches the page - and nothing says so. The hook payload names
@@ -1982,6 +2021,7 @@ test_an_unchanged_message_poll_is_answered_without_the_log
 test_a_search_finds_text_however_the_record_escapes_it
 test_an_unreadable_message_log_is_reported_not_shown_as_empty
 test_every_chat_message_is_captured_without_anyone_recording_it
+test_a_hand_recorded_question_is_not_captured_a_second_time
 test_a_transcript_the_payload_names_is_captured_wherever_it_lives
 test_a_named_transcript_is_remembered_even_with_nothing_new_to_read
 test_a_response_read_across_two_sweeps_is_recorded_once

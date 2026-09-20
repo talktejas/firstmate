@@ -48,6 +48,13 @@
 # never only the first: a split response is at worst short by a block, never a
 # second row wearing the same id.
 #
+# A MESSAGE FIRSTMATE ALSO RECORDED BY HAND. A question tied to a decision is
+# recorded by firstmate itself with bin/fm-captain-message.sh --question, which
+# is the only row that knows where a reply to it goes. When the turn's final
+# message carries the same text as a by-hand row written during that turn, the
+# routed row already stands for it and nothing is added beside it. This never
+# decides a message is a question: an uncaptured match is simply a second row.
+#
 # BACKFILL AND THE FLOOR. The first run has no cursor and reads every transcript
 # from the top, so the log starts complete from the floor - today's local
 # midnight unless --since says otherwise. The floor is stored and applied
@@ -125,18 +132,39 @@ def derive_title(text):
     return text.strip()[:100] or "(no text)"
 
 
-def recorded_reqs(log_path):
-    """The requestIds already in the log - the log itself is the dedupe record."""
-    reqs = set()
+def same_text(text):
+    return " ".join(text.split())
+
+
+def recorded(log_path):
+    """The log itself is the dedupe record: the requestIds already captured,
+    and the by-hand rows as {text: [at, ...]}."""
+    reqs, hand = set(), {}
     try:
         with open(log_path, "rb") as fh:
             for line in fh:
                 m = re.search(rb'"req":"([^"]*)"', line)
                 if m:
                     reqs.add(m.group(1).decode("utf-8", "replace"))
+                    continue
+                try:
+                    row = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(row, dict) and isinstance(row.get("text"), str):
+                    hand.setdefault(same_text(row["text"]), []).append(row.get("at") or "")
     except OSError:
         pass
-    return reqs
+    return reqs, hand
+
+
+def is_prompt(entry):
+    """A line the captain typed, which is where a turn begins."""
+    if entry.get("type") != "user" or entry.get("isSidechain") or entry.get("isMeta"):
+        return False
+    content = (entry.get("message") or {}).get("content")
+    return isinstance(content, str) or any(
+        isinstance(b, dict) and b.get("type") != "tool_result" for b in content or [])
 
 
 def parse_batch(lines):
@@ -144,15 +172,22 @@ def parse_batch(lines):
 
     Groups the lines of each final response by requestId and joins its text
     blocks; a response with no text (interrupted, or thinking only so far)
-    yields nothing and is left for a later batch to complete.
+    yields nothing and is left for a later batch to complete. Each carries
+    when its turn began, or "" when that is before this batch.
     """
     groups = {}
+    turn = ""
     for raw in lines:
         try:
             entry = json.loads(raw)
         except json.JSONDecodeError:
             continue
-        if not isinstance(entry, dict) or entry.get("type") != "assistant":
+        if not isinstance(entry, dict):
+            continue
+        if is_prompt(entry):
+            turn = clean_ts(entry.get("timestamp"))
+            continue
+        if entry.get("type") != "assistant":
             continue
         if entry.get("isSidechain") or entry.get("isApiErrorMessage"):
             continue
@@ -164,7 +199,7 @@ def parse_batch(lines):
         req = entry.get("requestId") or entry.get("uuid") or ""
         if not req:
             continue
-        g = groups.setdefault(req, {"parts": [], "at": "", "session": ""})
+        g = groups.setdefault(req, {"parts": [], "at": "", "session": "", "turn": turn})
         for block in message.get("content") or []:
             if isinstance(block, dict) and block.get("type") == "text":
                 g["parts"].append(block.get("text") or "")
@@ -174,7 +209,7 @@ def parse_batch(lines):
     for req, g in groups.items():
         text = "".join(g["parts"]).strip()
         if text:
-            out.append((req, g["at"], g["session"], text))
+            out.append((req, g["at"], g["session"], g["turn"], text))
     return out
 
 
@@ -246,7 +281,7 @@ def sweep(home, since, paths=None, directory=None):
         return {"active": False, "dir": directory, "transcripts": 0, "new": 0,
                 "named": len(named)}
 
-    seen = set()
+    seen, hand = set(), {}
     deduped = False
     new = 0
     for path in targets:
@@ -271,7 +306,7 @@ def sweep(home, since, paths=None, directory=None):
         # the log holds, and a response whose blocks straddle this offset is
         # read again as part of the next batch.
         if not deduped:
-            seen |= recorded_reqs(log_path)
+            seen, hand = recorded(log_path)
             deduped = True
         with open(path, "rb") as fh:
             fh.seek(offset)
@@ -282,10 +317,18 @@ def sweep(home, since, paths=None, directory=None):
         lines = chunk[:end + 1].splitlines()
 
         rows = []
-        for req, at, session, text in parse_batch(lines):
+        for req, at, session, turn, text in parse_batch(lines):
             if req in seen or (floor and at and at < floor):
                 continue
             seen.add(req)
+            # ponytail: a turn that began before this batch has no known start,
+            # so any earlier by-hand row with the same text stands for it; the
+            # hook sweeps at every turn end, so a batch rarely starts mid-turn.
+            ats = hand.get(same_text(text), [])
+            match = next((a for a in ats if turn <= a <= (at or "~")), None)
+            if match is not None:
+                ats.remove(match)
+                continue
             rows.append({
                 "id": "c" + hashlib.sha1((session + req).encode()).hexdigest()[:16],
                 "at": at or utc_now(), "title": derive_title(text), "text": text,
