@@ -32,7 +32,10 @@
 #
 # poll consumes fm-fleet-snapshot.sh --contribution-input, a local-only read,
 # and spends at most FM_CONTRIBUTIONS_BUDGET seconds on forge reads (default 20,
-# 1..25). Each gh call is bounded by the remaining budget and five seconds.
+# 1..25). Each gh call is bounded by the remaining budget and
+# FM_CONTRIBUTIONS_CALL_TIMEOUT seconds (default 15, 1..25). The 15-second
+# default leaves headroom over the 12.2-second slow-link forge call observed in
+# the contributions-poll incident.
 # Oldest observations go first, so a large corpus progresses across polls.
 # Each distinct URL is observed once per poll and applied to every owner. A
 # final observation applies to every owner without another forge read. When
@@ -82,9 +85,12 @@ NOW=${FM_CONTRIBUTIONS_NOW:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}
 EPOCH=$(jq -nr --arg now "$NOW" '$now | fromdateiso8601') || fail 'invalid observation clock'
 MAX_AGE=${FM_CONTRIBUTIONS_MAX_AGE:-900}
 BUDGET=${FM_CONTRIBUTIONS_BUDGET:-20}
+CALL_TIMEOUT=${FM_CONTRIBUTIONS_CALL_TIMEOUT:-15}
 case "$MAX_AGE" in ''|*[!0-9]*) fail 'invalid freshness bound' ;; esac
 case "$BUDGET" in ''|*[!0-9]*) fail 'invalid poll budget' ;; esac
+case "$CALL_TIMEOUT" in ''|*[!0-9]*) fail 'invalid per-call timeout' ;; esac
 [ "$BUDGET" -ge 1 ] && [ "$BUDGET" -le 25 ] || fail 'poll budget must be 1..25 seconds'
+[ "$CALL_TIMEOUT" -ge 1 ] && [ "$CALL_TIMEOUT" -le 25 ] || fail 'per-call timeout must be 1..25 seconds'
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/fm-contributions.XXXXXX")
 LOCK_HELD=0
 cleanup() {
@@ -176,15 +182,16 @@ write_record() { # task record-json-file
 }
 
 forge() {
-  local remaining bounded=0 rc=0
+  local remaining rc=0
   remaining=$((DEADLINE - $(date +%s)))
   # The budget, not the forge, refused this read.
   [ "$remaining" -gt 0 ] || { BUDGET_EXHAUSTED=1; return 1; }
-  if [ "$remaining" -le 5 ]; then bounded=1; else remaining=5; fi
+  [ "$remaining" -le "$CALL_TIMEOUT" ] || remaining=$CALL_TIMEOUT
   fm_run_timed "$remaining" env GH_PROMPT_DISABLED=1 GH_NO_UPDATE_NOTIFIER=1 \
     gh "$@" 2> "$TMP/forge.err" || rc=$?
-  # A read killed at the budget's own deadline is budget exhaustion too.
-  [ "$rc" -ne 124 ] || [ "$bounded" -eq 0 ] || BUDGET_EXHAUSTED=1
+  # A timed-out read is unavailable, whether the total budget or the per-call
+  # bound stopped it. Keep the prior observation and retry it next poll.
+  [ "$rc" -ne 124 ] || BUDGET_EXHAUSTED=1
   return "$rc"
 }
 
