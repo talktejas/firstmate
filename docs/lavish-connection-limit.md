@@ -30,6 +30,7 @@ bin/fm-lavish-client-patch.sh
 ```
 
 It is idempotent - a second run detects the patch is already present and changes nothing - and it refuses without touching the file if lavish-axi's surrounding code no longer matches what it expects to replace, rather than risk corrupting the installed client.
+The write itself is atomic (a sibling `chrome-client.js.fm-tmp` renamed over the original), so an interrupted or failed run leaves the installed client intact; delete a leftover `.fm-tmp` file if you see one.
 
 A server restart is required for a freshly applied patch to take effect in already-open pages; this script never restarts the shared server itself.
 
