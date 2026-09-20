@@ -1672,6 +1672,13 @@ EOF
   # A recorded captain answer is the outcome this gate exists to accept; a call
   # still held and unanswered is refused by name; an id that resolves to no row
   # at all is repairable drift, reported so a mistype stays visible.
+  # A resolution failure is only absence when the backlog itself was readable;
+  # an unaddressable backend fails every id alike, and spending that as drift
+  # would clear a live inventory. Establish readability once, loudly, first.
+  if [ -n "$previous" ]; then
+    fm_backlog_tasks_axi_addressing "$DATA" \
+      || fail "the configured backlog is not addressable, so no attested captain call may be dropped from the $origin inventory (data directory $DATA)${FM_BACKLOG_TRANSITION_ERROR:+: $FM_BACKLOG_TRANSITION_ERROR}"
+  fi
   drop_err=$(umask 077; mktemp "${TMPDIR:-/tmp}/fm-captain-hold-drop-err.XXXXXX") \
     || fail "cannot stage the inventory-drop resolution diagnostics"
   while IFS= read -r entry; do

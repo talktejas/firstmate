@@ -926,6 +926,49 @@ test_answered_inventory_allows_repair_and_teardown() {
   pass "answered inventories verify, corrected completion replaces them without dropping a live call, teardown proceeds, and missing ids refuse"
 }
 
+
+# Drift is a statement about the backlog, not about the backend: when the
+# configured backlog cannot be addressed at all, every id fails to resolve
+# alike, and reading that as "these calls no longer exist" would clear a live
+# inventory and let teardown discard the scout with its questions unanswered.
+test_unaddressable_backlog_does_not_drift_clear_an_inventory() {
+  local home id call_a call_b rc err
+  home=$(make_home drift-backend-failure)
+  id=sample-drift-backend-scout
+  call_a=sample-drift-call-a
+  call_b=sample-drift-call-b
+  mkdir -p "$home/data/$id"
+  tasks_in "$home" add "$id" "Investigate the unaddressable backlog" --kind scout \
+    --repo sample --start >/dev/null || fail "could not create the drift-backend scout"
+  write_origin_meta "$home" "$id"
+  printf 'done: report complete\n' > "$home/state/$id.status"
+  printf '# Report\n\nThe investigation is complete.\n' > "$home/data/$id/report.md"
+  run_captain "$home" hold "$call_a" --title "Choose the first option" \
+    --reason "captain must choose" --repo sample >/dev/null \
+    || fail "could not hold the first drift-backend call"
+  run_captain "$home" hold "$call_b" --title "Choose the second option" \
+    --reason "captain must choose" --repo sample >/dev/null \
+    || fail "could not hold the second drift-backend call"
+  run_captain "$home" complete "$id" "$call_a" "$call_b" >/dev/null \
+    || fail "could not attest the drift-backend inventory"
+
+  mv "$home/data" "$home/data-away" || fail "could not take the backlog out of reach"
+  set +e
+  err=$(run_captain "$home" complete "$id" --none 2>&1 >/dev/null)
+  rc=$?
+  set -e
+  mv "$home/data-away" "$home/data" || fail "could not restore the backlog"
+  [ "$rc" -ne 0 ] || fail "--none cleared a live inventory while the backlog was unaddressable"
+  assert_contains "$err" "not addressable" \
+    "the refusal did not name the unaddressable backlog as its reason"
+  assert_equals "decision_keys=$call_a,$call_b" \
+    "$(grep '^decision_keys=' "$home/state/$id.meta" | tail -1)" \
+    "an unaddressable backlog still rewrote the attested inventory"
+
+  run_captain "$home" verify "$id" >/dev/null \
+    || fail "the preserved inventory stopped verifying once the backlog was back in reach"
+  pass "an unaddressable backlog refuses instead of drift-clearing a live captain-call inventory"
+}
 # --release lifts the hold instead of closing, preserving the work item's own
 # body under the record; a re-held task later accepts a new answer.
 test_release_frees_held_work() {
@@ -4146,6 +4189,7 @@ test_retained_body_keeps_its_utf8_bytes
 test_completion_gate_attests_and_transfers
 test_answer_records_and_closes
 test_answered_inventory_allows_repair_and_teardown
+test_unaddressable_backlog_does_not_drift_clear_an_inventory
 test_release_frees_held_work
 test_hold_stamp_precedes_hold_visibility
 test_interrupted_answer_preserves_hold_age
