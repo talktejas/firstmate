@@ -348,7 +348,7 @@ jobs:
         run: |
           set -eu
           if [ ! -f "$RUNNER_TEMP/fm-herdr/sessions-before.json" ]; then
-            echo "::warning::skipping lab session cleanup: pre-suite snapshot is absent because install did not run"
+            echo "::warning::skipping lab session cleanup: pre-suite snapshot is absent; an earlier step did not complete"
             exit 0
           fi
           bin/fm-herdr-ci-cleanup.sh teardown "$RUNNER_TEMP/fm-herdr/sessions-before.json" || {

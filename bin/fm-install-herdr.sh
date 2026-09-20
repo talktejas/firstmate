@@ -60,7 +60,8 @@ trap 'rm -rf "$TMP"' EXIT
 
 printf 'fm-install-herdr.sh: downloading %s from %s\n' "$ASSET" "$URL" >&2
 # --fail: HTTP errors; --location: follow redirects; --max-filesize: bound.
-curl -fsSL --max-filesize "$FM_HERDR_CI_MAX_BYTES" "$URL" -o "$TMP/$ASSET" \
+curl -fsSL --retry 3 --retry-delay 2 --retry-all-errors \
+  --max-filesize "$FM_HERDR_CI_MAX_BYTES" "$URL" -o "$TMP/$ASSET" \
   || die "download failed for $URL (bounded at $FM_HERDR_CI_MAX_BYTES bytes)"
 
 if command -v sha256sum >/dev/null 2>&1; then
