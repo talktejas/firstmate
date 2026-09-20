@@ -395,19 +395,67 @@ spec = importlib.util.spec_from_file_location("cc", sys.argv[1])
 cc = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(cc)
 item = {"source": "status", "id": "t-1", "key": "k"}
+# fm-send.sh's own words on each plane: confirmed, typed-plane unconfirmed
+# (exit 3), remote transport lost twice (exit 1), and a real failure.
+cases = [
+    (0, ""),
+    (3, "fm-send: text delivered to t-1 but submission is unconfirmed (verdict=pending)"),
+    (1, "error: steer to remote secondmate box is unconfirmed (transport lost twice; "
+        "remote completion unknown). Only the correlation-reusing resend below is idempotent:"),
+    (1, "error: no such task"),
+]
 real = subprocess.run
-for rc in (0, 3, 1):
-    subprocess.run = lambda *a, rc=rc, **k: subprocess.CompletedProcess(
-        a[0] if a else [], rc, "", "fm-send: text delivered but unconfirmed" if rc == 3 else "boom")
+for rc, err in cases:
+    subprocess.run = lambda *a, rc=rc, err=err, **k: subprocess.CompletedProcess(
+        a[0] if a else [], rc, "", err)
     print(cc.send_answer(os.environ["FM_CC_HOME"], item, "answer text")[0])
 subprocess.run = real
 PYEOF
 )
   assert_equals "sent
 unknown
+unknown
 failed" "$out" \
-    "fm-send.sh's delivered-but-unconfirmed exit was not reported as unknown delivery"
+    "an unconfirmed send was not reported as unknown delivery"
   pass "an unconfirmed send reports unknown delivery, never a failure"
+}
+
+# The module header promises the expensive scan runs once per actual change
+# however many tabs are open. Every tab is its own thread, so that is a promise
+# about concurrency, not about the rate guard alone.
+test_concurrent_polls_produce_one_scan() {
+  local home out
+  home="$TMP_ROOT/herd"
+  seed_home "$home"
+  out=$(python3 - "$SERVER" "$home" <<'PYEOF'
+import importlib.util, subprocess, sys, threading, time
+spec = importlib.util.spec_from_file_location("cc", sys.argv[1])
+cc = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(cc)
+records = cc.Records(sys.argv[2])
+runs = []
+lock = threading.Lock()
+
+def slow_run(args, timeout):
+    with lock:
+        runs.append(args[-1])
+    time.sleep(0.4)
+    if args[-1] == "--fingerprint":
+        return subprocess.CompletedProcess(args, 0, "fingerprint\n", "")
+    return subprocess.CompletedProcess(args, 0, '{"homes":[],"items":[]}', "")
+
+records._run = slow_run
+threads = [threading.Thread(target=records.refresh) for _ in range(8)]
+for t in threads: t.start()
+for t in threads: t.join()
+print(runs.count("--fingerprint"))
+print(len(records.snapshot()[0] or "") > 0)
+PYEOF
+)
+  assert_equals "1
+True" "$out" \
+    "eight concurrent polls each launched their own scan"
+  pass "one change produces one scan however many tabs poll"
 }
 
 trap stop_server EXIT
@@ -424,3 +472,4 @@ test_server_refuses_bad_input_before_running_anything
 test_answering_a_hold_records_the_captains_words_and_clears_the_item
 test_a_script_that_reads_stdin_cannot_hang_the_server
 test_an_unconfirmed_send_is_reported_as_unknown_not_failed
+test_concurrent_polls_produce_one_scan

@@ -377,9 +377,8 @@ const SEND_VERDICT = {
   },
   unknown: {
     label: 'Delivery unknown — do not resend',
-    note: '<b>We do not know whether this was delivered.</b> The command ran out of '
-        + 'time and was stopped, so it may already have reached the worker. '
-        + 'Firstmate is checking; do not send it again until it says.',
+    note: '<b>Delivery could not be confirmed.</b> It may already have reached the '
+        + 'worker, so do not send it again until you know. The reason follows:',
   },
 };
 
@@ -494,12 +493,9 @@ function groupOf(it){
 function ordered(rows){
   const dated   = rows.filter(r => r.since_epoch);
   const undated = rows.filter(r => !r.since_epoch);
-  if (state.group === 'latest')
-    dated.sort((a,b) => b.since_epoch - a.since_epoch);
-  else if (state.group === 'oldest')
-    dated.sort((a,b) => a.since_epoch - b.since_epoch);
-  else
-    dated.sort((a,b) => a.since_epoch - b.since_epoch);   // longest waiting first
+  // Latest first, or oldest first - which is also the default, longest waiting.
+  dated.sort((a,b) => state.group === 'latest' ? b.since_epoch - a.since_epoch
+                                               : a.since_epoch - b.since_epoch);
   return dated.concat(undated);
 }
 
@@ -567,8 +563,10 @@ function itemRow(it){
 function wordOutcome(r){
   if (r.kind === 'draft') return 'Not sent. Kept here so it is not lost.';
   // said.jsonl is append-only, so lines written before the outcome vocabulary
-  // existed carry `delivered` instead and must still read as what they were.
-  const outcome = r.outcome || (r.delivered ? 'sent' : 'failed');
+  // existed carry `delivered` and `closed` instead, and must still read as
+  // exactly what they were - neither more nor less delivered, nor more closed.
+  const outcome = r.outcome
+    || (r.delivered ? (r.closed === false ? 'delivered-not-closed' : 'sent') : 'failed');
   switch (outcome){
     case 'sent': return r.kind === 'answer'
       ? 'Delivered through ' + esc(r.route) + ' — the decision closed'
@@ -711,6 +709,11 @@ function renderMain(){
     .map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`).join('');
   const draft = state.draft[itemKey(it)] || '';
   const verdict = SEND_VERDICT[(state.outcome[itemKey(it)] || {}).outcome];
+  // Approved proposal section 7 proves delivery by the steering record existing;
+  // until it does, this is the captain's own way out - he is the one who can look.
+  const anyway = verdict
+    ? '<button class="defer" id="sendanyway">Send anyway — this may be a second copy</button>'
+    : '';
   const cell = (label, value, na) =>
     `<div><dt>${label}</dt><dd class="${value ? '' : 'na'}">${esc(value || na)}</dd></div>`;
   const deadWarn = it.listen === 'dead' ? `<div class="dead-warn">
@@ -744,6 +747,7 @@ function renderMain(){
           verdict ? esc(verdict.label)
                   : state.sending ? 'Sending…' : 'Send to firstmate'}</button>
         <button class="defer" id="defer">Not now</button>
+        ${anyway}
         ${draft.trim() ? '<span class="draft-flag">Draft kept</span>' : ''}
         <span class="send-note" id="sendnote">${verdict
           ? verdict.note + ' <span class="mono">' + esc(state.outcome[itemKey(it)].detail || '') + '</span>'
@@ -757,7 +761,7 @@ function renderMain(){
   ta.addEventListener('input', () => {
     state.draft[itemKey(it)] = ta.value;
     save('cc.draft', state.draft);
-    $('#send').disabled = !ta.value.trim() || state.sending;
+    $('#send').disabled = !ta.value.trim() || state.sending || !!verdict;
     renderList();
   });
 }
@@ -792,9 +796,13 @@ async function poll(){
     // A verdict forbids a resend, so it is dropped only against a scan that
     // actually succeeded - an errored or not-yet-scanned view knows no items.
     if (!next.error && Array.isArray(next.items)){
-      const live = new Set(next.items.map(itemKey));
-      for (const k of Object.keys(state.outcome))
-        if (!live.has(k)) delete state.outcome[k];
+      const live = new Map(next.items.map(i => [itemKey(i), i]));
+      for (const [k, v] of Object.entries(state.outcome)){
+        const it = live.get(k);
+        // Gone from the list, or the steering record the send was unsure of has
+        // since appeared: either way the verdict has nothing left to warn about.
+        if (!it || (it.sent || []).length > v.sent) delete state.outcome[k];
+      }
       save('cc.outcome', state.outcome);
     }
     if (before.size && arrived.length === 1) state.flash = arrived[0];
@@ -841,7 +849,8 @@ async function sendAnswer(){
     // Four outcomes, four labels. Delivered-but-unclosed and unknown tell him
     // opposite things from not-sent, so neither may be reported as a failure.
     if (SEND_VERDICT[data.outcome]){
-      state.outcome[itemKey(it)] = { outcome: data.outcome, detail: data.detail || '' };
+      state.outcome[itemKey(it)] = { outcome: data.outcome, detail: data.detail || '',
+                                     sent: (it.sent || []).length };
       save('cc.outcome', state.outcome);
       await loadSaid();
       render();
@@ -875,6 +884,10 @@ document.addEventListener('click', async e => {
   if (row){ if (row.dataset.key) open(row.dataset.key); return; }
   if (e.target.id === 'send'){ await sendAnswer(); return; }
   if (e.target.id === 'defer'){ state.open = null; render(); return; }
+  if (e.target.id === 'sendanyway'){
+    delete state.outcome[state.open]; save('cc.outcome', state.outcome);
+    renderMain(); return;
+  }
   if (e.target.id === 'clr'){ state.q = ''; $('#q').value = ''; renderList(); return; }
   if (e.target.id === 'open-note'){ $('#note-dlg').showModal(); }
 });
@@ -905,7 +918,7 @@ $('#note-dlg').addEventListener('close', async function(){
   btn.textContent = (ok && data.ok) ? '✓  Queued — and kept under My words'
     : data.outcome === 'unknown'
       ? '?  Delivery unknown — it may already be queued; do not send it again'
-      : '✕  Not queued: ' + (data.error || 'the command failed');
+      : '✕  Not queued: ' + (data.error || data.detail || 'the command failed');
   if (ok && data.ok){
     $('#note-text').value = ''; state.note = ''; save('cc.note', state.note);
   }

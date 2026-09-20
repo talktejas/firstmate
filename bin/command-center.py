@@ -83,11 +83,15 @@ class Records:
         self.etag = None
         self.body = b"{}"
         self.error = None
-        self.checked = 0.0
+        self.checked = float("-inf")
         # ThreadingHTTPServer gives every open tab its own thread, so the etag
         # and the body it names must become visible together or a reader can
         # store a new etag against an old list and 304 on it forever.
         self.lock = threading.Lock()
+        # And one scan per change however many tabs poll, as the header promises:
+        # a thread that cannot take this serves the snapshot instead of forking
+        # its own jq-per-item scan beside the one already running.
+        self.scan = threading.Lock()
 
     def snapshot(self):
         with self.lock:
@@ -105,8 +109,18 @@ class Records:
         )
 
     def refresh(self, min_interval=1.0):
+        if time.monotonic() - self.checked < min_interval:
+            return
+        if not self.scan.acquire(blocking=min_interval <= 0):
+            return
+        try:
+            self._refresh_locked(min_interval)
+        finally:
+            self.scan.release()
+
+    def _refresh_locked(self, min_interval):
         now = time.monotonic()
-        if self.etag is not None and now - self.checked < min_interval:
+        if now - self.checked < min_interval:
             return
         self.checked = now
         try:
@@ -250,8 +264,9 @@ def send_answer(home_path, item, text):
     detail = (proc.stdout + proc.stderr).strip()
     if proc.returncode == 0:
         outcome = "sent"
-    elif proc.returncode == 3:
-        # fm-send.sh's own typed-plane and remote-leg contract: the text was
+    elif proc.returncode == 3 or "is unconfirmed (" in detail:
+        # fm-send.sh's own unconfirmed vocabulary, on the typed plane (exit 3)
+        # and on the remote leg (transport lost twice, exit 1): the text was
         # delivered and only the read-back stayed unconfirmed, so it forbids a
         # blind resend. That is delivery unknown, never a failure.
         outcome = "unknown"
