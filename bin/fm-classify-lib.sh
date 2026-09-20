@@ -428,7 +428,37 @@ _fm_decision_slug_ok() {  # <slug>
     *) return 0 ;;
   esac
 }
-status_line_note() {  # <status-line> -> text after the first colon, trimmed
+# Raw "YYYY-MM-DDTHH:MM:SSZ" token when <text> starts with a complete
+# "[<utc-timestamp>]" bracket, or fail. A worker append is timestamped by
+# writing that bracket as the first thing after the colon (ahead of any
+# note-head key token an older shape may also carry); a pre-timestamp log
+# simply has no such bracket, so every reader here treats it as absent
+# rather than malformed.
+_fm_ts_at_head() {  # <text> -> raw UTC timestamp
+  case "$1" in
+    \[[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z\]*)
+      local t=${1#\[}
+      printf '%s' "${t%%\]*}"
+      ;;
+    *) return 1 ;;
+  esac
+}
+# <text> with one leading "[<utc-timestamp>]" bracket (and the space after it)
+# removed, or <text> unchanged when it has none.
+_fm_ts_strip_head() {  # <text> -> text
+  local ts
+  if ts=$(_fm_ts_at_head "$1"); then
+    local t=${1#"[$ts]"}
+    printf '%s' "${t#"${t%%[![:space:]]*}"}"
+  else
+    printf '%s' "$1"
+  fi
+}
+# Text after the first colon, trimmed, with a note-head "[key=...]" token
+# (see status_line_note) removed but a note-head timestamp bracket left in
+# place - the shared first half both status_line_note and
+# status_line_timestamp fold from, so the key-stripping rule is written once.
+_fm_note_after_key_strip() {  # <status-line> -> note text
   local n k
   case "$1" in
     *:*) n=${1#*:}; n=${n#"${n%%[![:space:]]*}"} ;;
@@ -443,6 +473,16 @@ status_line_note() {  # <status-line> -> text after the first colon, trimmed
     n=${n#"${n%%[![:space:]]*}"}
   fi
   printf '%s' "$n"
+}
+status_line_note() {  # <status-line> -> text after the first colon, trimmed
+  _fm_ts_strip_head "$(_fm_note_after_key_strip "$1")"
+}
+# The UTC timestamp a worker append carries at the head of its note ("[<ts>]"
+# right after the colon, or after a note-head key token), formatted
+# "YYYY-MM-DDTHH:MM:SSZ" with printf, or empty for a pre-timestamp line so
+# every existing status log keeps parsing.
+status_line_timestamp() {  # <status-line> -> UTC timestamp, or empty
+  _fm_ts_at_head "$(_fm_note_after_key_strip "$1")" 2>/dev/null || printf ''
 }
 _fm_decision_key() {  # <status-line> -> key slug, or "default" when no token
   local k
