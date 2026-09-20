@@ -22,7 +22,8 @@ An exact retry is idempotent only when the requested close mode matches the newe
 On a task closed outside the script, `answer` records the missing block only when the captain-hold annotations tasks-axi preserves through a close prove the captain owned it, and it verifies the task stays closed.
 A hold whose `--until` date has passed keeps those annotations while tasks-axi reports it no longer held, so an expired deferral remains answerable.
 
-The `complete` subcommand unions the reviewed captain-held task ids into `decision_keys=` and appends `decisions_reviewed=1` while originating task metadata is live.
+The `complete` subcommand records the reviewed captain-held task ids as `decision_keys=`, replacing any previously attested inventory, and appends `decisions_reviewed=1` while originating task metadata is live.
+A later corrective pass may therefore remove an id, but only a settled one: an id dropped from the previous attestation must be closed with a recorded captain answer, or resolve to no task at all (repairable drift, named in the completion output so a mistype stays visible). An id that still resolves to an unanswered captain call is refused by name, including under `--none`, and that check reads the durable rows rather than the status stream.
 A post-teardown visual review can complete against the surviving report and durable tasks without recreating volatile task metadata.
 It accepts `--none` as an explicit semantic inventory result, refused while the origin still has a lifecycle-open keyed status decision, and verifies every listed task against tasks-axi before recording completion.
 With a non-empty inventory it appends a `captain-held [key=<key>]: tracked by <inventory>` transfer event for every still-open keyed status decision, which `bin/fm-classify-lib.sh` recognizes as closing the live status copy without claiming that the captain has answered it.

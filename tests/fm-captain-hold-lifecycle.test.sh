@@ -838,10 +838,12 @@ test_answer_records_and_closes() {
 # A scout's inventory is a completion gate, not an append-only tomb. After the
 # answer path closes one call with its durable record, verify accepts that
 # settled call. A corrective completion may then replace the inventory with the
-# calls that remain, allowing the finished scout to tear down. An id with no
-# row at all remains a loud refusal rather than being mistaken for an answer.
+# calls that remain, allowing the finished scout to tear down. What a
+# replacement drops is still checked: a call still held and unanswered is
+# refused by name, an id with no row at all is reported as drift, and an id
+# with no row remains a loud verify refusal rather than reading as an answer.
 test_answered_inventory_allows_repair_and_teardown() {
-  local home id settled active missing rc err
+  local home id settled active missing rc err out
   home=$(make_home answered-inventory-repair)
   id=sample-answered-inventory-scout
   settled=sample-settled-call
@@ -862,16 +864,41 @@ test_answered_inventory_allows_repair_and_teardown() {
   run_captain "$home" complete "$id" "$settled" "$active" >/dev/null \
     || fail "could not attest the initial inventory"
   printf 'The captain settled this call.\n' > "$home/settled-answer.txt"
+
+  # Dropping a call that is still held and unanswered would put it out of
+  # verify's reach, so completion refuses it and names it.
+  set +e
+  err=$(run_captain "$home" complete "$id" "$settled" 2>&1 >/dev/null)
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "completion dropped a still-held, unanswered captain call"
+  assert_contains "$err" "$active" "the refused drop did not name the still-held call"
+  assert_equals "decision_keys=$active,$settled" \
+    "$(grep '^decision_keys=' "$home/state/$id.meta" | tail -1)" \
+    "the refused drop still rewrote the attested inventory"
+
   run_captain "$home" answer "$settled" --decision-file "$home/settled-answer.txt" >/dev/null \
     || fail "could not close the settled inventory call through the answer path"
   run_captain "$home" verify "$id" >/dev/null \
     || fail "a closed call with its recorded answer did not satisfy verify"
   run_captain "$home" complete "$id" "$active" >/dev/null \
     || fail "completion did not accept the corrected active-only inventory"
-  assert_grep "decision_keys=$active" "$home/state/$id.meta" \
+  assert_equals "decision_keys=$active" \
+    "$(grep '^decision_keys=' "$home/state/$id.meta" | tail -1)" \
     "corrected completion did not replace the recorded inventory"
   run_captain "$home" answer "$active" --decision-file "$home/settled-answer.txt" >/dev/null \
     || fail "could not close the remaining inventory call"
+
+  # A mistyped id that resolves to no row at all is repairable drift, not a
+  # settled call: --none clears it but says so, so the mistype stays visible.
+  printf 'decision_keys=%s\n' "$active,$missing" >> "$home/state/$id.meta"
+  out=$(run_captain "$home" complete "$id" --none) \
+    || fail "completion refused --none with every attested call answered"
+  assert_contains "$out" "$missing" "the drift report did not name the dropped unresolved id"
+  assert_equals "decision_keys=" \
+    "$(grep '^decision_keys=' "$home/state/$id.meta" | tail -1)" \
+    "--none did not clear the attested inventory"
+
   run_teardown "$home" "$id" > "$home/teardown.out" 2> "$home/teardown.err" \
     || fail "answered inventory still refused scout teardown: $(cat "$home/teardown.err")"
 
@@ -888,7 +915,7 @@ test_answered_inventory_allows_repair_and_teardown() {
   set -e
   [ "$rc" -ne 0 ] || fail "verify accepted an inventory id with no task or resolution"
   assert_contains "$err" "$missing" "the missing inventory refusal did not name its id"
-  pass "answered inventories verify, corrected completion replaces them, teardown proceeds, and missing ids refuse"
+  pass "answered inventories verify, corrected completion replaces them without dropping a live call, teardown proceeds, and missing ids refuse"
 }
 
 # --release lifts the hold instead of closing, preserving the work item's own

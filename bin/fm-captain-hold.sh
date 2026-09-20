@@ -132,7 +132,10 @@
 # the supplied inventory replaces the metadata attestation, and every still-open
 # keyed status decision is transferred to its durable owner with a
 # `captain-held [key=...]` status close naming the inventory. Later review
-# passes may correct its ids. A post-teardown visual review can complete against the
+# passes may correct its ids: a previously attested id may be dropped only when
+# it is closed with a recorded captain answer, or resolves to no task at all
+# (reported as drift); one still held and unanswered is refused by name.
+# A post-teardown visual review can complete against the
 # surviving report and tasks without recreating task state.
 # `verify` is read-only and is called by scout teardown, so teardown cannot
 # erase a source before this gate has succeeded: every recorded inventory
@@ -520,6 +523,13 @@ verify_hold_durable() {  # <task-id>
     return 0
   fi
   fail "captain-held task $id is neither held for the captain nor closed with a recorded captain answer"
+}
+
+# Non-fatal test for the settled half of verify_hold_durable: true only when the
+# row carries a recorded captain answer, so a still-held call reads as unsettled.
+hold_answered() {  # <task-id>
+  task_show "$1" || return 1
+  body_has_resolution_record "$(show_field "$TASK_SHOW_OUTPUT" body)"
 }
 
 # --- migrated legacy-id resolution on the Beads backend ---------------------
@@ -1613,7 +1623,7 @@ reconcile_note() {
 
 command_complete() {
   local origin=${1:-} meta previous='' supplied='' keys='' entry key status_file open has_meta=0 transfer_rc resolved
-  local resolved_how attested_by_prefix=''
+  local resolved_how attested_by_prefix='' dropped_unresolved='' resolve_rc
   [ "$#" -ge 2 ] || { usage >&2; exit 2; }
   validate_slug origin-id "$origin"
   shift
@@ -1643,8 +1653,8 @@ command_complete() {
   # Completion is a fresh review of the surface, not an append-only ledger.
   # In particular, a captain answer closes its task with a durable resolution,
   # so a later repair can remove that settled id by supplying only the calls
-  # still awaiting the captain. Verify remains responsible for rejecting a
-  # genuinely absent id in either the replacement inventory or stored record.
+  # still awaiting the captain. What a replacement drops is checked below
+  # against the durable record itself, never against the status stream.
   keys=$(sorted_key_union '' "$supplied")
   if [ -n "$keys" ]; then
     while IFS= read -r entry; do
@@ -1659,6 +1669,30 @@ command_complete() {
 $(printf '%s\n' "$keys" | tr ',' '\n')
 EOF
   fi
+
+  # Dropping an id from the attested inventory takes it out of verify's reach
+  # and therefore out of teardown's, so every dropped id must be settled first.
+  # A recorded captain answer is the outcome this gate exists to accept; a call
+  # still held and unanswered is refused by name; an id that resolves to no row
+  # at all is repairable drift, reported so a mistype stays visible.
+  while IFS= read -r entry; do
+    [ -n "$entry" ] || continue
+    ! list_has_key "$keys" "$entry" || continue
+    resolve_rc=0
+    resolved=$(resolve_entry "$origin" "$entry" 2>/dev/null) || resolve_rc=$?
+    [ "$resolve_rc" -ne 124 ] \
+      || fail "the backlog backend exceeded its read bound resolving $entry"
+    [ "$resolve_rc" -ne 2 ] \
+      || fail "the migrated-hold scan refused to resolve $entry, so it cannot be dropped from the $origin inventory"
+    if [ "$resolve_rc" -ne 0 ]; then
+      dropped_unresolved="${dropped_unresolved}${dropped_unresolved:+ }$entry"
+      continue
+    fi
+    hold_answered "${resolved%% *}" \
+      || fail "attested captain call $entry carries no recorded captain answer, so it cannot be dropped from the $origin inventory; answer it or keep it in the supplied inventory"
+  done <<EOF
+$(printf '%s\n' "$previous" | tr ',' '\n')
+EOF
 
   status_file="$STATE/$origin.status"
   open=$(status_open_decisions "$status_file")
@@ -1691,8 +1725,9 @@ $open
 EOF
     fi
   fi
-  printf 'complete: %s captain-call inventory reviewed%s%s\n' "$origin" "${keys:+ ($keys)}" \
-    "${attested_by_prefix:+ [attested through the configured prefix: $attested_by_prefix]}"
+  printf 'complete: %s captain-call inventory reviewed%s%s%s\n' "$origin" "${keys:+ ($keys)}" \
+    "${attested_by_prefix:+ [attested through the configured prefix: $attested_by_prefix]}" \
+    "${dropped_unresolved:+ [dropped ids that resolve to no task: $dropped_unresolved]}"
 }
 
 command_verify() {
