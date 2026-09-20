@@ -250,6 +250,11 @@ def send_answer(home_path, item, text):
     detail = (proc.stdout + proc.stderr).strip()
     if proc.returncode == 0:
         outcome = "sent"
+    elif proc.returncode == 3:
+        # fm-send.sh's own typed-plane and remote-leg contract: the text was
+        # delivered and only the read-back stayed unconfirmed, so it forbids a
+        # blind resend. That is delivery unknown, never a failure.
+        outcome = "unknown"
     elif "do not resend the answer" in detail:
         outcome = "delivered-not-closed"
     else:

@@ -566,7 +566,10 @@ function itemRow(it){
 // act that closed the decision, so nothing here is inferred.
 function wordOutcome(r){
   if (r.kind === 'draft') return 'Not sent. Kept here so it is not lost.';
-  switch (r.outcome){
+  // said.jsonl is append-only, so lines written before the outcome vocabulary
+  // existed carry `delivered` instead and must still read as what they were.
+  const outcome = r.outcome || (r.delivered ? 'sent' : 'failed');
+  switch (outcome){
     case 'sent': return r.kind === 'answer'
       ? 'Delivered through ' + esc(r.route) + ' — the decision closed'
       : 'Delivered through ' + esc(r.route);
@@ -574,8 +577,7 @@ function wordOutcome(r){
       return 'Delivered through ' + esc(r.route)
         + ' — the decision record did not close: ' + esc(r.detail || '');
     case 'unknown':
-      return 'Delivery unknown — the command was stopped before it reported: '
-        + esc(r.detail || '');
+      return 'Delivery unknown — it may already have arrived: ' + esc(r.detail || '');
     default: return 'Not delivered: ' + esc(r.detail || '');
   }
 }
@@ -787,10 +789,14 @@ async function poll(){
     const arrived = (next.items || []).map(itemKey).filter(k => !before.has(k));
     state.error = next.error || null;
     state.view = next;
-    const live = new Set((next.items || []).map(itemKey));
-    for (const k of Object.keys(state.outcome))
-      if (!live.has(k)) delete state.outcome[k];
-    save('cc.outcome', state.outcome);
+    // A verdict forbids a resend, so it is dropped only against a scan that
+    // actually succeeded - an errored or not-yet-scanned view knows no items.
+    if (!next.error && Array.isArray(next.items)){
+      const live = new Set(next.items.map(itemKey));
+      for (const k of Object.keys(state.outcome))
+        if (!live.has(k)) delete state.outcome[k];
+      save('cc.outcome', state.outcome);
+    }
     if (before.size && arrived.length === 1) state.flash = arrived[0];
     render();
     if (state.flash) setTimeout(() => { state.flash = null; renderList(); }, 2000);
@@ -837,7 +843,8 @@ async function sendAnswer(){
     if (SEND_VERDICT[data.outcome]){
       state.outcome[itemKey(it)] = { outcome: data.outcome, detail: data.detail || '' };
       save('cc.outcome', state.outcome);
-      renderMain();
+      await loadSaid();
+      render();
       return;
     }
     $('#sendnote').innerHTML = `<b style="color:var(--hot)">Not sent.</b> ${
@@ -893,12 +900,17 @@ $('#note-dlg').addEventListener('close', async function(){
   } catch (err) {
     data = { error: String(err.message || err) };
   }
+  // The same rule the answer path follows: unknown delivery never reads as a
+  // failure, because retyping it is how the captain sends it twice.
   btn.textContent = (ok && data.ok) ? '✓  Queued — and kept under My words'
-                                    : '✕  Not queued: ' + (data.error || 'the command failed');
+    : data.outcome === 'unknown'
+      ? '?  Delivery unknown — it may already be queued; do not send it again'
+      : '✕  Not queued: ' + (data.error || 'the command failed');
   if (ok && data.ok){
     $('#note-text').value = ''; state.note = ''; save('cc.note', state.note);
   }
-  setTimeout(() => { btn.textContent = '✎  Tell firstmate something — not an answer'; }, 3500);
+  setTimeout(() => { btn.textContent = '✎  Tell firstmate something — not an answer'; },
+    data.outcome === 'unknown' ? 12000 : 3500);
   await loadSaid(); renderList();
 });
 

@@ -382,6 +382,34 @@ test_a_script_that_reads_stdin_cannot_hang_the_server() {
   pass "a note that would read stdin is answered instead of hanging the server"
 }
 
+# fm-send.sh's exit 3 means the text WAS delivered and only the read-back stayed
+# unconfirmed; its own message forbids a blind resend. Reporting that as a
+# failure is how the captain sends the same steer twice.
+test_an_unconfirmed_send_is_reported_as_unknown_not_failed() {
+  local home out
+  home="$TMP_ROOT/unconfirmed"
+  seed_home "$home"
+  out=$(FM_CC_HOME="$home" python3 - "$SERVER" <<'PYEOF'
+import importlib.util, subprocess, sys, os
+spec = importlib.util.spec_from_file_location("cc", sys.argv[1])
+cc = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(cc)
+item = {"source": "status", "id": "t-1", "key": "k"}
+real = subprocess.run
+for rc in (0, 3, 1):
+    subprocess.run = lambda *a, rc=rc, **k: subprocess.CompletedProcess(
+        a[0] if a else [], rc, "", "fm-send: text delivered but unconfirmed" if rc == 3 else "boom")
+    print(cc.send_answer(os.environ["FM_CC_HOME"], item, "answer text")[0])
+subprocess.run = real
+PYEOF
+)
+  assert_equals "sent
+unknown
+failed" "$out" \
+    "fm-send.sh's delivered-but-unconfirmed exit was not reported as unknown delivery"
+  pass "an unconfirmed send reports unknown delivery, never a failure"
+}
+
 trap stop_server EXIT
 
 test_only_live_captain_holds_are_carded
@@ -395,3 +423,4 @@ test_server_serves_the_page_and_the_records
 test_server_refuses_bad_input_before_running_anything
 test_answering_a_hold_records_the_captains_words_and_clears_the_item
 test_a_script_that_reads_stdin_cannot_hang_the_server
+test_an_unconfirmed_send_is_reported_as_unknown_not_failed

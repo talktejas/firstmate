@@ -78,7 +78,7 @@ The server reuses those commands rather than writing records itself, so every gu
 
 ## What it stores
 
-One file: `<home>/data/command-center/said.jsonl`, an append-only log of what you typed and where it went, with the outcome of the send: **sent** (delivered and the decision closed), **delivered-not-closed** (it reached the worker but the record did not close), **unknown** (the command was stopped before it reported, so it may already have arrived) or **failed**.
+One file: `<home>/data/command-center/said.jsonl`, an append-only log of what you typed and where it went, with the outcome of the send: **sent** (delivered and the decision closed), **delivered-not-closed** (it reached the worker but the record did not close), **unknown** (`fm-send.sh` reported the text delivered but unconfirmed, or the command was stopped before it reported, so it may already have arrived) or **failed**.
 On either of the middle two the page keeps your text, says plainly what happened, and does not offer Send again — firstmate reconciles it, and resending would deliver twice.
 
 That exists because firstmate keeps an answer that closes a decision but does not keep the rest of your words: a steer to a worker is removed with the task's steering inbox at cleanup, and an unsent draft was never recorded anywhere.
