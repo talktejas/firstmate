@@ -129,10 +129,10 @@
 # has no unresolved captain call, and is refused while the origin still has an
 # open keyed status decision. With a non-empty inventory, every listed task is
 # verified durable (actively captain-held, or closed with a recorded answer),
-# the inventory is unioned idempotently into the metadata, and every still-open
+# the supplied inventory replaces the metadata attestation, and every still-open
 # keyed status decision is transferred to its durable owner with a
 # `captain-held [key=...]` status close naming the inventory. Later review
-# passes may add ids. A post-teardown visual review can complete against the
+# passes may correct its ids. A post-teardown visual review can complete against the
 # surviving report and tasks without recreating task state.
 # `verify` is read-only and is called by scout teardown, so teardown cannot
 # erase a source before this gate has succeeded: every recorded inventory
@@ -1640,7 +1640,12 @@ command_complete() {
   if [ "$has_meta" = 1 ]; then
     previous=$(meta_value "$meta" decision_keys)
   fi
-  keys=$(sorted_key_union "$previous" "$supplied")
+  # Completion is a fresh review of the surface, not an append-only ledger.
+  # In particular, a captain answer closes its task with a durable resolution,
+  # so a later repair can remove that settled id by supplying only the calls
+  # still awaiting the captain. Verify remains responsible for rejecting a
+  # genuinely absent id in either the replacement inventory or stored record.
+  keys=$(sorted_key_union '' "$supplied")
   if [ -n "$keys" ]; then
     while IFS= read -r entry; do
       [ -n "$entry" ] || continue

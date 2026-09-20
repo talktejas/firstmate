@@ -835,6 +835,62 @@ test_answer_records_and_closes() {
   pass "answer records the captain's words, closes idempotently, and releases routed work"
 }
 
+# A scout's inventory is a completion gate, not an append-only tomb. After the
+# answer path closes one call with its durable record, verify accepts that
+# settled call. A corrective completion may then replace the inventory with the
+# calls that remain, allowing the finished scout to tear down. An id with no
+# row at all remains a loud refusal rather than being mistaken for an answer.
+test_answered_inventory_allows_repair_and_teardown() {
+  local home id settled active missing rc err
+  home=$(make_home answered-inventory-repair)
+  id=sample-answered-inventory-scout
+  settled=sample-settled-call
+  active=sample-active-call
+  missing=sample-missing-call
+  mkdir -p "$home/data/$id"
+  tasks_in "$home" add "$id" "Investigate the answered inventory" --kind scout \
+    --repo sample --start >/dev/null || fail "could not create the answered-inventory scout"
+  write_origin_meta "$home" "$id"
+  printf 'done: report complete\n' > "$home/state/$id.status"
+  printf '# Answered inventory\n\nThe investigation is complete.\n' > "$home/data/$id/report.md"
+  run_captain "$home" hold "$settled" --title "Choose the settled option" \
+    --reason "captain settled choice pending" --repo sample >/dev/null \
+    || fail "could not hold the settled inventory call"
+  run_captain "$home" hold "$active" --title "Choose the active option" \
+    --reason "captain active choice pending" --repo sample >/dev/null \
+    || fail "could not hold the active inventory call"
+  run_captain "$home" complete "$id" "$settled" "$active" >/dev/null \
+    || fail "could not attest the initial inventory"
+  printf 'The captain settled this call.\n' > "$home/settled-answer.txt"
+  run_captain "$home" answer "$settled" --decision-file "$home/settled-answer.txt" >/dev/null \
+    || fail "could not close the settled inventory call through the answer path"
+  run_captain "$home" verify "$id" >/dev/null \
+    || fail "a closed call with its recorded answer did not satisfy verify"
+  run_captain "$home" complete "$id" "$active" >/dev/null \
+    || fail "completion did not accept the corrected active-only inventory"
+  assert_grep "decision_keys=$active" "$home/state/$id.meta" \
+    "corrected completion did not replace the recorded inventory"
+  run_captain "$home" answer "$active" --decision-file "$home/settled-answer.txt" >/dev/null \
+    || fail "could not close the remaining inventory call"
+  run_teardown "$home" "$id" > "$home/teardown.out" 2> "$home/teardown.err" \
+    || fail "answered inventory still refused scout teardown: $(cat "$home/teardown.err")"
+
+  # Use a fresh attestation record so this is a true verify-path absence, not a
+  # failure caused by teardown removing the preceding fixture's metadata.
+  mkdir -p "$home/state"
+  fm_write_meta "$home/state/$missing.meta" \
+    "window=firstmate:fm-$missing" "worktree=$home/projects/missing" \
+    "project=$home/projects/sample" "harness=codex" "kind=scout" "mode=scout" \
+    "spawn_gen=fixture-$missing" "decisions_reviewed=1" "decision_keys=$missing"
+  set +e
+  err=$(run_captain "$home" verify "$missing" 2>&1 >/dev/null)
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "verify accepted an inventory id with no task or resolution"
+  assert_contains "$err" "$missing" "the missing inventory refusal did not name its id"
+  pass "answered inventories verify, corrected completion replaces them, teardown proceeds, and missing ids refuse"
+}
+
 # --release lifts the hold instead of closing, preserving the work item's own
 # body under the record; a re-held task later accepts a new answer.
 test_release_frees_held_work() {
@@ -4054,6 +4110,7 @@ test_hold_decodes_a_bare_scalar_body_without_the_nonref_default
 test_retained_body_keeps_its_utf8_bytes
 test_completion_gate_attests_and_transfers
 test_answer_records_and_closes
+test_answered_inventory_allows_repair_and_teardown
 test_release_frees_held_work
 test_hold_stamp_precedes_hold_visibility
 test_interrupted_answer_preserves_hold_age
