@@ -2486,6 +2486,9 @@ test_live_paused_until_controls_recheck_time() {
 # recorded hash - the population wedge_timer_check owns. FM_STALE_ESCALATE_SECS=1
 # puts every round at the threshold, so a round either escalates or is deferred;
 # the real 240s default only changes how long that takes.
+# A case whose round must stay BELOW the threshold passes FM_TEST_STALE_ESCALATE
+# =999999: the idle timer runs on wall clock from this lane's first poll, so any
+# bound a slow runner can outlive turns that case into a timing flake.
 # <mode> `exit` requires the watcher to surface and exit, `absorb` requires it to
 # survive whole poll cycles at the threshold. Returns 1 when it does the other.
 # The endpoint this lane's window resolves to is a live grok agent unless a case
@@ -2894,7 +2897,7 @@ test_second_death_after_a_same_window_relaunch_reports_in_full() {
   FM_TEST_PANE_COMMAND=grok FM_TEST_TMUX_WINDOWS=fm-wedge
   printf '%s\n' 'waiting on the build queue' > "$capture"
   : > "$out"
-  FM_TEST_STALE_ESCALATE=999 wedge_threshold_round "$state" "$fakebin" "$out" "$capture" "$window" "$working" absorb \
+  FM_TEST_STALE_ESCALATE=999999 wedge_threshold_round "$state" "$fakebin" "$out" "$capture" "$window" "$working" absorb \
     || fail "a replacement launch churned the pane without absorbing: $(cat "$out")"
   grep -F 'possible wedge' "$out" >/dev/null \
     && fail "the relaunch round escalated before its fresh window elapsed: $(cat "$out")"
@@ -2973,7 +2976,7 @@ test_identical_dead_display_of_a_successor_still_reports() {
   "$ROOT/bin/fm-busy-event.sh" arm "$state" wedge >/dev/null \
     || fail "could not re-arm the successor's busy incarnation"
   : > "$out"
-  FM_TEST_STALE_ESCALATE=999 wedge_threshold_round "$state" "$fakebin" "$out" "$capture" "$window" "$failed" absorb \
+  FM_TEST_STALE_ESCALATE=999999 wedge_threshold_round "$state" "$fakebin" "$out" "$capture" "$window" "$failed" absorb \
     || fail "the successor's quiet round was never absorbed: $(cat "$out")"
   [ "$(wedge_stale_wakes "$state" "$window")" -eq 0 ] \
     || fail "the successor's quiet round queued a wake: $(cat "$state/.wake-queue")"

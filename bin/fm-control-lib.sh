@@ -65,11 +65,15 @@ fm_control_harnesses() {
   printf '%s\n' claude codex opencode pi pi-signed grok kimi cursor gemini muse rovo omp agy
 }
 
+# Reads the whole list before matching: an early `return` out of a loop fed by
+# a process substitution closes the pipe under fm_control_harnesses' still-
+# running printf, which then writes "printf: write error: Broken pipe" to
+# stderr and corrupts any caller capturing output with 2>&1.
 fm_control_harness_supported() {  # <harness>
   local harness
-  while read -r harness; do
+  for harness in $(fm_control_harnesses); do
     [ "$harness" = "${1-}" ] && return 0
-  done < <(fm_control_harnesses)
+  done
   return 1
 }
 
