@@ -260,6 +260,13 @@
 #     root still exists, so the account's healthy LaunchAgent worker and every
 #     live remote secondmate worker are out of scope. Best effort: a sweep
 #     failure never blocks this teardown.
+# Every cleanup step that runs AFTER the destructive half (endpoint kill,
+# worktree reset and return) names itself and what it leaves behind on stderr
+# before exiting non-zero. Those steps are past the point of no return, so a
+# silent exit strands a task whose real cleanup is finished: state/<id>.meta
+# survives, the task reads as in flight forever, and nothing on screen says
+# which step failed or what it left behind.
+# tests/fm-teardown.test.sh's test_teardown_names_a_failed_cleanup_step pins it.
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -930,8 +937,10 @@ remote_secondmate_teardown() {
   tmp="$SECONDMATE_REG.tmp.$$"
   grep -vE "^- $ID( |$)" "$SECONDMATE_REG" > "$tmp" || true
   mv -f -- "$tmp" "$SECONDMATE_REG"
-  status_retire_presentation_task "$STATE" "$ID" || return 1
-  fm_backlog_atomic_transition remove "$STATE/$ID.meta" "task record" "$STATE" || return 1
+  status_retire_presentation_task "$STATE" "$ID" \
+    || { echo "error: presentation-cursor retirement failed for $ID; $STATE/$ID.meta was not removed and it will still read as in flight" >&2; return 1; }
+  fm_backlog_atomic_transition remove "$STATE/$ID.meta" "task record" "$STATE" \
+    || { echo "error: $ID's task record at $STATE/$ID.meta could not be removed; the remote home is retired but $ID will still read as in flight" >&2; return 1; }
   rm -f -- "$STATE/$ID.turn-ended" "$STATE/$ID.progress"
   printf 'teardown %s complete (remote %s:%s)\n' "$ID" "$remote_host" "$remote_home"
   return 0
@@ -3130,16 +3139,22 @@ cleanup_firstmate_home_children() {
         fi
       fi
     fi
-    remove_grok_turnend_auth "$sub_state" "$child_id" || return 1
-    remove_kimi_turnend_auth "$sub_state" "$child_id" || return 1
-    remove_pr_poll_artifacts "$sub_state" "$child_id" || return 1
+    remove_grok_turnend_auth "$sub_state" "$child_id" \
+      || { echo "error: grok turn-end auth cleanup failed for child $child_id; its auth record under $sub_state was left behind" >&2; return 1; }
+    remove_kimi_turnend_auth "$sub_state" "$child_id" \
+      || { echo "error: kimi turn-end auth cleanup failed for child $child_id; its auth record under $sub_state was left behind" >&2; return 1; }
+    remove_pr_poll_artifacts "$sub_state" "$child_id" \
+      || { echo "error: PR-poll artifact cleanup failed for child $child_id; its PR-poll records under $sub_state were left behind" >&2; return 1; }
     child_busy_gen=$(meta_value "$child_meta" busy_gen)
     if [ -z "$child_busy_gen" ]; then
       child_busy_gen=$(cat "$sub_state/$child_id.busy-gen" 2>/dev/null || true)
     fi
-    retire_busy_state "$sub_state" "$child_id" "$child_busy_gen" || return 1
-    status_retire_presentation_task "$sub_state" "$child_id" || return 1
-    fm_backlog_atomic_transition remove "$sub_state/$child_id.meta" "task record" "$sub_state" || return 1
+    retire_busy_state "$sub_state" "$child_id" "$child_busy_gen" \
+      || { echo "error: busy-state retirement failed for child $child_id; its busy-state record under $sub_state was left behind" >&2; return 1; }
+    status_retire_presentation_task "$sub_state" "$child_id" \
+      || { echo "error: presentation-cursor retirement failed for child $child_id; $sub_state/$child_id.meta was not removed and it will still read as in flight" >&2; return 1; }
+    fm_backlog_atomic_transition remove "$sub_state/$child_id.meta" "task record" "$sub_state" \
+      || { echo "error: child $child_id's task record at $sub_state/$child_id.meta could not be removed; it will still read as in flight" >&2; return 1; }
     rm -f "$sub_state/$child_id.turn-ended" "$sub_state/$child_id.progress" \
       "$sub_state/$child_id.pi-ext.ts" "$sub_state/$child_id.omp-ext.ts" \
       "$sub_state/$child_id.grok-turnend-token" "$sub_state/$child_id.kimi-turnend-token" \
@@ -3558,15 +3573,20 @@ if [ "$KIND" = secondmate ]; then
   fi
   remove_secondmate_registry_entry "$ID"
 fi
-remove_grok_turnend_auth "$STATE" "$ID" || exit 1
-remove_kimi_turnend_auth "$STATE" "$ID" || exit 1
+remove_grok_turnend_auth "$STATE" "$ID" \
+  || { echo "error: grok turn-end auth cleanup failed for $ID; its auth record under $STATE was left behind" >&2; exit 1; }
+remove_kimi_turnend_auth "$STATE" "$ID" \
+  || { echo "error: kimi turn-end auth cleanup failed for $ID; its auth record under $STATE was left behind" >&2; exit 1; }
 fm_backend_clear_transition "$BACKEND" "$STATE" "$T" || true
 # Remove the per-task temp root (/tmp/fm-<id>/, incl. its gotmp/) recorded by spawn.
 # Read before the state-file rm below; empty (pre-fix tasks without tasktmp=) is a no-op.
 [ -n "$TASK_TMP" ] && rm -rf "$TASK_TMP"
-remove_pr_poll_artifacts "$STATE" "$ID" || exit 1
-retire_busy_state "$STATE" "$ID" "$BUSY_GEN" || exit 1
-status_retire_presentation_task "$STATE" "$ID" || exit 1
+remove_pr_poll_artifacts "$STATE" "$ID" \
+  || { echo "error: PR-poll artifact cleanup failed for $ID; its PR-poll records under $STATE were left behind" >&2; exit 1; }
+retire_busy_state "$STATE" "$ID" "$BUSY_GEN" \
+  || { echo "error: busy-state retirement failed for $ID; its busy-state record under $STATE was left behind" >&2; exit 1; }
+status_retire_presentation_task "$STATE" "$ID" \
+  || { echo "error: presentation-cursor retirement failed for $ID; $STATE/$ID.meta was not removed and $ID will still read as in flight" >&2; exit 1; }
 rm -f "$STATE/$ID.turn-ended" "$STATE/$ID.progress" \
   "$STATE/$ID.pi-ext.ts" "$STATE/$ID.omp-ext.ts" "$STATE/$ID.grok-turnend-token" \
   "$STATE/$ID.kimi-turnend-token" "$STATE/$ID.muse-session" \
@@ -3585,7 +3605,8 @@ rm -rf "$STATE/$ID.inbox"
 # row takes the retain transition here instead of the close: same record, same
 # ordering, the row returns to Queued with its deliverable recorded.
 if [ "$BACKLOG_CLOSED" = 1 ]; then
-  BACKLOG_CLOSE_MARKER=$(fm_backlog_close_marker_path "$STATE" "$ID") || exit 1
+  BACKLOG_CLOSE_MARKER=$(fm_backlog_close_marker_path "$STATE" "$ID") \
+    || { echo "error: could not resolve the backlog close-marker path for $ID; $STATE/$ID.meta was left untouched and $ID will still read as in flight" >&2; exit 1; }
   if ! fm_backlog_atomic_transition "$BACKLOG_TRANSITION" "$STATE/$ID.meta" "$BACKLOG_CLOSE_MARKER" \
       "$DATA" "$ID" "$STATE" "${BACKLOG_DONE_ARGS[@]+"${BACKLOG_DONE_ARGS[@]}"}"; then
     fm_lock_release "$META_LOCK"
