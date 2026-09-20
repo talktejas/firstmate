@@ -1,0 +1,16 @@
+### BEFORE (base 6f158ee): teardown exits 1 with no message
+=== $ fm-teardown.sh task-x1   (presentation manifest corrupted) ===
+--- exit code: 1
+--- stdout:
+--- stderr:
+--- task record still present?
+task-x1.meta count: 1
+
+### AFTER (target 5e45003): teardown names the failed step and the survivor
+=== $ fm-teardown.sh task-x1   (presentation manifest corrupted) ===
+--- exit code: 1
+--- stdout:
+--- stderr:
+error: presentation-cursor retirement failed for task-x1; /tmp/fm-teardown-tests.nqYxLF/live-failed-cleanup/state/task-x1.meta was not removed and task-x1 will still read as in flight
+--- task record still present?
+task-x1.meta count: 1

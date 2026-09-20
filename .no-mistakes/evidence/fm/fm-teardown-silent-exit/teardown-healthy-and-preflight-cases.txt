@@ -1,0 +1,15 @@
+=== healthy-teardown: $ fm-teardown.sh task-x1 ===
+--- exit code: 0
+--- stdout:
+teardown task-x1 complete (window firstmate:fm-task-x1, worktree /tmp/fm-teardown-tests.QW6njp/healthy-teardown/wt)
+Backlog: task-x1 just finished (this home keeps no markdown backlog at /tmp/fm-teardown-tests.QW6njp/healthy-teardown/data/backlog.md). Update /tmp/fm-teardown-tests.QW6njp/healthy-teardown/data/backlog.md - move task-x1 to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+--- stderr:
+--- state/task-x1.meta: removed (task no longer in flight)
+
+=== pr-poll-artifact-unsafe: $ fm-teardown.sh task-x1 ===
+--- exit code: 1
+--- stdout:
+--- stderr:
+REFUSED: unsafe task PR-check artifact; preserving task state.
+--- state/task-x1.meta: STILL PRESENT (task reads in flight)
+
