@@ -934,7 +934,8 @@ $('#note-dlg').addEventListener('close', async function(){
   // failure, because retyping it is how the captain sends it twice.
   btn.textContent = (ok && data.ok) ? '✓  Queued — and kept under My words'
     : data.outcome === 'unknown'
-      ? '?  Delivery unknown — it may already be queued; do not send it again'
+      ? '?  It may already be saved — check before sending it again. '
+        + (data.detail || '')
       : '✕  Not queued: ' + (data.error || data.detail || 'the command failed');
   if (ok && data.ok){
     $('#note-text').value = ''; state.note = ''; save('cc.note', state.note);

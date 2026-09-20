@@ -299,7 +299,13 @@ def send_note(home_path, text):
         stdin=subprocess.DEVNULL, check=False,
     )
     detail = (proc.stdout + proc.stderr).strip()[:600]
-    return ("sent" if proc.returncode == 0 else "failed"), "fm-inbox.sh note", detail
+    # fm-inbox.sh publishes the note record BEFORE it wakes firstmate and exits
+    # nonzero if only the wake failed, so its exit code cannot tell nothing-saved
+    # from saved-but-unannounced. Saying "not queued" about words already on disk
+    # is the false claim this page exists to end, and a second note is not the
+    # same note - queue_note mints a fresh id, so this route is not idempotent.
+    outcome = "sent" if proc.returncode == 0 else "unknown"
+    return outcome, "fm-inbox.sh note", detail
 
 
 class Handler(BaseHTTPRequestHandler):

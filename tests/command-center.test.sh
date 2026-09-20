@@ -171,6 +171,26 @@ test_steering_records_report_delivered_and_picked_up() {
   pass "a steering record reports delivered and picked up from the acknowledgement move"
 }
 
+# A title is the captain's own words: the parser strips the annotations the
+# backlog format defines and nothing else.
+test_a_title_keeps_a_trailing_parenthetical() {
+  local home out
+  home="$TMP_ROOT/paren"
+  mkdir -p "$home/data" "$home/state"
+  {
+    printf '# Backlog\n'
+    printf -- '- [ ] t-9 - Pick the hosting region (eu or us) (repo: demo) (hold: which one) (hold-kind: captain)\n'
+  } > "$home/data/backlog.md"
+
+  out=$(printf '%s' "$(scan "$home")" | jq -r '.items[] | select(.id == "t-9") | .title')
+  assert_equals "Pick the hosting region (eu or us)" "$out" \
+    "a parenthetical that is part of the title was eaten as an annotation"
+  assert_equals "demo" \
+    "$(printf '%s' "$(scan "$home")" | jq -r '.items[] | select(.id == "t-9") | .repo')" \
+    "the real annotations stopped being read"
+  pass "a title keeps a trailing parenthetical that is part of it"
+}
+
 test_fingerprint_changes_only_when_a_record_moves() {
   local home first second third
   home="$TMP_ROOT/fingerprint"
@@ -426,6 +446,13 @@ for item in (status_item, hold_item):
     subprocess.run = killed
     outcome, route, _ = cc.send_answer(os.environ["FM_CC_HOME"], item, "answer text")
     print(outcome, route)
+# fm-inbox.sh publishes the note record before it wakes firstmate, so a nonzero
+# exit there cannot mean nothing was saved.
+for rc in (0, 1):
+    subprocess.run = lambda *a, rc=rc, **k: subprocess.CompletedProcess(
+        a[0] if a else [], rc, "",
+        "fm-inbox: note n-1 is saved at /h/inbox/n-1.note but firstmate was NOT woken")
+    print(cc.send_note(os.environ["FM_CC_HOME"], "a note")[0])
 subprocess.run = real
 PYEOF
 )
@@ -438,7 +465,9 @@ sent
 failed
 failed
 unknown fm-send.sh t-1
-failed fm-captain-hold.sh answer t-1" "$out" \
+failed fm-captain-hold.sh answer t-1
+sent
+unknown" "$out" \
     "the outcome or route was not taken from the route that actually ran"
   pass "each route's outcome is decided by its own exit code alone"
 }
@@ -485,6 +514,7 @@ trap stop_server EXIT
 
 test_only_live_captain_holds_are_carded
 test_body_survives_the_record_separator
+test_a_title_keeps_a_trailing_parenthetical
 test_deferred_hold_reports_its_date
 test_branch_states_are_honest
 test_status_decisions_are_carded_with_their_verb

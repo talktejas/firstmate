@@ -39,9 +39,9 @@ The left list is everything waiting on you, from two kinds of durable record:
   These never appear as held tasks, which is why a surface built on holds alone cannot reach them.
 
 Every row carries its project, its worktree and its branch.
-`Group by` arranges the list by project, project and worktree, or project and branch, and `Latest first` and `Oldest first` drop the grouping for one flat list in time order.
+`Group by` arranges the list by project, project and worktree, or project and branch. `Latest first` and `Oldest first` drop the grouping for one flat list in time order, and `Nothing — one flat list` drops it for one list in the order the scan read the records, making no ordering claim at all.
 
-Rows whose records carry no usable time are never given a guessed position: they follow the dated rows and the list says how many there are.
+In the two time-ordered views, rows whose records carry no usable time are never given a guessed position: they follow the dated rows and the list says how many there are. The unsorted flat list orders nothing, so it says nothing about them either.
 
 ## What it can and cannot prove
 
@@ -78,7 +78,7 @@ The server reuses those commands rather than writing records itself, so every gu
 
 ## What it stores
 
-One file: `<home>/data/command-center/said.jsonl`, an append-only log of what you typed and where it went, with the outcome of the send, read from the exit code of the command that ran and nothing else: **sent**, **failed** (the record was refused and nothing left this machine — answering a captain hold again is safe, and `fm-captain-hold.sh` documents an exact retry as idempotent), or **unknown** (`fm-send.sh` could not confirm the steer reached the worker, and reports no way to tell that from a refusal, so the page never guesses which).
+One file: `<home>/data/command-center/said.jsonl`, an append-only log of what you typed and where it went, with the outcome of the send, read from the exit code of the command that ran and nothing else: **sent**, **failed** (a captain hold refused the record and nothing left this machine — answering it again is safe, and `fm-captain-hold.sh` documents an exact retry as idempotent), or **unknown** (the command reported neither, so the page never guesses which: `fm-send.sh` cannot say whether the steer reached the worker, and `fm-inbox.sh` saves a note before it wakes firstmate, so its failure may mean only that the wake did not land).
 On **unknown** the page keeps your text, says plainly that delivery could not be confirmed, and does not offer Send again until the steering record appears — or until you say so yourself, knowing it may be a second copy.
 Older lines carry the earlier `delivered`/`closed` shape and keep reading as exactly what they recorded.
 

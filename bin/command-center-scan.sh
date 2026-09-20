@@ -148,8 +148,11 @@ held_tasks() {  # <backlog-file>
       id = line; sub(/ - .*$/, "", id)
       rest = line; sub(/^[^ ]* - /, "", rest)
       title = rest
-      # Strip the trailing (key: value) annotations off the title, and read them.
-      while (match(title, / \([a-z-]+:? [^()]*\)$/)) {
+      # Strip the trailing (key: value) annotations off the title, and read
+      # them. ONLY the keys the backlog format defines: an open key pattern eats
+      # an ordinary trailing parenthetical, and a title is his own words.
+      # bin/fm-fleet-snapshot.sh owns this same rule over the same file.
+      while (match(title, / \(((repo|kind|priority|hold|hold-kind|hold-until): |(since|merged|reported|done) )[^()]*\)$/)) {
         ann = substr(title, RSTART + 2, RLENGTH - 3)
         title = substr(title, 1, RSTART - 1)
         key = ann; sub(/:? .*$/, "", key)
