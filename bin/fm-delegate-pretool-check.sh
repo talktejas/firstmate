@@ -323,12 +323,55 @@ note_root() {
   esac
 }
 
+# quoted_scan <mode> <text>: walk <text> once, treating a single- or
+# double-quoted span as data. Mode "strip" drops the quote characters and
+# neutralizes separators inside the span, so a quoted argument - a steer
+# message, a brief line - is never re-read as a new command while its words
+# stay in their own segment. Mode "mask" replaces the span, quotes included,
+# with the same number of spaces, so an operator written as prose inside a
+# quoted argument is not an operator, while every offset outside the span still
+# lines up with the original text.
+quoted_scan() {
+  local mode=$1 rest=$2 out='' pre q body pad
+  while :; do
+    case "$rest" in
+      *[\'\"]*) ;;
+      *) out=$out$rest; break ;;
+    esac
+    pre=${rest%%[\'\"]*}
+    out=$out$pre
+    rest=${rest#"$pre"}
+    q=${rest%"${rest#?}"}
+    rest=${rest#?}
+    case "$rest" in
+      *"$q"*) body=${rest%%"$q"*}; rest=${rest#"$body$q"}; pad=$((${#body} + 2)) ;;
+      *) body=$rest; rest=''; pad=$((${#body} + 1)) ;;
+    esac
+    if [ "$mode" = mask ]; then
+      printf -v body '%*s' "$pad" ''
+      out=$out$body
+    else
+      out=$out${body//[$'\n\r;|&']/ }
+    fi
+  done
+  printf '%s' "$out"
+}
+
 # heredoc_delim <line>: the terminator a heredoc redirection on <line> opens,
-# or nothing when the line opens none.
+# or nothing when the line opens none. The opener is located in the masked copy
+# of the line, so a "<<EOF" inside a quoted message is prose; the terminator is
+# then read from the original line, so cat <<'EOF' still works.
 heredoc_delim() {
-  local t=${1##*<<}
-  case "${1%"$t"}" in
-    *'<<<') return 0 ;;
+  local line=$1 masked pre t
+  masked=$(quoted_scan mask "$line")
+  case "$masked" in
+    *'<<'*) ;;
+    *) return 0 ;;
+  esac
+  pre=${masked%%'<<'*}
+  t=${line:$((${#pre} + 2))}
+  case "$t" in
+    \<*) return 0 ;;
   esac
   t=${t#-}
   t=${t#"${t%%[![:space:]]*}"}
@@ -358,36 +401,15 @@ strip_heredocs() {
   printf '%s' "$out"
 }
 
-# unquote <cmd>: drop quote characters and neutralize separators INSIDE a
-# quoted span, so a quoted argument - a steer message, a brief line - is never
-# re-read as a new command while its words stay in their own segment.
-unquote() {
-  local rest=$1 out='' pre q body
-  while :; do
-    case "$rest" in
-      *[\'\"]*) ;;
-      *) out=$out$rest; break ;;
-    esac
-    pre=${rest%%[\'\"]*}
-    out=$out$pre
-    rest=${rest#"$pre"}
-    q=${rest%"${rest#?}"}
-    rest=${rest#?}
-    case "$rest" in
-      *"$q"*) body=${rest%%"$q"*}; rest=${rest#"$body$q"} ;;
-      *) body=$rest; rest='' ;;
-    esac
-    out=$out${body//[$'\n\r;|&']/ }
-  done
-  printf '%s' "$out"
-}
-
 if [ "$KIND" = command ]; then
-  # An unquoted newline separates commands; a newline inside a quoted argument
-  # or a heredoc body does not, and both are already neutralized above, so the
-  # lines of a steer message stay with the command that owns them while a
-  # command on its own line is classified on its own.
-  SEGSTR=$(unquote "$(strip_heredocs "$CMD")")
+  # An unquoted newline separates commands; a newline inside a quoted argument,
+  # inside a heredoc body, or after a backslash line continuation does not, so
+  # the lines of a steer message and the tail of a continued dispatch line stay
+  # with the command that owns them while a command on its own line is
+  # classified on its own.
+  SEGSTR=$(quoted_scan strip "$(strip_heredocs "$CMD")")
+  SEGSTR=${SEGSTR//\\$'\n'/ }
+  SEGSTR=${SEGSTR//\\$'\r'/ }
   SEGSTR=${SEGSTR//&&/;}
   SEGSTR=${SEGSTR//\|\|/;}
   SEGSTR=${SEGSTR//\|/;}

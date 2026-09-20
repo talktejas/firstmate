@@ -279,6 +279,21 @@ grep -rn seeded $PROJ/src"
   expect_deny "a fleet script does not release the next line" \
     --tool Bash --command "bin/fm-spawn.sh task-1 --mode no-mistakes
 cat $PROJ/src/app.php"
+  # A backslash line continuation is not a command boundary: a long dispatch
+  # line keeps its release.
+  expect_allow "a backslash-continued fm-spawn keeps its release" \
+    --tool Bash --command "bin/fm-spawn.sh task-1 \\
+  $PROJ --mode no-mistakes"
+  expect_deny "the same two lines without the continuation still deny line two" \
+    --tool Bash --command "bin/fm-spawn.sh task-1
+  $PROJ --mode no-mistakes"
+  # A quoted <<EOF is prose, not a heredoc opener: it must not swallow the
+  # lines that follow.
+  expect_allow "a steer message mentioning a heredoc" \
+    --tool Bash --command "bin/fm-send.sh task-1 \"use cat <<EOF to write it\""
+  expect_deny "a quoted heredoc mention does not swallow the next line" \
+    --tool Bash --command "bin/fm-send.sh task-1 \"use cat <<EOF to write it\"
+grep -rn seeded $PROJ/src"
   # A herestring is not a heredoc opener: the lines after it must still be read.
   expect_deny "a herestring does not swallow the next line" \
     --tool Bash --command "jq -r .a <<< \"\$payload\"

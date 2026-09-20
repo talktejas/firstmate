@@ -42,7 +42,8 @@ The decision then follows one rule, stated in the refusal itself:
 
 Bash commands are split into shell segments; a segment is refused when it carries a project path or a project-runtime verb and its lead word is not the primary's own fleet tooling.
 The lead word therefore only ever widens the refusal to an allowance, never the reverse, so an unrecognized wrapper or verb fails toward the deny.
-Segmentation is quote-aware and heredoc-aware: a newline inside a quoted argument or a heredoc body belongs to the command that owns it, so `bin/fm-send.sh task-1 "... /projects/x ..."` and `cat > data/task-1/brief.md <<'EOF'` keep their fleet-dispatch release, while an UNQUOTED newline separates commands exactly like `;` does, so an allowed lead word on one line never releases a project command on the next.
+Segmentation is quote-aware and heredoc-aware: a newline inside a quoted argument, inside a heredoc body, or after a backslash line continuation belongs to the command that owns it, so `bin/fm-send.sh task-1 "... /projects/x ..."`, `cat > data/task-1/brief.md <<'EOF'`, and a `\`-continued `bin/fm-spawn.sh` keep their fleet-dispatch release, while any other unquoted newline separates commands exactly like `;` does, so an allowed lead word on one line never releases a project command on the next.
+A `<<` written inside a quoted message is prose rather than a heredoc opener, and `<<<` is a herestring: neither hides the lines that follow from classification.
 Deliberate obfuscation is out of scope under the same agent-mistake threat model the cd guard records; the script header owns the exact token mechanics.
 
 ## Scope
