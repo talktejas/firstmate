@@ -708,7 +708,11 @@ function renderWords(){
   $('#list').innerHTML = head + note + rows.map(r => {
     const draft = r.kind === 'draft';
     const item = (state.view.items || []).find(i => itemKey(i) === (r.item_key || r.key));
+    // An unsent reply's key names a MESSAGE, which is not a scanned item, so it
+    // is resolved where messages live or the row would have no name at all.
+    const msg = state.messages.find(m => msgKey(m) === r.key);
     const where = r.msg ? 'Reply to “' + esc(r.title || 'a message') + '”'
+      : msg ? 'Reply to “' + esc(msg.title) + '”'
       : item ? esc(item.title)
       : r.kind === 'note' ? 'Note to firstmate — not about one item'
       : esc(r.title || r.item || '—');
@@ -1130,12 +1134,16 @@ async function loadMessages(){
   }
 }
 
+// Returns {read, changed}: whether this poll actually read the record, and
+// whether what it holds moved. They are different facts - a read that threw
+// leaves the page holding an old list, which nothing may be decided on - and
+// collapsing them into one boolean is what let a real delivery be buried.
 async function loadSaid(){
   try {
     const res = await fetch('/api/said', {
       headers: state.saidEtag ? {'If-None-Match': state.saidEtag} : {} });
-    if (res.status === 304) return false;
-    if (!res.ok) return false;
+    if (res.status === 304) return {read: true, changed: false};
+    if (!res.ok) return {read: false, changed: false};
     state.saidEtag = res.headers.get('ETag');
     const body = await res.json();
     // foldSaid comes from bin/command-center-state.js: the outcome row
@@ -1149,8 +1157,10 @@ async function loadSaid(){
     state.saidError = body.error || null;
     state.saidDropped = body.dropped || 0;
     applyOutcomes();
-    return before !== listSignature(rows) + '/' + state.saidError + '/' + state.saidDropped;
-  } catch (e) { return false; }   // the list still works without it
+    return {read: true,
+            changed: before !== listSignature(rows) + '/' + state.saidError
+                     + '/' + state.saidDropped};
+  } catch (e) { return {read: false, changed: false}; }   // the list still works without it
 }
 
 // The outcome of a send now arrives in the record rather than in the answer to
@@ -1207,7 +1217,7 @@ function noteText(text){
 // they were sent from has to say they are already going out: otherwise a second
 // click on the same box is a second answer to the same decision.
 function isSending(key){
-  return Object.values(state.pending).some(p => p.key === key);
+  return Object.values(state.pending).some(p => p.key === key && !p.released);
 }
 
 // A send the page can never hear the end of. The server answers the click
@@ -1220,14 +1230,17 @@ function isSending(key){
 // road.
 const SEND_WINDOW_MS = 150000;   // bin/command-center.py SEND_TIMEOUT plus slack
 
-function reconcilePending(){
+// mayRelease comes from bin/command-center-state.js and owns the decision.
+// The record of the send is KEPT, marked released: an outcome row that turns up
+// late still reaches applyOutcomes, which supersedes what was said here - takes
+// his words back out of the box if it landed after all, or re-states the real
+// failure if it did not.
+function reconcilePending(read){
   let changed = false;
   for (const [sid, held] of Object.entries(state.pending)){
-    if (held.at && Date.now() - held.at < SEND_WINDOW_MS) continue;
-    const row = state.said.find(r => r.sid === sid);
-    if (row && row.outcome !== 'sending') continue;   // applyOutcomes owns it
-    delete state.pending[sid];
-    state.applied[sid] = true;
+    if (!mayRelease(read, held, state.said.find(r => r.sid === sid),
+                    Date.now(), SEND_WINDOW_MS)) continue;
+    state.pending[sid] = Object.assign({}, held, {released: true});
     if (held.key === 'note') noteText(held.text);
     else state.draft[held.key] = held.text;
     state.failed[held.key] = {outcome: 'unknown',
@@ -1237,7 +1250,6 @@ function reconcilePending(){
   }
   if (changed){
     save('cc.pending', state.pending);
-    save('cc.applied', state.applied);
     save('cc.draft', state.draft);
     save('cc.failed', state.failed);
   }
@@ -1451,7 +1463,10 @@ $('#note-dlg').addEventListener('close', async function(){
   await loadSaid(); render();
 });
 
-Promise.all([loadSaid(), loadMessages()]).then(() => { reconcilePending(); return poll(); });
+Promise.all([loadSaid(), loadMessages()]).then(([said]) => {
+  reconcilePending(said.read);
+  return poll();
+});
 setInterval(poll, POLL_MS);
 // The message log is a local file read, so it is polled on the same cadence and
 // re-rendered only when a message actually arrived. Only the LIST is redrawn: a
@@ -1462,8 +1477,8 @@ setInterval(async () => { if (await loadMessages()) renderList(); }, POLL_MS);
 // delivery out, so the record is polled on the same cadence and behind the same
 // change check. An unchanged record costs a stat.
 setInterval(async () => {
-  const changed = await loadSaid();
-  if (reconcilePending() || changed) render();
+  const said = await loadSaid();
+  if (reconcilePending(said.read) || said.changed) render();
 }, POLL_MS);
 setInterval(renderList, 30000);   // keep the ages and stuck flags honest
 </script>

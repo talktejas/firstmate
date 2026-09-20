@@ -144,6 +144,23 @@ function foldSaid(rows) {
   return kept;
 }
 
+// --- may a send still marked as going out be released? --------------------------
+// The click is answered before the command runs, so a process killed under the
+// delivery thread leaves an acceptance row with no outcome row after it. Past
+// the send window that is a send nobody can confirm, and the page says so
+// rather than leaving a box he can never type in again.
+//
+// `read` is whether the RECORD THE DECISION IS MADE ON was just read
+// successfully. A read that threw leaves the page holding an old list, and
+// releasing off that is how a delivery that really did land gets buried under
+// an unknown outcome the page invented while it could not see.
+function mayRelease(read, held, row, now, windowMs) {
+  if (!read || !held || held.released) return false;
+  if (held.at && now - held.at < windowMs) return false;
+  if (row && row.outcome !== 'sending') return false;   // the record answered it
+  return true;
+}
+
 // --- did anything actually change? ----------------------------------------------
 // A log that does not exist yet is served with no change check, so every poll
 // of it is a fresh 200 and "the response arrived" says nothing about whether
@@ -198,4 +215,4 @@ if (typeof module === 'object' && module.exports)
   module.exports = { pollFacts, tense, transportFailure, verdictFor,
                      releaseVerdicts, itemKey, shapeMessage, orderRows,
                      replyTarget, foldSaid, wordsAfter,
-                     listSignature };
+                     listSignature, mayRelease };

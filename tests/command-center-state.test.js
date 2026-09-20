@@ -8,7 +8,7 @@ const path = require('path');
 const {
   pollFacts, tense, transportFailure, verdictFor, releaseVerdicts, itemKey,
   shapeMessage, orderRows, replyTarget, foldSaid, wordsAfter,
-  listSignature,
+  listSignature, mayRelease,
 } = require(path.join(__dirname, '..', 'bin', 'command-center-state.js'));
 
 // Quiet on success: tests/command-center.test.sh runs this and reports the
@@ -302,6 +302,34 @@ test('an unchanged list is recognised as unchanged', () => {
     'the same row with a new outcome must look different');
   assert.strictEqual(listSignature([]), listSignature(undefined),
     'a log that is not there yet and an empty one are the same list');
+});
+
+// --- releasing a send nobody can confirm ----------------------------------------
+// A box he can never type into again is the freeze that started this by another
+// road, so the page releases a send it can never hear the end of. It may only
+// do that off a record it actually read: a delivery that really landed must
+// never be buried under an unknown outcome invented while the page was blind.
+const held = { key: 'main/hold/t1/t1', text: 'go blue', at: 1000 };
+const WINDOW = 150000;
+
+test('a send is released only past the window, and only on a real read', () => {
+  assert.strictEqual(mayRelease(true, held, undefined, 1000 + WINDOW + 1, WINDOW), true);
+  assert.strictEqual(mayRelease(true, held, undefined, 1000 + 1, WINDOW), false,
+    'a send still inside the window is in flight, not lost');
+  assert.strictEqual(mayRelease(false, held, undefined, 1000 + WINDOW + 1, WINDOW), false,
+    'a record that could not be read may not release anything');
+  assert.strictEqual(mayRelease(true, {...held, released: true}, undefined,
+                                1000 + WINDOW + 1, WINDOW), false,
+    'a send already released must not be released twice');
+});
+
+test('a record that answered the send keeps its own answer', () => {
+  assert.strictEqual(mayRelease(true, held, {sid: 'a', outcome: 'sent'},
+                                1000 + WINDOW + 1, WINDOW), false,
+    'a delivered send must never be reported as unconfirmed');
+  assert.strictEqual(mayRelease(true, held, {sid: 'a', outcome: 'sending'},
+                                1000 + WINDOW + 1, WINDOW), true,
+    'an acceptance row with no outcome after it past the window is unconfirmed');
 });
 
 process.exit(failures ? 1 : 0);
