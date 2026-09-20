@@ -446,7 +446,7 @@ quoted_scan() {
       prev=${prev%"${prev##*[![:space:]]}"}
       prev=${prev##*[[:space:]]}
       case "$word/${prev##*/}" in
-        -c/bash|-c/sh|-c/zsh) out=$out$body ;;
+        -c/bash|-c/sh|-c/zsh|-lc/bash|-lc/sh|-lc/zsh) out=$out$body ;;
         *) out=$out${body//[$'\n\r;|&']/ } ;;
       esac
     fi

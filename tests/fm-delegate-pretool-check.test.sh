@@ -135,6 +135,10 @@ test_wrappers_do_not_hide_the_lead_word() {
   # at the front of it must not release what follows.
   expect_deny "a bash -c compound does not release its trailing project command" \
     --tool Bash --command "bash -c \"bin/fm-spawn.sh task-1 --mode no-mistakes; grep -rn seeded $PROJ/src\""
+  expect_deny "a bash -lc compound does not release its trailing project command" \
+    --tool Bash --command "bash -lc \"bin/fm-spawn.sh task-1 --mode no-mistakes; grep -rn seeded $PROJ/src\""
+  expect_allow "a bash -lc operand that is only a dispatch" \
+    --tool Bash --command "bash -lc \"bin/fm-spawn.sh task-1 $PROJ --mode no-mistakes\""
   # Only a shell wrapper's -c operand is a command. Another tool's -c flag
   # takes data, and that data must not re-segment into a released lead word.
   expect_deny "a grep -c pattern is data, not a command" \

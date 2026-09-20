@@ -47,7 +47,8 @@ Bash commands are split into shell segments; a segment is refused when it carrie
 The lead word therefore only ever widens the refusal to an allowance, never the reverse, so an unrecognized wrapper or verb fails toward the deny.
 Segmentation is quote-aware and heredoc-aware: a newline inside a quoted argument, inside a heredoc body, or after a backslash line continuation belongs to the command that owns it, so `bin/fm-send.sh task-1 "... /projects/x ..."`, `cat > data/task-1/brief.md <<'EOF'`, and a `\`-continued `bin/fm-spawn.sh` keep their fleet-dispatch release, while any other unquoted newline separates commands exactly like `;` does, so an allowed lead word on one line never releases a project command on the next.
 A `<<` written inside a quoted message is prose rather than a heredoc opener, and `<<<` is a herestring: neither hides the lines that follow from classification.
-Only an UNESCAPED trailing backslash continues a line, and the operand of a `-c` option is a command rather than data - its `;`, `|`, `&` and newlines keep segmenting - so `bash -c "<fleet script>; <project grep>"` refuses the grep while `bash -c "bin/fm-brief.sh task-1 <project>"` stays allowed.
+Only an UNESCAPED trailing backslash continues a line, and only a shell wrapper's operand is a command rather than data: when the quoted span follows an exact `-c` or `-lc` whose own preceding word is `bash`, `sh` or `zsh`, its `;`, `|`, `&` and newlines keep segmenting, so `bash -c "<fleet script>; <project grep>"` and its `bash -lc` spelling refuse the grep while `bash -c "bin/fm-brief.sh task-1 <project>"` stays allowed.
+Any other tool's `-c` operand is data and is neutralized as such, so `grep -c "a; b"` and `jq -c ".a | .b"` cannot re-segment into a released lead word.
 Deliberate obfuscation is out of scope under the same agent-mistake threat model the cd guard records; the script header owns the exact token mechanics.
 
 ## Scope
