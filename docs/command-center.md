@@ -35,14 +35,19 @@ Re-run `--install-unit` after changing it, then `systemctl --user daemon-reload 
 
 The left list has three tabs.
 
-**Messages** is the default and is what firstmate said to you: one row per message, newest first, each with its title, its time, and its project, worktree and branch.
+**Messages** is the default and is what firstmate said to you: one row per message, newest first, each with its title and its time. A captured message records no project, worktree or branch - the conversation record does not say which project a sentence is about - so those read "Not recorded"; a message written by hand with `bin/fm-captain-message.sh --task` carries all three.
 Click one and the whole message opens with a box to reply in.
-If the list is ever shortened it says so and says how many rows are missing, so a quiet list is always the whole of it.
+The list opens on the newest 200 and `Show older messages` walks back through the rest a window at a time, saying how many of the log's messages are loaded: the tab's own count is the whole log, and not shipping all of it at once is not the same as dropping any of it. Search is answered from the whole log, however far back a match is, not only from what is on screen.
 A reply goes where your answer would have gone had you been at the terminal: to the worker still waiting on that task if there is one, and to firstmate itself if there is not.
 Your replies appear under the message, so the exchange reads as a conversation.
 
-Firstmate writes each of these as it sends it, with `bin/fm-captain-message.sh`; nothing captures terminal output, so a message firstmate did not record is one this page cannot show.
-That obligation is `AGENTS.md` section 9.
+These are captured automatically: `bin/fm-captain-message-sweep.py` reads the Claude conversation record on disk, which holds every message verbatim, and records every reply firstmate gave - no agent chooses or remembers to record anything. Only what firstmate said to you counts: its working narration between tool calls, a subagent's chatter, and the lines the harness wrote itself are not replies and never become messages.
+It runs from two places, and they know different things. The Claude Stop hook (`bin/fm-captain-message-hook.sh`) fires as each turn ends and hands over the hook payload, which NAMES the transcript that session writes; the sweep reads that one file and nothing else, so the hook is bounded to a few seconds and never holds a turn end. This server sweeps on its own poll cadence, over the directory it derives from the home's path plus every transcript a payload has named - that is what catches turns that ended unusually (interrupted, errored, killed) once their session moves on, and what backfills at startup.
+Until some session has named its transcript, the only thing capture has is that derived directory, which is a guess - a session started from somewhere else writes where nothing is looking - so the Messages list says so rather than showing a green band over a list it cannot vouch for.
+The messages already in the log are the dedupe record, so the two runners can never record the same message twice.
+Its first ever run backfills the log from today's local midnight, so the list starts complete for the day it arrives rather than from the moment it landed.
+When capture cannot be shown healthy - it failed, never ran, has not run recently, or found no conversation record to read (a firstmate running on a harness whose conversation record it cannot read) - the Messages list says it may be incomplete rather than quietly showing a short one.
+On such a harness, and for anything said outside the recorded conversation, `bin/fm-captain-message.sh` remains the by-hand recorder (`AGENTS.md` section 9).
 
 **Waiting on you** is the queue firstmate is still holding, from two kinds of durable record:
 
@@ -55,7 +60,7 @@ The one exception is the machine line a no-mistakes ask-user gate reports itself
 
 **My words** is everything you have typed here and where it went.
 
-Every row on every tab carries its project, its worktree and its branch.
+Every row names its project, its worktree and its branch, or says the record does not carry them.
 `Group by` arranges the list by project, project and worktree, or project and branch. `Latest first` and `Oldest first` drop the grouping for one flat list in time order, and `Nothing — one flat list` drops it for one list in the order the records were read, making no ordering claim at all.
 
 The messages lead with the last thing firstmate said and the waiting queue with what has waited longest; `Latest first` and `Oldest first` override both.
@@ -121,18 +126,19 @@ Until the records have been read it says the route cannot be told yet rather tha
 
 The server decides the route from the recorded message and the current scan, never from the browser.
 A reply naming a message this home never recorded is refused, and a task id is only ever matched against the home this page was started on, because two homes on one machine can hold the same one.
-A reply to a recorded question is refused outright while no scan has been read, because a reply that cannot rule out the answer route must not quietly become a note.
-A reply to a message that is not a question is not refused then: no scan can change where it goes, so a backlog that will not parse has nothing to say about it.
+A reply to a recorded question whose scan could not be read is reported as a delivery that could not be confirmed, never quietly delivered as a note, because a reply that cannot rule out the answer route must not become one.
+A reply to a message that is not a question is routed by the record alone: no scan can change where it goes, so a backlog that will not parse has nothing to say about it.
 A reply carries the same do-not-resend protection an answer does: on an unconfirmed delivery it keeps your words, stops offering Reply, and waits until you say to send it anyway.
 When the reply steers a worker still waiting, that protection covers the item too, so the same worker cannot be reached a second time by answering it from the waiting list instead.
 
 ## What it stores
 
 `<home>/data/captain-messages.jsonl`, an append-only log of what firstmate said to you: when, the title, the text, and the project, worktree, branch and task it named, each recorded as unknown rather than guessed when nothing knows it.
-`bin/fm-captain-message.sh` is its only writer, and `--task` fills the project, worktree and branch from that task's own record so all three are one flag rather than three chances to leave one out.
-`--question` marks a message as the question waiting on you, and `--question-key` names the stopped worker's own decision it asks about.
+It has two writers: the automatic capture above (`bin/fm-captain-message-sweep.py`, which stamps each record with the conversation it came from so it is never recorded twice), and `bin/fm-captain-message.sh` by hand, whose `--task` fills the project, worktree and branch from that task's own record so all three are one flag rather than three chances to leave one out.
+On the by-hand writer, `--question` marks a message as the question waiting on you, and `--question-key` names the stopped worker's own decision it asks about.
 
 `<home>/data/command-center/said.jsonl`, an append-only log of what you typed and where it went.
+Every send - an answer, a reply, or a note that answers nothing - returns the moment your words are on disk, so you move to the next item at once and never wait on delivery.
 Your words are written there before the click returns, so the click never waits on a shell command: you send, it is recorded, and you move straight to the next item while the delivery is carried out behind you.
 That is why one send writes two rows under the same `sid`: **sending** when your words were taken, and the outcome when the command answered.
 The page folds the pair and shows the outcome in place on the row you answered, so nothing is claimed about delivery until the command has said it.
@@ -141,6 +147,7 @@ Until then the box says your words were written down and are going out, never th
 The outcome is read from the exit code of the command that ran and nothing else: **sent**, **failed** (a captain hold refused the record and nothing left this machine — answering it again is safe, and `fm-captain-hold.sh` documents an exact retry as idempotent), or **unknown** (the command reported neither, so the page never guesses which: the page reads only a confirmed `fm-send.sh` exit as sent, and every other exit is unknown to it — including the one that says the answer was delivered but its decision close failed, which the page does not yet report as a state of its own; and `fm-inbox.sh` saves a note before it wakes firstmate, so its failure may mean only that the wake did not land).
 On **unknown** the page keeps your text, says plainly that delivery could not be confirmed, and does not offer Send again until the steering record appears — or until you say so yourself, knowing it may be a second copy.
 On any other non-success it keeps your text too, so nothing you typed is cleared by a send that did not land.
+A record still marked as being delivered by a server that is no longer delivering it - it restarted in between - reads back as **unknown**, because that delivery may or may not have happened.
 Your words stay in the box until the outcome row says the send landed; when it says failed or unknown they are put back where you typed them, the row you sent from is flagged `not sent`, and a note that did not land says so on its own button.
 An outcome only ever acts on the words it was about: if the box has moved on to something you typed since, that newer text is left alone and the notice says what you sent is kept under **My words** instead.
 Each surface says where your words are for its own box, so a reply that steered a worker never claims they are still in a box that never held them.
@@ -149,9 +156,11 @@ It releases nothing while it cannot read that log, and a read the server reports
 Saying to send it anyway releases that send on every surface it was held against, so the same send is never dismissed twice, and it releases the lock without rewriting what happened, so a send the page gave up on goes on reading as given up on under **My words**.
 
 An open item shows one line derived from this record: the last thing you sent about it and what became of it, and a message shows every reply you sent to it.
-Both logs are served whole, and if either is ever shortened the page says so and says how many rows are missing, because a reply missing from a thread reads as a message you never answered.
+Your own words are served whole, and if that list is ever shortened the page says so and says how many rows are missing, because a reply missing from a thread reads as a message you never answered.
 
-If that log cannot be written the send is unaffected — firstmate's own records already hold a delivered answer and a queued note — so the server reports it on its own output and the page says nothing it cannot support.
+An open item shows one line derived from this record: the last thing you sent about it and what became of it, and a message shows every reply you sent to it.
+
+If that log cannot be written the send is refused before anything is delivered: the page says it was not sent and keeps your words in the box, because a send it called accepted while recording nothing would be the one way this page could lose them.
 
 That exists because firstmate keeps an answer that closes a decision but does not keep the rest of your words: a steer to a worker is removed with the task's steering inbox at cleanup, and an unsent draft was never recorded anywhere.
 Everything else on the page is read fresh from firstmate's records, so there is no second copy to drift.
@@ -177,5 +186,5 @@ A home whose holds are hidden from the page — one on a non-markdown backlog ba
 ## Reading it without the page
 
 `bin/command-center-scan.sh` prints the waiting view as JSON, and `--fingerprint` prints only the change check.
-`<home>/data/captain-messages.jsonl` is one JSON object per message and needs nothing to read it.
+`<home>/data/captain-messages.jsonl` is one JSON object per message and needs nothing to read it: the whole of it is on disk whatever the page has loaded.
 Both honour `FM_HOME`.

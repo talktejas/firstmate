@@ -148,6 +148,9 @@
   .f-stuck{background:var(--hot-soft);color:var(--hot)}
   .f-sent{background:var(--ok-soft);color:var(--ok)}
   .empty{padding:34px 20px;text-align:center;color:var(--faint);font-size:13px}
+  .older{display:block;width:100%;margin:6px 0 2px;padding:9px 12px;border:1px dashed var(--line);
+    border-radius:8px;background:transparent;color:var(--faint);font:inherit;font-size:12px;cursor:pointer}
+  .older:hover{color:var(--ink);border-style:solid}
   .archive-note{margin:8px 16px 4px;padding:9px 11px;background:var(--line2);border-radius:7px;
     font-size:11.5px;color:var(--dim);line-height:1.45}
 
@@ -351,7 +354,7 @@
 // not. Every decision below is made by them, so without them the page would
 // poll into a ReferenceError and sit showing an empty list and a Live beat -
 // the silent false reassurance this surface exists to end. Say it instead.
-if (typeof pollFacts !== 'function'){
+if (typeof pollFacts !== 'function' || typeof captureBand !== 'function'){
   document.querySelector('#live').innerHTML =
     '<span class="lamp dead"></span>Page incomplete';
   document.querySelector('#watcher').innerHTML =
@@ -402,7 +405,11 @@ const esc = s => String(s == null ? '' : s)
 const state = {
   tab:'messages', group:'project', sfilter:'', q:'', homes:new Set(),
   open:null, view:{homes:[],items:[]}, said:[], messages:[], msgError:null,
-  msgDropped:0, saidDropped:0, msgEtag:null, saidEtag:null,
+  saidDropped:0, msgEtag:null, saidEtag:null,
+  // The page holds the newest window of the log; the rest is one click away
+  // and searchable whole, and `capture` is the health of the automatic
+  // recording that fills it.
+  capture:null, more:false, found:null, total:0, openMsg:null, openNote:'',
   applied:load('cc.applied',{}),
   // A send in flight, by sid: what he typed and where he typed it. His words
   // leave the box only when the outcome row says the send landed.
@@ -483,18 +490,57 @@ const homeOf = id => state.view.homes.find(h => h.id === id) || {id, name:id};
 const homeColour = id => HOME_COLOURS[
   Math.max(0, state.view.homes.findIndex(h => h.id === id)) % HOME_COLOURS.length];
 
-function msgHaystack(m){
-  return [m.title, m.text, m.project, m.worktree, m.branch, m.task,
-          ...repliesTo(m).map(r => r.text)]
-    .filter(Boolean).join(' ').toLowerCase();
+// The page holds the newest window and whatever older he has asked for; the log
+// itself keeps everything, and ONE search reads it - the server's, over the
+// whole log. A second matcher over the loaded rows would answer a different
+// question with the same box.
+// What the open key names: the rows the page holds, the rows a search served,
+// or - once he has opened it - the message itself, which stays open however the
+// search around it changes.
+function openedMessage(){
+  const find = rows => (rows || []).find(x => msgKey(x) === state.open);
+  return find(state.messages) || find(state.found && state.found.rows)
+    || (state.openMsg && msgKey(state.openMsg) === state.open ? state.openMsg : null);
 }
 
 function visibleMessages(){
-  const q = state.q.trim().toLowerCase();
   // The home chips and the state filter both name facts only a scanned ITEM
   // has, so neither is applied here rather than quietly hiding messages by a
-  // rule that cannot be true of them.
-  return state.messages.filter(m => !q || msgHaystack(m).includes(q));
+  // rule that cannot be true of them. Until the server has answered what he is
+  // typing now, its last answer stays on screen under its own query.
+  if (!state.q.trim()) return state.messages;
+  return (state.found && state.found.rows) || [];
+}
+
+let SEARCH_SEQ = 0, SEARCH_TIMER = null;
+function searchMessages(){
+  clearTimeout(SEARCH_TIMER);
+  const q = state.q.trim();
+  const seq = ++SEARCH_SEQ;
+  if (!q){ state.found = null; return; }
+  const failed = detail => {
+    if (seq !== SEARCH_SEQ) return;        // he has typed on since
+    // Answered, with what happened: an unresolved search leaves the list
+    // saying it is still searching over nothing, for as long as he looks at it.
+    state.found = { q, rows: [], more: false, error: detail };
+    renderList();
+  };
+  SEARCH_TIMER = setTimeout(async () => {
+    try {
+      const res = await fetch('/api/messages?q=' + encodeURIComponent(q));
+      if (!res.ok){ failed('the server answered ' + res.status); return; }
+      const body = await res.json();
+      if (seq !== SEARCH_SEQ) return;      // he has typed on since
+      // The hits are kept beside what the page holds, never merged into it:
+      // they come from anywhere in the log, while the held rows are one
+      // contiguous newest-first run, which is what walking back through the
+      // rest depends on. openedMessage() resolves either.
+      state.found = { q, rows: (body.messages || []).map(shapeMessage),
+                      more: !!body.more };
+      if (typeof body.total === 'number') state.total = body.total;
+      renderList();
+    } catch (e) { failed(String(e.message || e)); }
+  }, 200);
 }
 
 function haystack(it){
@@ -528,17 +574,20 @@ function visible(){
 // 'none' is approved proposal section 6's flat entry and is genuinely unsorted -
 // the order bin/command-center-scan.sh read the records in, nothing more.
 const FLAT = new Set(['none','latest','oldest']);
-function groupOf(it){
+// A message is not work: a field its record does not carry was never recorded,
+// which is what the message pane says too. Only an ITEM can be unstarted.
+function groupOf(it, isMessage){
   const p = projectOf(it);
   if (state.group === 'project') return { key:p, g1:p, g2:undefined };
   if (state.group === 'worktree')
     return { key:p+'\u0000'+(it.worktree||''), g1:p, g2:it.worktree, none:!it.worktree,
-             noneLabel:'Not started — no working copy yet' };
+             noneLabel: isMessage ? 'Not recorded' : 'Not started — no working copy yet' };
   return { key:p+'\u0000'+(it.branch||it.branch_state), g1:p, g2:it.branch,
            none:!it.branch,
-           noneLabel: it.branch_state === 'detached'
-             ? 'Detached scratch copy — no branch'
-             : 'Not started — no branch yet' };
+           noneLabel: isMessage ? 'Not recorded'
+             : it.branch_state === 'detached'
+               ? 'Detached scratch copy — no branch'
+               : 'Not started — no branch yet' };
 }
 
 const ordered = (rows, newestDefault) =>
@@ -738,9 +787,19 @@ function renderWords(){
   }).join('');
 }
 
+// Nothing in either list is drawn from a draft except the unsent-draft row on
+// My words, so a keystroke updates the count and that one list - never a sort
+// and a full repaint of the message log per character.
+function draftTyped(){
+  $('#n-words').textContent = state.said.length +
+    Object.entries(state.draft)
+      .filter(([k, t]) => t && t.trim() && !spokenFor(state.pending, k, t)).length;
+  if (state.tab === 'words') renderWords();
+}
+
 function renderList(){
   const items = state.view.items || [];
-  $('#n-messages').textContent = state.messages.length;
+  $('#n-messages').textContent = Math.max(state.total, state.messages.length);
   $('#n-waiting').textContent = items.filter(i => !isDeferred(i)).length;
   // Exactly the rows My words shows: a draft the record already speaks for is
   // not counted a second time here.
@@ -765,34 +824,72 @@ function renderList(){
 }
 
 // Messages are the default list and the reason this page exists: everything
-// firstmate said to him, newest first, none of it dropped. The log arrives
+// firstmate said to him, newest first - the newest window of it, with the rest
+// of the log one click away and searchable whole. The window arrives
 // newest first (bin/command-center.py), so the grouped views are newest first
 // without sorting anything; Latest and Oldest order explicitly as before.
 function renderMessages(){
-  const rows = ordered(visibleMessages().map(shapeMessage), true);
-  const note = state.msgError
+  const rows = ordered(visibleMessages(), true);
+  let note = state.msgError
     ? `<div class="archive-note" style="background:var(--warn-soft)"><b>What firstmate
        said to you could not be read.</b> ${esc(state.msgError)} This is not the whole
-       of it.</div>`
-    : state.msgDropped
-    ? `<div class="archive-note" style="background:var(--warn-soft)"><b>This list is
-       shortened.</b> ${state.msgDropped} older message${state.msgDropped === 1 ? '' : 's'}
-       ${state.msgDropped === 1 ? 'is' : 'are'} not shown. All of them are still in
-       <span class="mono">data/captain-messages.jsonl</span>.</div>` : '';
-  const empty = state.q ? 'Nothing matches.'
+       of it.</div>` : '';
+  // Capture health is its own fact and gets its own band (captureBand in
+  // bin/command-center-state.js): a broken capture must never look like a
+  // short conversation.
+  const cap = state.msgRead ? captureBand(state.capture) : null;
+  if (cap) note += `<div class="archive-note" style="background:var(--warn-soft)">${esc(cap)}</div>`;
+  const asked = state.q.trim();
+  const answered = state.found ? state.found.q : '';
+  const failed = asked && state.found && answered === asked && state.found.error;
+  const empty = asked
+    ? (failed ? 'The search could not be run: ' + esc(state.found.error)
+              + ' — it runs again as you type.'
+       : answered === asked ? 'Nothing matches.' : 'Searching the log…')
     : state.msgError ? 'The record could not be read.'
     : !state.msgRead ? 'The record has not been read yet.'
     : 'Firstmate has not said anything to you yet.';
-  $('#list').innerHTML = note + rowsHtml(rows, messageRow, empty);
+  // Nothing is dropped: the rest of the log is one click away, and a search
+  // reaches all of it however far back it is - saying so where it found more
+  // than it is showing.
+  const searching = asked && state.found && answered === asked && !failed;
+  const older = searching
+    ? (state.found.more ? `<div class="hits">These are the newest matches —
+        narrow the search to reach older ones.</div>` : '')
+    : (state.more ? `<button class="older" id="older">Show older messages —
+        ${state.messages.length} of ${Math.max(state.total, state.messages.length)} loaded,
+        the rest are in the log</button>` : '');
+  $('#list').innerHTML = note
+    + rowsHtml(rows, messageRow, empty, true, asked ? answered : '') + older;
+}
+
+// The rest of the log, a window at a time, oldest end of what is loaded first.
+async function loadOlder(){
+  const oldest = state.messages[state.messages.length - 1];
+  if (!oldest) return;
+  try {
+    const res = await fetch('/api/messages?before=' + encodeURIComponent(oldest.id));
+    if (!res.ok) return;
+    const body = await res.json();
+    // This page was read from the oldest row the list holds, so it continues
+    // that run rather than being merged against it.
+    const have = new Set(state.messages.map(m => m.id));
+    state.messages = state.messages.concat(
+      (body.messages || []).map(shapeMessage).filter(m => !have.has(m.id)));
+    state.more = !!body.more;
+    if (typeof body.total === 'number') state.total = body.total;
+    renderList();
+  } catch (e) { /* the list he has still stands */ }
 }
 
 // One list renderer for both, so the grouping, the flat views and the
 // no-recorded-time tail cannot drift apart between them.
-function rowsHtml(rows, rowFn, emptyText){
+function rowsHtml(rows, rowFn, emptyText, isMessage, label){
+  const q = label === undefined ? state.q : label;
   let head = '';
-  if (state.q || (state.sfilter && state.tab === 'waiting'))
+  if (q || (state.sfilter && state.tab === 'waiting'))
     head = `<div class="hits">${rows.length} match${rows.length === 1 ? '' : 'es'}${
-      state.q ? ` for \u201c${esc(state.q)}\u201d` : ''}</div>`;
+      q ? ` for \u201c${esc(q)}\u201d` : ''}</div>`;
   if (!rows.length) return head + `<div class="empty">${emptyText}</div>`;
   if (FLAT.has(state.group)){
     const undatedCount = rows.filter(r => !r.since_epoch).length;
@@ -805,7 +902,7 @@ function rowsHtml(rows, rowFn, emptyText){
   }
   const buckets = new Map();
   for (const it of rows){
-    const g = groupOf(it);
+    const g = groupOf(it, isMessage);
     if (!buckets.has(g.key)) buckets.set(g.key, {g, items:[]});
     buckets.get(g.key).items.push(it);
   }
@@ -958,14 +1055,20 @@ function renderMessagePane(m){
     state.draft[key] = ta.value;
     save('cc.draft', state.draft);
     $('#sendreply').disabled = !ta.value.trim() || state.sending || !!verdict || sending;
-    renderList();
+    draftTyped();
   });
 }
 
 function renderMain(){
   if (String(state.open || '').startsWith('msg/')){
-    const m = state.messages.find(x => msgKey(x) === state.open);
+    const m = openedMessage();
     if (m){ renderMessagePane(m); return; }
+    // He clicked a message the page does not hold - his own reply to one, far
+    // behind the window. It is being read out of the log; say so rather than
+    // showing him the blank pane over a message that exists.
+    paintMain(state.open, `<div class="blank"><strong>${esc(state.openNote
+      || 'Opening that message…')}</strong></div>`);
+    return;
   }
   const it = (state.view.items || []).find(i => itemKey(i) === state.open);
   if (!it){
@@ -1045,7 +1148,7 @@ function renderMain(){
     state.draft[itemKey(it)] = ta.value;
     save('cc.draft', state.draft);
     $('#send').disabled = !ta.value.trim() || state.sending || !!verdict || going;
-    renderList();
+    draftTyped();
   });
 }
 
@@ -1098,7 +1201,35 @@ function render(){
 
 function open(key){
   state.open = key;
+  // A message found in the log is held here for as long as it is open, so the
+  // pane he is reading - and the reply he is typing into it - survive the
+  // search that found it being cleared or typed past.
+  const isMsg = String(key).startsWith('msg/');
+  state.openMsg = isMsg ? openedMessage() : null;
+  state.openNote = '';
   state.seen[key] = true; save('cc.seen', state.seen);
+  render();
+  if (isMsg && !state.openMsg) fetchMessage(key.slice(4));
+}
+
+// The log holds every message, so anything he can click on is readable - the
+// page just may not have it loaded.
+async function fetchMessage(id){
+  const key = 'msg/' + id;
+  try {
+    const res = await fetch('/api/messages?id=' + encodeURIComponent(id));
+    if (!res.ok) throw new Error('the server answered ' + res.status);
+    const body = await res.json();
+    if (state.open !== key) return;              // he has moved on
+    const m = (body.messages || [])[0];
+    if (m) state.openMsg = shapeMessage(m);
+    else state.openNote = body.error
+      ? 'That message could not be read: ' + body.error
+      : 'That message is not in the record any more.';
+  } catch (e) {
+    if (state.open !== key) return;
+    state.openNote = 'That message could not be read: ' + (e.message || e);
+  }
   render();
 }
 
@@ -1160,21 +1291,28 @@ async function poll(){
 // the page must not go blank about it because a backlog could not be parsed.
 async function loadMessages(){
   try {
-    // The log is append-only, so an unchanged one answers 304 and this poll
-    // costs a stat rather than a parse of every message firstmate ever sent.
+    // The log is append-only and the capture's health travels in the same tag,
+    // so an unchanged poll costs neither side a re-read of the whole log.
     const res = await fetch('/api/messages', {
       headers: state.msgEtag ? {'If-None-Match': state.msgEtag} : {} });
     if (res.status === 304){ state.msgRead = true; return false; }
     if (!res.ok) throw new Error('HTTP ' + res.status);
     state.msgEtag = res.headers.get('ETag');
     const body = await res.json();
-    const rows = body.messages || [];
-    const before = listSignature(state.messages);
-    state.messages = rows;
+    const before = listSignature(state.messages)
+      + '/' + JSON.stringify(captureBand(state.capture));
+    // Only the newest window is polled, so it is merged into what the page
+    // already holds rather than replacing it: a row that has fallen out of the
+    // window since it was read is still one of the things firstmate said.
+    const fresh = (body.messages || []).map(shapeMessage);
+    state.messages = mergeMessages(fresh, state.messages);
+    state.more = state.messages.length > fresh.length ? state.more : !!body.more;
+    state.total = typeof body.total === 'number' ? body.total : state.messages.length;
     state.msgError = body.error || null;
-    state.msgDropped = body.dropped || 0;
+    state.capture = body.capture || null;
     state.msgRead = true;
-    return before !== listSignature(rows);
+    return before !== listSignature(state.messages)
+      + '/' + JSON.stringify(captureBand(state.capture));
   } catch (e) {
     // Reachability already has its own band from the item poll; this only
     // declines to claim the list is complete.
@@ -1205,13 +1343,16 @@ async function loadSaid(){
     // A log that does not exist yet is served with no change check, so every
     // poll is a fresh 200: what CHANGED has to be decided here, or the pane
     // would be rebuilt every three seconds and take his cursor out of a reply.
-    const before = listSignature(state.said) + '/' + state.saidError + '/' + state.saidDropped;
+    // saidDigest, not the list's head: delivery finishes behind the send, so an
+    // outcome can land on ANY row - a second send while the first is still
+    // going out pushes the first one down the list.
+    const before = saidDigest(state.said) + '/' + state.saidError + '/' + state.saidDropped;
     state.said = rows;
     state.saidError = null;
     state.saidDropped = got.dropped;
     applyOutcomes();
     return {read: true,
-            changed: before !== listSignature(rows) + '/' + state.saidError
+            changed: before !== saidDigest(rows) + '/' + state.saidError
                      + '/' + state.saidDropped};
   } catch (e) { return {read: false, changed: false}; }   // the list still works without it
 }
@@ -1428,7 +1569,7 @@ async function sendAnswer(){
 }
 
 async function sendReply(){
-  const m = state.messages.find(x => msgKey(x) === state.open);
+  const m = openedMessage();
   if (!m) return;
   const key = msgKey(m);
   const text = (state.draft[key] || '').trim();
@@ -1518,13 +1659,19 @@ document.addEventListener('click', async e => {
     save('cc.pending', state.pending); save('cc.failed', state.failed);
     renderMain(); return;
   }
-  if (e.target.id === 'clr'){ state.q = ''; $('#q').value = ''; renderList(); return; }
+  if (e.target.id === 'older'){ await loadOlder(); return; }
+  if (e.target.id === 'clr'){
+    state.q = ''; $('#q').value = ''; state.found = null; searchMessages();
+    renderList(); return;
+  }
   if (e.target.id === 'open-note'){ $('#note-dlg').showModal(); }
 });
 
 $('#grouping').addEventListener('change', e => { state.group = e.target.value; renderList(); });
 $('#statefilter').addEventListener('change', e => { state.sfilter = e.target.value; renderList(); });
-$('#q').addEventListener('input', e => { state.q = e.target.value; renderList(); });
+$('#q').addEventListener('input', e => {
+  state.q = e.target.value; searchMessages(); renderList();
+});
 
 // The note box keeps what he typed the same way the answer box does: a note
 // that vanishes on a failed send is the loss this whole surface exists to end.
@@ -1590,7 +1737,11 @@ setInterval(poll, POLL_MS);
 // Only the LIST is redrawn: a recorded message never changes, and the open pane
 // is built from the message it already holds and the said thread, so rebuilding
 // it earns nothing and can only cost him his place.
-setInterval(async () => { if (await loadMessages()) renderList(); }, POLL_MS);
+setInterval(async () => {
+  if (state.found && state.found.error && state.q.trim() === state.found.q)
+    searchMessages();
+  if (await loadMessages()) renderList();
+}, POLL_MS);
 // The outcome of a send is written to the record by the thread carrying the
 // delivery out, so the record is polled on the same cadence and behind the same
 // change check. An unchanged record costs a stat.

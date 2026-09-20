@@ -24,11 +24,21 @@
 #
 # IT STORES TWO THINGS, AND ONLY BECAUSE NOTHING ELSE DOES.
 #
-# data/captain-messages.jsonl is what firstmate SAID to the captain, appended by
-# bin/fm-captain-message.sh as firstmate says it. The terminal was the only
-# other copy and a terminal scrolls, so the page's default list is that log: it
-# is the whole point of this surface, and firstmate's own work records are not
-# a substitute for it.
+# data/captain-messages.jsonl is what firstmate SAID to the captain. The
+# terminal was the only other copy and a terminal scrolls, so the page's
+# default list is that log: it is the whole point of this surface, and
+# firstmate's own work records are not a substitute for it. It is filled two
+# ways: automatically, by bin/fm-captain-message-sweep.py reading the
+# conversation record (run by the Claude Stop hook and by this server, so no
+# agent has to remember anything), and by hand with bin/fm-captain-message.sh
+# for messages said outside that record. The page carries the capture's own
+# health and says when the list may be incomplete.
+#
+# A SEND RETURNS BEFORE IT DELIVERS. His words are appended durably first, the
+# page hears "accepted" at once, and the command that owns delivery runs in a
+# thread behind it (accept_said); the outcome lands on the record when known
+# and the page's next poll shows it. He never watches a spinner over a scan or
+# a slow steer.
 #
 # data/command-center/said.jsonl is what HE said back. Firstmate already keeps
 # the questions and the answers that close a decision, so copying those here
@@ -58,6 +68,7 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.parse
 import uuid
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -67,6 +78,8 @@ PAGE = os.path.join(BIN, "command-center.html")
 # The page's decision rules, in their own file so tests can execute them.
 RULES = os.path.join(BIN, "command-center-state.js")
 SCAN = os.path.join(BIN, "command-center-scan.sh")
+# The automatic capture of what firstmate said (its header owns the mechanics).
+SWEEP = os.path.join(BIN, "fm-captain-message-sweep.py")
 
 # tasks-axi's own limit on a recorded decision (bin/fm-captain-hold.sh).
 MAX_TEXT = 8192
@@ -228,8 +241,79 @@ def item_key(item):
     return "/".join([item["home"], item["source"], item["id"], item.get("key") or ""])
 
 
+class MessageCapture:
+    """Keeps the automatic message capture running and reports its health.
+
+    The sweep itself (bin/fm-captain-message-sweep.py) is fired by the Claude
+    Stop hook at every turn end; this server runs it as a BACKSTOP - for a
+    session no hook reported, and for a turn that ended without a Stop
+    (interrupt, crash, kill) - and so the page can say when capture is broken
+    rather than quietly showing a short list.
+
+    It runs the script the way every other caller does, as its own process off
+    the request path: the sweep's own file lock serializes the two, and nothing
+    the sweep can do to itself can take this page down. A minute between runs
+    is a backstop's cadence and leaves an interpreter start-up beneath notice.
+    """
+
+    MIN_INTERVAL = 60.0
+
+    def __init__(self, home):
+        self.home = home
+        self.lock = threading.Lock()
+        self.last = float("-inf")
+        self.thread = None
+        self.run_error = None
+
+    def ensure(self):
+        with self.lock:
+            if self.thread and self.thread.is_alive():
+                return
+            if time.monotonic() - self.last < self.MIN_INTERVAL:
+                return
+            self.last = time.monotonic()
+            self.thread = threading.Thread(target=self._run, daemon=True)
+            self.thread.start()
+
+    def _run(self):
+        try:
+            proc = subprocess.run(
+                [sys.executable, SWEEP, "--home", self.home],
+                capture_output=True, text=True, timeout=SEND_TIMEOUT,
+                stdin=subprocess.DEVNULL, check=False)
+            self.run_error = None if proc.returncode == 0 else (
+                f"the sweep exited {proc.returncode}: "
+                f"{proc.stderr.strip()[:200]}".strip())
+        except (OSError, subprocess.SubprocessError) as exc:
+            self.run_error = str(exc)
+
+    def status(self):
+        """What the page's incompleteness rule decides from (captureBand in
+        bin/command-center-state.js). The sweep's own record is the truth of
+        the last capture whoever ran it; run_error only says this server's own
+        attempts are failing too."""
+        path = os.path.join(self.home, "state", ".captain-message-capture")
+        try:
+            with open(path, encoding="utf-8") as fh:
+                data = json.load(fh)
+            if not isinstance(data, dict):
+                raise ValueError("not a record")
+        except (OSError, ValueError):
+            return {"present": False, "run_error": self.run_error}
+        at = data.get("at")
+        try:
+            age = int(time.time()) - int(datetime.strptime(
+                at, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).timestamp())
+        except (TypeError, ValueError):
+            age = None
+        return {"present": True, "ok": data.get("ok"), "error": data.get("error"),
+                "active": data.get("active"), "named": data.get("named"),
+                "at": at, "age_secs": age, "run_error": self.run_error}
+
+
 def message_log(home):
-    """What firstmate said to him. bin/fm-captain-message.sh is its only writer."""
+    """What firstmate said to him, captured automatically by the sweep and
+    recorded by hand with bin/fm-captain-message.sh."""
     return os.path.join(home, "data", "captain-messages.jsonl")
 
 
@@ -242,21 +326,74 @@ def said_log(home):
     return os.path.join(home, "data", "command-center", "said.jsonl")
 
 
+# Appends to said.jsonl come from request threads and delivery threads alike;
+# one lock keeps each line whole. SENDING holds the ids of deliveries this
+# process is still running, so a "sending" record with no outcome yet is
+# distinguishable from one a restart orphaned.
+SAID_LOCK = threading.Lock()
+SENDING = set()
+
+RESTART_DETAIL = ("the command center restarted while this was being delivered "
+                  "- it may or may not have arrived, so check before sending it again")
+
+
 def record_said(home, entry):
     """Append one line to the convenience view this server keeps.
 
-    Append-only and best effort: firstmate's own records already hold a
-    delivered answer and a queued note, so a failure here must never make one
-    look undelivered. It goes to this server's log, not over the send result.
-    A failed send is recorded too: what he typed is what this file is for.
+    Returns None, or what to tell him when the line did not land. An amendment
+    that cannot be written is bookkeeping his delivery does not depend on, so
+    those callers ignore it; the acceptance of a send does not - see
+    accept_said. A failed send is recorded too: what he typed is what this file
+    is for.
     """
     path = said_log(home)
     try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "a", encoding="utf-8") as fh:
-            fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        with SAID_LOCK:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "a", encoding="utf-8") as fh:
+                fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
     except OSError as exc:
         sys.stderr.write(f"command-center: could not write {path}: {exc}\n")
+        return f"what you typed could not be recorded: {exc}"
+    return None
+
+
+def accept_said(home, entry, deliver):
+    """The fast half of a send: his words on disk first, delivery behind.
+
+    Returns (sid, error). The entry is appended with outcome "sending" BEFORE
+    this returns, so the words are durable by the time the page says accepted;
+    when that append fails nothing is delivered and the error comes back, so
+    the page can keep his words in the box rather than clear them over a send
+    no record holds. `deliver` then runs in its own thread and must return the
+    fields of the outcome record - at least outcome, route and detail - which
+    is appended as an amendment (kind "outcome") that read_said folds back into
+    the entry. A delivery that raises is recorded as unknown rather than lost:
+    the command may have run before whatever threw, so the page must not offer
+    to send the same words again as though nothing had left this machine.
+    """
+    sid = uuid.uuid4().hex[:12]
+    with SAID_LOCK:
+        SENDING.add(sid)
+    error = record_said(home, dict(entry, sid=sid, at=utc_now(), outcome="sending"))
+    if error:
+        with SAID_LOCK:
+            SENDING.discard(sid)
+        return None, error
+
+    def run():
+        try:
+            update = deliver()
+        except Exception as exc:  # noqa: BLE001 - the record must say something
+            update = {"outcome": "unknown", "route": "", "detail": str(exc)}
+        # The amendment lands before the id leaves SENDING, so no read can see
+        # a live delivery as a restart-orphaned one.
+        record_said(home, dict(update, kind="outcome", of=sid, at=utc_now()))
+        with SAID_LOCK:
+            SENDING.discard(sid)
+
+    threading.Thread(target=run, daemon=True).start()
+    return sid, None
 
 
 def read_log(path, limit=500):
@@ -294,21 +431,6 @@ def read_log(path, limit=500):
     return list(rows)[::-1], None, max(0, lines - len(rows))
 
 
-# He reads his own words and firstmate's, not a page of either: the whole log
-# is served, and the cap is only there so an unbounded file cannot exhaust this
-# process. The reply thread under a message is read out of the said log, so a
-# shortened said log would make an answered message read as unanswered.
-LOG_LIMIT = 20000
-
-
-def read_said(home, limit=LOG_LIMIT):
-    return read_log(said_log(home), limit)
-
-
-def read_messages(home, limit=LOG_LIMIT):
-    return read_log(message_log(home), limit)
-
-
 def log_etag(path):
     """A change check over the log's own (mtime, size), not its contents.
 
@@ -323,18 +445,247 @@ def log_etag(path):
         f"{st.st_mtime_ns}/{st.st_size}".encode()).hexdigest()[:32]
 
 
+# He reads his own words, not a page of them: the whole said log is served, and
+# the cap is only there so an unbounded file cannot exhaust this process. The
+# reply thread under a message is read out of the said log, so a shortened said
+# log would make an answered message read as unanswered. A send writes two lines
+# there - his words, then their outcome - so the cap is counted in lines.
+LOG_LIMIT = 40000
+
+
+def read_said(home, limit=LOG_LIMIT):
+    """His words, newest first, with each delivery's outcome folded back in.
+
+    A send is two lines: the entry written as it was accepted (outcome
+    "sending") and the outcome amendment written when delivery finished. They
+    are folded here so the page sees one record per send. An entry still
+    "sending" that this process is not delivering was orphaned by a restart:
+    delivery is genuinely unknown, and unknown is what it says.
+    """
+    # Sampled on BOTH sides of the read and unioned: a delivery that finished
+    # during the read is still in the first sample, one that started during it
+    # is in the second, so neither a live nor a finished send can be read back
+    # as restart-orphaned.
+    with SAID_LOCK:
+        in_flight = set(SENDING)
+    rows, error, dropped = read_log(said_log(home), limit)
+    with SAID_LOCK:
+        in_flight |= SENDING
+    if error:
+        return [], error, 0
+    outcomes = {}
+    for row in rows:                       # newest first, so first wins
+        if row.get("kind") == "outcome" and row.get("of"):
+            outcomes.setdefault(row["of"], row)
+    merged = []
+    for row in rows:
+        if row.get("kind") == "outcome":
+            continue
+        sid = row.get("sid")
+        update = outcomes.get(sid) if sid else None
+        if update:
+            row = dict(row, **{k: v for k, v in update.items()
+                               if k not in ("kind", "of", "at", "sid")})
+            if update.get("resolved"):
+                row["kind"] = update["resolved"]
+        elif row.get("outcome") == "sending" and sid not in in_flight:
+            row = dict(row, outcome="unknown", detail=RESTART_DETAIL)
+        merged.append(row)
+    return merged, None, dropped
+
+
+MESSAGE_WINDOW = 200
+
+
+def messages_etag(home, capture):
+    """What an unchanged /api/messages poll is allowed to skip re-reading.
+
+    The log is append-only, so its size, mtime and readability decide whether
+    its contents can have changed; the capture health travels in the same
+    response and its band's own facts are part of the tag, because the band
+    that says this list may be incomplete must never be held back by a quiet
+    log.
+    """
+    path = message_log(home)
+    try:
+        st = os.stat(path)
+        key = f"{st.st_size}-{st.st_mtime_ns}-{os.access(path, os.R_OK)}"
+    except FileNotFoundError:
+        key = "none"
+    except OSError:
+        return None
+    return '"m' + hashlib.sha1(
+        (key + dump(band_facts(capture)).decode("utf-8")).encode("utf-8")
+    ).hexdigest()[:16] + '"'
+
+
+def band_facts(capture):
+    """The capture facts the page's band actually speaks from (captureBand in
+    bin/command-center-state.js).
+
+    The status also carries the last sweep's timestamp and its age in seconds,
+    both recomputed on every request; hashing those would make every tag
+    unique and leave the log re-read on every poll. Only the staleness the band
+    would SAY counts - it crosses the threshold and then changes by the minute.
+    """
+    age = capture.get("age_secs")
+    stale = isinstance(age, (int, float)) and age > 900
+    return [capture.get("present"), capture.get("ok"), capture.get("error"),
+            capture.get("active"), capture.get("run_error"),
+            bool(capture.get("named")),
+            round(age / 60) if stale else None]
+
+
+MESSAGE_COUNTS = {}
+
+
+def message_total(home):
+    """How many messages the log holds, whatever a request served of it.
+
+    The page's Messages count is this number, not the size of the window, so
+    it stays true as the log grows past what is loaded. The log is append-only
+    and every writer terminates its line, so a poll counts only the bytes that
+    arrived since the last one - and only as far as the size it stat'd; a log
+    that shrank or was rewritten is counted again from the top.
+    """
+    path = message_log(home)
+    try:
+        st = os.stat(path)
+    except OSError:
+        return 0
+    cached = MESSAGE_COUNTS.get(path)
+    if cached and cached[0] == st.st_size and cached[1] == st.st_mtime_ns:
+        return cached[2]
+    start, count = (cached[0], cached[2]) \
+        if cached and st.st_size > cached[0] else (0, 0)
+    counted = start
+    try:
+        with open(path, "rb") as fh:
+            fh.seek(start)
+            while counted < st.st_size:
+                chunk = fh.read(min(1 << 20, st.st_size - counted))
+                if not chunk:
+                    break
+                counted += len(chunk)
+                count += chunk.count(b"\n")
+    except OSError:
+        return count
+    # Cached against the bytes actually counted, never the bytes that arrived
+    # while counting: a count credited to a smaller size is counted twice by
+    # the next poll and the total never comes back down.
+    MESSAGE_COUNTS[path] = (counted, st.st_mtime_ns, count)
+    return count
+
+
+def reversed_lines(fh, block=65536):
+    """The file's non-empty lines from the end, a block at a time.
+
+    Every read of the captured log wants its newest end: the window the page
+    opens on, the message a reply names, the newest matches of a search. The
+    log only grows, so reading it forwards makes the cheapest question the most
+    expensive one - this reads backwards and stops when the caller has enough.
+    """
+    fh.seek(0, os.SEEK_END)
+    pos = fh.tell()
+    tail = b""
+    while pos > 0:
+        step = min(block, pos)
+        pos -= step
+        fh.seek(pos)
+        chunk = fh.read(step) + tail
+        parts = chunk.split(b"\n")
+        tail = parts.pop(0)
+        for part in reversed(parts):
+            if part.strip():
+                yield part
+    if tail.strip():
+        yield tail
+
+
+def json_id(raw):
+    """The id of one recorded line, or None when it is not a record at all."""
+    try:
+        row = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    return row.get("id") if isinstance(row, dict) else None
+
+
+def matches(row, needle):
+    """Is this message one he is searching for? The fields he can see.
+
+    The one matcher every search goes through, line by line. A faster path over
+    the raw bytes would be a second spelling of this rule, and a search that
+    disagrees with it says "nothing matches" over words he is looking at.
+    """
+    return needle in " ".join(str(row.get(f) or "") for f in (
+        "title", "text", "project", "worktree", "branch", "task", "pr")).lower()
+
+
+def read_messages(home, limit=MESSAGE_WINDOW, before=None, query=None):
+    """The newest messages, newest first. Returns (rows, more, error).
+
+    NOTHING IS DROPPED: the whole log stays on disk and every line of it is
+    reachable - `before` walks back through it a window at a time and `query`
+    searches all of it. What this does not do is ship the whole of it on every
+    poll, because the log now gains a message on every turn end.
+
+    A log that is not there yet is honestly empty; one that cannot be READ is a
+    different state, and reporting it as empty would tell the captain firstmate
+    never said anything to him.
+    """
+    needle = query.strip().lower() if query else None
+    skipping = bool(before)
+    # The id is looked for as a value, then confirmed by reading the record:
+    # what a line looks like is the writer's business, not this reader's.
+    mark = b'"' + before.encode() + b'"' if before else b""
+    rows = []
+    try:
+        with open(message_log(home), "rb") as fh:
+            for raw in reversed_lines(fh):
+                if skipping:
+                    if mark in raw and (json_id(raw) == before):
+                        skipping = False
+                    continue
+                try:
+                    row = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                if needle and not matches(row, needle):
+                    continue
+                if len(rows) == limit:
+                    return rows, True, None
+                rows.append(row)
+    except FileNotFoundError:
+        return [], False, None
+    except OSError as exc:
+        return [], False, f"the record could not be read: {exc}"
+    return rows, False, None
+
+
 def find_message(home, msg_id):
     """The message a reply names, read back from the log rather than trusted.
 
-    The whole log is read because the reply is rare and the log is one line per
-    message; a reply to a message this home never recorded is refused.
+    Read from the newest end and stopped at the match, so replying to what he
+    is looking at costs the tail of the log, not the whole of it; a reply to a
+    message this home never recorded is refused.
     """
-    rows, error, _ = read_messages(home)
-    if error:
-        return None, error
-    for row in rows:
-        if row.get("id") == msg_id:
-            return row, None
+    mark = b'"' + msg_id.encode() + b'"'
+    try:
+        with open(message_log(home), "rb") as fh:
+            for raw in reversed_lines(fh):
+                if mark not in raw:
+                    continue
+                try:
+                    row = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                if row.get("id") == msg_id:
+                    return row, None
+    except FileNotFoundError:
+        return None, None
+    except OSError as exc:
+        return None, f"the record could not be read: {exc}"
     return None, None
 
 
@@ -417,41 +768,6 @@ def send_answer(home_path, item, text):
     return outcome, route, detail[:600], mode
 
 
-def deliver(home, said, run, route_hint="", invalidate=None):
-    """Record what he typed, then carry the delivery out behind the answer.
-
-    The click may not wait on a shell command: he types, it is recorded, and he
-    moves on. So the durable record is written FIRST with outcome `sending`,
-    and the same record is written again under the same `sid` when the command
-    answers - delivered, failed or unknown, read from the exit code exactly as
-    before. The page folds the two by `sid` and shows the outcome in place.
-
-    Returns the sid. The thread is not a daemon: a delivery already started must
-    finish even if the server is asked to stop.
-    """
-    sid = uuid.uuid4().hex[:12]
-    record_said(home, dict(said, sid=sid, at=utc_now(), outcome="sending"))
-
-    def carry_out():
-        # The ONLY place a send's outcome now exists is the row below, so every
-        # way the command can fail has to reach it. A thread that died on a
-        # missing script or an unwritable temp dir would leave the record saying
-        # his words are going out for as long as the server runs.
-        try:
-            result = run()
-        except Exception as exc:                               # noqa: BLE001
-            result = ("unknown", route_hint, str(exc))
-        outcome, route, detail = result[0], result[1], result[2]
-        extra = {"mode": result[3]} if len(result) > 3 else {}
-        record_said(home, dict(said, sid=sid, at=utc_now(), outcome=outcome,
-                               route=route, detail=detail, **extra))
-        if invalidate is not None and outcome != "failed":
-            invalidate()
-
-    threading.Thread(target=carry_out, name="cc-deliver").start()
-    return sid
-
-
 def send_note(home_path, text):
     # Approved proposal section 3: the captain's words are logged even when they
     # answer no item, so a note with no addressee is a channel this surface owes.
@@ -478,6 +794,7 @@ class Handler(BaseHTTPRequestHandler):
     server_version = "firstmate-command-center"
     protocol_version = "HTTP/1.1"
     records = None
+    capture = None
 
     def log_message(self, fmt, *args):  # quieter than the stdlib default
         if self.path.startswith("/api/items"):
@@ -495,6 +812,12 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         if self.command != "HEAD":
             self.wfile.write(body)
+
+    def query_param(self, name):
+        """One query value, or None. A repeat is the first one, never a list."""
+        _, _, query = self.path.partition("?")
+        values = urllib.parse.parse_qs(query).get(name) or []
+        return values[0] if values and values[0] else None
 
     def _json(self, code, obj):
         self._send(code, dump(obj))
@@ -613,8 +936,47 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if path == "/api/messages":
-            self._log_response("messages", message_log(self.records.home),
-                               read_messages)
+            # Each poll also keeps the automatic capture running (off-thread),
+            # and carries its health so the page can say when this list may be
+            # incomplete rather than quietly showing a short one.
+            self.capture.ensure()
+            capture = self.capture.status()
+            query = self.query_param("q")
+            before = self.query_param("before")
+            msg_id = self.query_param("id")
+            if (before and not ID_RE.match(before)) \
+                    or (msg_id and not ID_RE.match(msg_id)):
+                self._json(400, {"error": "unknown message"})
+                return
+            if msg_id:
+                # One message, read straight out of the log: what the page
+                # holds is a window, and he can click through to a message
+                # from anywhere - his own reply to it, months back.
+                row, error = find_message(self.records.home, msg_id)
+                self._send(200, dump({"messages": [row] if row else [],
+                                      "more": False, "error": error,
+                                      "total": message_total(self.records.home),
+                                      "capture": capture}))
+                return
+            # Only the plain window is polled, so only it is worth a tag; a
+            # search and a walk back through the log are asked for once.
+            etag = messages_etag(self.records.home, capture) \
+                if not (query or before) else None
+            if etag and self.headers.get("If-None-Match") == etag:
+                self.send_response(304)
+                self.send_header("ETag", etag)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            rows, more, error = read_messages(self.records.home,
+                                              before=before, query=query)
+            # A read that FAILED is not the state of the log: serving it under a
+            # change check would answer 304 to every later poll and leave the
+            # page saying this record could not be read long after it could.
+            self._send(200, dump({"messages": rows, "more": more,
+                                  "total": message_total(self.records.home),
+                                  "error": error, "capture": capture}),
+                       etag=None if error else etag)
             return
 
         if path == "/api/said":
@@ -643,20 +1005,39 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/note":
             # Approved proposal section 3: a note attached to no item still goes
             # in the captain's log, so this endpoint is part of that promise.
-            sid = deliver(self.records.home,
-                          {"kind": "note", "home": "main", "text": text},
-                          lambda: send_note(self.records.home, text),
-                          route_hint="fm-inbox.sh note")
+            # fm-inbox.sh publishes the note AND wakes firstmate before it
+            # exits, so - as on the other two send surfaces - his words are
+            # made durable, the send is accepted, and delivery runs behind it.
+            records = self.records
+
+            def deliver_note():
+                try:
+                    outcome, route, detail = send_note(records.home, text)
+                except subprocess.SubprocessError as exc:
+                    outcome, route, detail = "unknown", "fm-inbox.sh note", str(exc)
+                return {"outcome": outcome, "route": route, "detail": detail}
+
+            sid, error = accept_said(self.records.home,
+                                     {"kind": "note", "home": "main", "text": text},
+                                     deliver_note)
+            if error:
+                self._json(503, {"ok": False, "error": error})
+                return
             self._json(202, {"ok": True, "sid": sid, "outcome": "sending"})
             return
 
         if path == "/api/reply":
             # A reply to something firstmate SAID. Where it goes is decided by
-            # the recorded message, never by the browser: a message the recorder
-            # marked as a QUESTION is answered as that question, and anything
-            # else reaches firstmate as a note, because a reply with nowhere to
-            # be delivered is still his words. A message that is not a question
-            # is never written as the answer to some other decision.
+            # the recorded message, never by the browser: a message the
+            # recorder marked as a QUESTION is answered as that question and
+            # takes the answer route unchanged, and anything else reaches
+            # firstmate as a note, because a reply with nowhere to be delivered
+            # is still his words. A message that is not a question is never
+            # written as the answer to some other decision. His words are
+            # durable before this answers; the route is the scan's call and the
+            # scan can be slow, so resolving it and delivering both happen
+            # behind the acceptance (accept_said), and the outcome lands on the
+            # record when known.
             msg_id = payload.get("msg")
             if not isinstance(msg_id, str) or not ID_RE.match(msg_id):
                 self._json(400, {"ok": False, "error": "unknown message"})
@@ -668,45 +1049,51 @@ class Handler(BaseHTTPRequestHandler):
             if message is None:
                 self._json(404, {"ok": False, "error": "no such message"})
                 return
-            item = None
-            if message.get("question"):
-                # Only a QUESTION has an answer route to rule out. With no
-                # published scan it cannot be ruled out, and falling through to
-                # the note route would tell him his steer was delivered while
-                # the worker stayed stopped. A message that is not a question is
-                # routed by the record alone, so no scan can change where it
-                # goes and a scan that failed must not stop it.
-                self.records.refresh(min_interval=0)
-                if self.records.etag is None:
-                    self._json(503, {"ok": False,
-                                     "error": self.records.error
-                                     or "the records have not been read yet"})
-                    return
-                item = self.records.waiting_question(
-                    message.get("task"), message.get("question_key") or "")
-            home_path = self.records.home_path(item["home"]) if item else None
-            if item and home_path:
-                said = {"kind": "answer", "home": item["home"], "item": item["id"],
-                        "source": item["source"], "key": item.get("key"),
-                        "item_key": item_key(item), "title": item.get("title"),
-                        "sent_count": len(item.get("sent") or [])}
-                run = lambda: send_answer(home_path, item, text)   # noqa: E731
-                hint = "fm-send.sh " + item["id"]
-                invalidate = self.records.invalidate
-            else:
-                said = {"kind": "note", "home": "main",
-                        "title": message.get("title")}
-                run = lambda: send_note(self.records.home, text)   # noqa: E731
-                hint = "fm-inbox.sh note"
-                invalidate = None
-            sid = deliver(self.records.home, dict(said, msg=msg_id, text=text),
-                          run, route_hint=hint, invalidate=invalidate)
-            # The item this reply is steering, when it took the answer route.
-            # The page holds the do-not-resend state by item as well as by
-            # message, so the same worker cannot be reached twice from the other
-            # surface while this is still in flight.
-            self._json(202, {"ok": True, "sid": sid, "outcome": "sending",
-                             "item_key": said.get("item_key")})
+            records = self.records
+            question = bool(message.get("question"))
+            task = message.get("task")
+            question_key = message.get("question_key") or ""
+
+            def deliver_reply():
+                item = None
+                if question:
+                    # Only a QUESTION has an answer route to rule out. With no
+                    # published scan it cannot be ruled out, and falling through
+                    # to the note route would record his steer as delivered
+                    # while the worker stayed stopped - so that outcome is
+                    # reported as unknown rather than quietly becoming a note.
+                    records.refresh(min_interval=0)
+                    if records.etag is None:
+                        return {"outcome": "unknown", "route": "", "home": "main",
+                                "detail": records.error
+                                or "the records have not been read yet"}
+                    item = records.waiting_question(task, question_key)
+                home_path = records.home_path(item["home"]) if item else None
+                if item and home_path:
+                    outcome, route, detail, mode = send_answer(home_path, item, text)
+                    if outcome != "failed":
+                        records.invalidate()
+                    return {"resolved": "answer", "outcome": outcome,
+                            "route": route, "detail": detail, "mode": mode,
+                            "home": item["home"], "item": item["id"],
+                            "source": item["source"], "key": item.get("key"),
+                            "item_key": item_key(item),
+                            "sent_count": len(item.get("sent") or [])}
+                try:
+                    outcome, route, detail = send_note(records.home, text)
+                except subprocess.SubprocessError as exc:
+                    outcome, route, detail = "unknown", "fm-inbox.sh note", str(exc)
+                return {"resolved": "note", "outcome": outcome, "route": route,
+                        "detail": detail, "home": "main"}
+
+            sid, error = accept_said(self.records.home,
+                                     {"kind": "reply", "msg": msg_id,
+                                      "title": message.get("title"), "text": text},
+                                     deliver_reply)
+            if error:
+                self._json(503, {"ok": False, "error": error})
+                return
+            self._json(202, {"ok": True, "sid": sid, "outcome": "sending"})
             return
 
         if path == "/api/answer":
@@ -719,7 +1106,11 @@ class Handler(BaseHTTPRequestHandler):
                     or not ID_RE.match(task_id):
                 self._json(400, {"ok": False, "error": "unknown item"})
                 return
-            self.records.refresh(min_interval=0)
+            # The lookup uses the snapshot the page itself is showing; no scan
+            # runs on the send's path. Only a server that has never scanned at
+            # all refreshes here, because it has no snapshot to check against.
+            if self.records.etag is None:
+                self.records.refresh()
             if self.records.etag is None:
                 self._json(503, {"ok": False,
                                  "error": "the records have not been read yet"})
@@ -730,15 +1121,24 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(404, {"ok": False,
                                  "error": "that item is no longer waiting for you"})
                 return
-            sid = deliver(
-                self.records.home,
-                {"kind": "answer", "home": home_id, "item": task_id,
-                 "source": item["source"], "key": item.get("key"),
-                 "item_key": item_key(item), "title": item.get("title"),
-                 "text": text, "sent_count": len(item.get("sent") or [])},
-                lambda: send_answer(home_path, item, text),
-                route_hint="fm-send.sh " + task_id,
-                invalidate=self.records.invalidate)
+            records = self.records
+
+            def deliver_answer():
+                outcome, route, detail, mode = send_answer(home_path, item, text)
+                if outcome != "failed":
+                    records.invalidate()     # force a rescan on the next poll
+                return {"outcome": outcome, "route": route, "detail": detail,
+                        "mode": mode}
+
+            sid, error = accept_said(self.records.home, {
+                "kind": "answer", "home": home_id, "item": task_id,
+                "source": item["source"], "key": item.get("key"),
+                "item_key": item_key(item), "title": item.get("title"),
+                "text": text, "sent_count": len(item.get("sent") or []),
+            }, deliver_answer)
+            if error:
+                self._json(503, {"ok": False, "error": error})
+                return
             self._json(202, {"ok": True, "sid": sid, "outcome": "sending"})
             return
 
@@ -804,6 +1204,10 @@ def main(argv=None):
             return 1
 
     Handler.records = Records(home)
+    Handler.capture = MessageCapture(home)
+    # Start capture straight away so the list is complete - today's messages
+    # backfilled on the first ever run - before the page is even opened.
+    Handler.capture.ensure()
     # Loopback only. This runs firstmate's scripts as the captain and has no
     # authentication of its own, so it must never listen on a routable address.
     httpd = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)

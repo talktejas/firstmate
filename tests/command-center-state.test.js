@@ -9,7 +9,7 @@ const {
   pollFacts, tense, transportFailure, verdictFor, releaseVerdicts, itemKey,
   shapeMessage, orderRows, replyTarget, foldSaid, wordsAfter,
   listSignature, mayRelease, logRead, sendState, sendKeys, spokenFor, sameWords,
-  heldWith,
+  heldWith, captureBand, saidDigest, mergeMessages,
 } = require(path.join(__dirname, '..', 'bin', 'command-center-state.js'));
 
 // Quiet on success: tests/command-center.test.sh runs this and reports the
@@ -461,6 +461,102 @@ test('a send is released on every surface it was held against', () => {
     'a send still recorded as pending names its surfaces too');
   assert.deepStrictEqual(heldWith('msg/zz', rows, {}), ['msg/zz'],
     'a surface no send touched releases only itself');
+});
+
+// --- may the message list claim to be complete? -----------------------------------
+// The one promise the capture makes: when it cannot be shown healthy, the list
+// says it may be incomplete rather than quietly looking short.
+
+test('a healthy fresh capture lets the list speak for itself', () => {
+  assert.strictEqual(captureBand(
+    { present: true, ok: true, active: true, age_secs: 12, run_error: null, named: 1 }), null);
+});
+
+test('a capture that never reported cannot be silent', () => {
+  assert.match(captureBand(null), /may be incomplete/);
+  assert.match(captureBand({ present: false }), /may be incomplete/);
+  assert.match(captureBand({ present: false, run_error: 'no python' }), /no python/);
+});
+
+test('a failing capture names its failure and doubts the list', () => {
+  const band = captureBand({ present: true, ok: false, error: 'disk full' });
+  assert.match(band, /disk full/);
+  assert.match(band, /may be incomplete/);
+});
+
+// The one outcome this page must never produce: a green band over a list that
+// is missing a session nothing was looking for.
+test('a capture no session has confirmed the location of doubts the list', () => {
+  const band = captureBand({ present: true, ok: true, active: true, age_secs: 5 });
+  assert.match(band, /worked out/);
+  assert.match(band, /may be incomplete/);
+  assert.strictEqual(captureBand(
+    { present: true, ok: true, active: true, age_secs: 5, named: 2 }), null,
+    'a transcript a session named is exactly what makes the list vouchable');
+});
+
+test('a home with no conversation record says only hand-recorded messages appear', () => {
+  const band = captureBand({ present: true, ok: true, active: false });
+  assert.match(band, /by hand/);
+  assert.match(band, /may be incomplete/);
+});
+
+// The sweep's record is the truth of the last capture whoever ran it; a fresh
+// healthy record outweighs this server's own failed attempt, and a stale one
+// does not.
+test('staleness doubts the list, and freshness outweighs a server-side run error', () => {
+  assert.match(captureBand(
+    { present: true, ok: true, active: true, age_secs: 3600, run_error: 'spawn failed', named: 1 }),
+    /60 minutes.*spawn failed/);
+  assert.strictEqual(captureBand(
+    { present: true, ok: true, active: true, age_secs: 30, run_error: 'spawn failed', named: 1 }),
+    null);
+});
+
+// --- an outcome reaches the screen wherever it lands -------------------------
+// Delivery always finishes behind the send, so the said poll re-rendering is the
+// only way an outcome is ever shown. A second send while the first is still
+// delivering pushes the first record down the list, and its outcome must still
+// count as a change.
+test('an outcome landing on a record that is not the newest is a change', () => {
+  const sending = sid => ({ sid, kind: 'answer', outcome: 'sending' });
+  const before = [sending('b'), sending('a')];
+  const after = [sending('b'), { sid: 'a', kind: 'answer', outcome: 'sent' }];
+  assert.notStrictEqual(saidDigest(before), saidDigest(after),
+    'an outcome folded onto an older record left the page showing "being delivered"');
+  assert.strictEqual(saidDigest(before), saidDigest([sending('b'), sending('a')]),
+    'an unchanged log must not force a re-render');
+  assert.notStrictEqual(saidDigest(before), saidDigest(
+    [sending('c')].concat(before)), 'a new send is a change');
+});
+
+// --- nothing he has been shown falls off the page ------------------------------
+// The poll re-reads only the newest window. A message that has since fallen out
+// of that window - because turns kept ending - must not vanish from the list,
+// and an older page he asked for must survive every poll after it.
+test('a message that falls out of the newest window stays on the page', () => {
+  const m = id => ({ id });
+  const held = [m('m9'), m('m8'), m('m7')];
+  assert.deepStrictEqual(
+    mergeMessages([m('m11'), m('m10'), m('m9')], held).map(r => r.id),
+    ['m11', 'm10', 'm9', 'm8', 'm7'],
+    'm8 and m7 left the window and left the page with it');
+  assert.deepStrictEqual(mergeMessages(held, held).map(r => r.id),
+    ['m9', 'm8', 'm7'], 'an unchanged poll must not duplicate what is held');
+});
+
+// If more than a window arrived while the tab was asleep, the two runs share
+// nothing and everything between them is missing. A list stitched across that
+// hole reads as whole and pages from its oldest row, so the hole never closes;
+// the stale run goes instead, and Show older and search still reach it.
+test('two runs that do not overlap are never stitched across the gap', () => {
+  const m = id => ({ id });
+  assert.deepStrictEqual(
+    mergeMessages([m('m20'), m('m19')], [m('m9'), m('m8')]).map(r => r.id),
+    ['m20', 'm19'],
+    'the list kept rows with a hole between them and no way to fill it');
+  assert.deepStrictEqual(mergeMessages([], [m('m9')]).map(r => r.id), ['m9'],
+    'a poll that answered nothing must not empty the list');
 });
 
 process.exit(failures ? 1 : 0);
