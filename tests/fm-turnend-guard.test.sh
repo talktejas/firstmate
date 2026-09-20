@@ -881,8 +881,12 @@ test_grok_adapter_missing_jq_and_no_supervision_allow() {
 # watcher, and wedged the Grok turn for its declared 28800-second timeout.
 #
 # bin/fm-subagent-pretool-check.sh and bin/fm-delegate-pretool-check.sh are the
-# deliberate exceptions: Grok has no counterpart registration for either, so
-# guarding them would REMOVE the guard from Grok rather than deduplicate it
+# deliberate exceptions: Grok has no counterpart registration for the subagent
+# surface at all, and the delegate guard's Grok counterpart matches the shell
+# tool only while the Claude-shaped entry also reaches Grok's compatibility
+# mapping for the read and write tools, so guarding either would SHRINK the
+# guard under Grok rather than deduplicate it. The delegate guard holds no
+# state, so a duplicated shell evaluation reaches the same verdict
 # (docs/subagent-guard.md and docs/delegate-guard.md "Known residual gap").
 # They are asserted to stay unguarded so the exception cannot be closed silently.
 test_tracked_claude_entries_inert_under_grok() {

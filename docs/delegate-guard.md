@@ -19,6 +19,7 @@ It makes no judgment about dispatch quality, delivery mode, or whether a given i
 ## Shipped mechanism
 
 `bin/fm-delegate-pretool-check.sh` classifies a `Bash`, `Read`, `Grep`, `Glob`, `Edit`, `Write`, `NotebookEdit`, or `MultiEdit` call in a genuine primary home.
+Cursor's shell tool name `Shell` and Grok's `run_terminal_command` classify as command calls alongside `Bash`, so the non-Claude registrations below reach the same classifier.
 Every other tool name is out of scope here, and a name beginning `mcp__` is never classified.
 
 A target is a PROJECT when it resolves into any git repository other than the firstmate home's own repo or another firstmate home, or anywhere under `$FM_HOME/projects/` even when git cannot resolve it.
@@ -64,9 +65,19 @@ The refusal never names it: telling the refused agent the one token that release
 
 ## Harness wiring
 
-The tracked Claude registration in `.claude/settings.json` uses the anchored matcher `^(Bash|Read|Grep|Glob|Edit|Write|NotebookEdit|MultiEdit)$` and passes `--claude`, resolved through `"$CLAUDE_PROJECT_DIR"` so a linked worktree runs its own copy and scopes itself out.
-Grok, OpenCode, Pi, Codex, Cursor, and omp are not wired, for the same reason recorded in [`subagent-guard.md`](subagent-guard.md): wiring an unverified matcher or field name is a guess, not coverage.
-The script already accepts Grok's stdin shape and a `--tool`/`--command`/`--path` CLI form for OpenCode and Pi, so each wiring is the bounded matcher-verification follow-up described there.
+Every registration below reuses a matcher, field name, and transport shape already tracked and verified for the sibling cd guard ([`cd-guard.md`](cd-guard.md) "Harness wiring"); none was derived or guessed.
+
+| Harness | Entry | Adapter behavior on checker exit 2 |
+| --- | --- | --- |
+| Claude | `.claude/settings.json` PreToolUse hook on `^(Bash\|Read\|Grep\|Glob\|Edit\|Write\|NotebookEdit\|MultiEdit)$` forwarding stdin with `--claude`, resolved through `"$CLAUDE_PROJECT_DIR"` so a linked worktree runs its own copy and scopes itself out | Blocks the tool call; stderr deny object, stdout empty. |
+| Codex | `.codex/hooks.json` PreToolUse Bash hook that anchors from `pwd -P`, verifies the hook-loaded firstmate root, and forwards the payload | Blocks on exit 2 and displays stderr. |
+| Grok | `.grok/hooks/fm-primary-delegate-check.json` PreToolUse Bash hook anchored on `${GROK_WORKSPACE_ROOT:-}` | Consumes the stdout `decision=deny` object. |
+| Cursor | `.cursor/hooks.json` `preToolUse` hook matching `tool_name` `Shell`, forwarding stdin with `--cursor` | Prints Cursor's own `{"permission":"deny","user_message":...}` object on stdout and exits 0, because Cursor reads the returned object rather than the exit status. Without `--cursor` the Cursor-delivered payload is the Claude-settings duplicate Cursor also loads, and stands down through the shared predicate in `bin/fm-hook-host-lib.sh`. |
+| OpenCode | `.opencode/plugins/fm-primary-delegate-check.js` `tool.execute.before` calling the CLI form | Throws, which surfaces as the failed tool result. |
+
+Pi and omp are not wired: neither carries a tracked PreToolUse registration for this guard's sibling seatbelts to reuse, so a wiring there would be a new matcher rather than a reused one.
+Their shell surface is the bounded follow-up described in [`subagent-guard.md`](subagent-guard.md); the `--tool`/`--command`/`--path` CLI form they would use already exists.
+Every shell variable reference in the Grok hook command carries an inline default (`${GROK_WORKSPACE_ROOT:-}`) because Grok expands the raw hook command before `bash -lc` runs it, the same requirement documented in [`arm-pretool-check.md`](arm-pretool-check.md).
 
 ## Live validation record, 2026-09-21
 
@@ -85,7 +96,7 @@ Every run used a scratch primary-shaped home under a task worktree, with the hoo
 ## Automated validation
 
 `tests/fm-delegate-pretool-check.test.sh` owns the acceptance matrix and is registered in the `pure-contract-unit` family in `bin/fm-test-run.sh`.
-It covers unconditional refusal of read, build, run, cd, write, and git-write shapes into a project, and that the guard writes no pacing state; the firstmate-home-clone exception and its lookalike counterexample; the always-allowed fleet scripts and `*-axi` tools with project arguments; classification of `Read`/`Grep`/`Glob`/`Edit`/`Write`/`NotebookEdit`; freedom of home, state, and non-repo paths; the `projects/` prefix without git; the per-invocation escape hatch including its refusal of ambient environment release and the refusal's silence about it; the dispatch-path message in both scout variants; inertness in a crewmate worktree and a non-firstmate repo; in-scope enforcement for a marked secondmate home; both stdin transports; the empty-stdout requirement; fail-open transport behavior; and the tracked registration's matcher and `--claude` flag.
+It covers unconditional refusal of read, build, run, cd, write, redirection, and git-write shapes into a project, and that the guard writes no pacing state; wrapper handling (`timeout`, `bash -c`) in both the allow and deny directions; the Grok and Cursor shell tool names, the `--cursor` decision object, and the Cursor duplicate stand-down; that each tracked Grok, Codex, and Cursor registration reaches the guard with the harness payload and that the OpenCode plugin surfaces its refusal; the firstmate-home-clone exception and its lookalike counterexample; the always-allowed fleet scripts and `*-axi` tools with project arguments; classification of `Read`/`Grep`/`Glob`/`Edit`/`Write`/`NotebookEdit`; freedom of home, state, and non-repo paths; the `projects/` prefix without git; the per-invocation escape hatch including its refusal of ambient environment release and the refusal's silence about it; the dispatch-path message in both scout variants; inertness in a crewmate worktree and a non-firstmate repo; in-scope enforcement for a marked secondmate home; both stdin transports; the empty-stdout requirement; fail-open transport behavior; and the tracked registration's matcher and `--claude` flag.
 
 Run:
 
@@ -98,6 +109,7 @@ FM_DELEGATE_GUARD_LIVE=1 tests/fm-delegate-guard-claude-live-e2e.test.sh
 
 ## Known residual gap
 
-The tracked entry is deliberately unguarded against Grok's Claude-compatible settings loading, exactly like the subagent entry (docs/turnend-guard.md "Harness integrations"): no `.grok/hooks/` registration covers this event, so guarding it would remove the incidental reach entirely rather than deduplicate it.
-That incidental reach is partial, since `--claude` suppresses the stdout object Grok consumes; Cursor likewise loads the tracked entry but reads a returned decision object rather than exit 2, so its coverage is nil until a `--cursor` rendering is wired and verified.
+The tracked Claude entry stays deliberately unguarded against Grok's Claude-compatible settings loading, unlike the sibling seatbelt entries (docs/turnend-guard.md "Harness integrations"): the Grok registration matches the shell tool only, while the Claude-shaped entry also reaches Grok's compatibility mapping for the read and write tools, so standing it down would shrink coverage rather than deduplicate it.
+A duplicate evaluation costs nothing here because the guard holds no state and both copies reach the same verdict, and `--claude` keeps the duplicate off the stdout channel Grok consumes.
+Pi and omp remain uncovered for the reason recorded under "Harness wiring", and the Cursor and OpenCode entries cover their shell surface only.
 The classifier is a seatbelt against the observed mistake shapes, not a sandbox: redirection targets are not parsed, variable indirection is not resolved, and deliberate obfuscation is out of scope under the recorded threat model.

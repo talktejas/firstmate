@@ -33,13 +33,17 @@
 #   bin/fm-delegate-pretool-check.sh --tool Read --path '<file>'
 #
 # Stdin mode extracts .tool_name/.tool_input for Claude, Codex, and Cursor, or
-# .toolName/.toolInput for Grok. CLI mode is for adapters that already hold the
-# values (OpenCode, Pi) and for tests.
+# .toolName/.toolInput for Grok. Cursor's shell tool_name is "Shell" and Grok's
+# is "run_terminal_command" (the names the tracked sibling seatbelt
+# registrations already match), so both classify as command calls. CLI mode is
+# for adapters that already hold the values (OpenCode, Pi) and for tests.
 #
 # Exit/output contract (identical shape to bin/fm-subagent-pretool-check.sh):
 #   ALLOW - exit 0 and no output.
 #   DENY - exit 2, a Claude-shaped deny object on stderr, and a Grok-shaped
 #          deny object on stdout unless --claude was supplied.
+#   DENY, --cursor - exit 0 and Cursor's own decision object on stdout. Cursor
+#          reads the returned object rather than the exit status.
 #   INERT - not a genuine primary home (a crewmate/scout task worktree or a
 #           non-firstmate repo): exit 0 with no output, exactly like ALLOW.
 #   ESCAPE - a Bash command whose leading assignments include the literal
@@ -53,6 +57,7 @@
 # Codex blocks on exit 2 and displays stderr.
 # Grok consumes the stdout decision object.
 # OpenCode and Pi consume exit 2 plus stderr.
+# Cursor consumes the stdout decision object.
 set -u
 # Tokens from the command string are inspected verbatim; never glob-expand them.
 set -f
@@ -60,7 +65,7 @@ set -f
 # Per-segment lead words that are the primary's own job and release the whole
 # segment, whatever project paths it carries: dispatch and lifecycle scripts
 # take project directories as arguments by design.
-ALLOW_WORDS=' no-mistakes gh-axi tasks-axi quota-axi lavish-axi '
+ALLOW_WORDS=' no-mistakes gh-axi tasks-axi quota-axi lavish-axi chrome-devtools-axi '
 
 TOOL=""
 TOOL_SET=0
@@ -68,10 +73,11 @@ CMD=""
 TPATH=""
 CWD=""
 CLAUDE_MODE=0
+CURSOR_MODE=0
 
 usage() {
   cat <<'EOF'
-Usage: fm-delegate-pretool-check.sh [--tool <name>] [--command <cmd>] [--path <p>] [--cwd <dir>] [--claude]
+Usage: fm-delegate-pretool-check.sh [--tool <name>] [--command <cmd>] [--path <p>] [--cwd <dir>] [--claude|--cursor]
 
 With no --tool, reads a PreToolUse-style JSON payload on stdin (Claude/Codex
 tool_name and tool_input, or Grok toolName and toolInput).
@@ -84,6 +90,8 @@ Fires only in a genuine firstmate primary home; it is a silent no-op in a
 crewmate/scout task worktree or any non-firstmate repo, where a worker
 investigating project code is exactly right.
 Exits 0 to allow and 2 to deny, naming the crewmate dispatch path instead.
+With --cursor, a deny is Cursor's own decision object on stdout and exit 0,
+because Cursor reads the returned object rather than the exit status.
 A Bash command prefixed with the literal assignment FM_ALLOW_PROJECT_WORK=1
 allows deliberately, per invocation; the hook's own environment is ignored.
 Malformed transport and an unconfirmable home identity fail open.
@@ -109,6 +117,7 @@ while [ "$#" -gt 0 ]; do
       CWD=$2; shift 2 ;;
     --cwd=*) CWD=${1#--cwd=}; shift ;;
     --claude) CLAUDE_MODE=1; shift ;;
+    --cursor) CURSOR_MODE=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *)
       echo "error: unknown argument: $1" >&2
@@ -121,6 +130,15 @@ if [ "$TOOL_SET" -eq 0 ]; then
   PAYLOAD=$(cat 2>/dev/null || true)
   [ -n "$PAYLOAD" ] || exit 0
   command -v jq >/dev/null 2>&1 || exit 0
+  # shellcheck source=bin/fm-hook-host-lib.sh
+  # shellcheck disable=SC1091
+  . "$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/fm-hook-host-lib.sh"
+  # Cursor's own registration passes --cursor. Without it a Cursor-delivered
+  # payload is the Claude-settings duplicate Cursor also loads, already
+  # evaluated by that registration, so this copy allows without re-classifying.
+  if [ "$CURSOR_MODE" -eq 0 ] && fm_hook_payload_is_foreign_host "$PAYLOAD"; then
+    exit 0
+  fi
   TOOL=$(printf '%s' "$PAYLOAD" | jq -r '(.tool_name // .toolName // empty)' 2>/dev/null) || exit 0
   CMD=$(printf '%s' "$PAYLOAD" | jq -r '(.tool_input.command // .toolInput.command // empty)' 2>/dev/null) || exit 0
   TPATH=$(printf '%s' "$PAYLOAD" | jq -r '(.tool_input.file_path // .tool_input.notebook_path // .tool_input.path // .toolInput.file_path // .toolInput.notebook_path // .toolInput.path // empty)' 2>/dev/null) || exit 0
@@ -140,7 +158,7 @@ LC_ALL=C NORMALIZED=$(printf '%s' "$TOOL" | tr '[:upper:]' '[:lower:]')
 # (bin/fm-subagent-pretool-check.sh owns the delegation-tool surface).
 KIND=""
 case "$NORMALIZED" in
-  bash) KIND="command" ;;
+  bash|shell|run_terminal_command) KIND="command" ;;
   read|grep|glob) KIND="read" ;;
   edit|write|notebookedit|multiedit) KIND="write" ;;
   *) exit 0 ;;
@@ -185,19 +203,26 @@ command -v git >/dev/null 2>&1 || exit 0
 . "$SCRIPT_DIR/fm-primary-scope-lib.sh"
 fm_primary_scope_matches "$FM_ROOT" "$STATE" || exit 0
 
-# Physical git common dir of a repo containing $1, or failure.
-repo_common_dir() {
-  local dir=$1 top c
-  top=$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null) || return 1
-  c=$(git -C "$top" rev-parse --git-common-dir 2>/dev/null) || return 1
+# repo_info <dir>: print the toplevel of the repo containing <dir> and its
+# physical git common dir, one per line, in a single git call. A relative
+# common dir is relative to <dir>, which is the directory git was pointed at.
+repo_info() {
+  local dir=$1 out top c
+  out=$(git -C "$dir" rev-parse --show-toplevel --git-common-dir 2>/dev/null) || return 1
+  top=${out%%$'\n'*}
+  c=${out#*$'\n'}
+  [ -n "$top" ] && [ -n "$c" ] && [ "$top" != "$c" ] || return 1
   case "$c" in
     /*) ;;
-    *) c=$top/$c ;;
+    *) c=$dir/$c ;;
   esac
-  CDPATH='' cd -- "$c" 2>/dev/null && pwd -P
+  c=$(CDPATH='' cd -- "$c" 2>/dev/null && pwd -P) || return 1
+  printf '%s\n%s\n' "$top" "$c"
 }
 
-HOME_COMMON=$(repo_common_dir "$FM_ROOT") || exit 0
+HOME_INFO=$(repo_info "$FM_ROOT") || exit 0
+HOME_COMMON=${HOME_INFO#*$'\n'}
+HOME_COMMON=${HOME_COMMON%%$'\n'*}
 if [ -d "$FM_HOME/projects" ]; then
   PROJECTS_ROOT=$(CDPATH='' cd -- "$FM_HOME/projects" 2>/dev/null && pwd -P) || exit 0
 else
@@ -210,7 +235,7 @@ fi
 # existence check on a project path is still classified while pattern junk
 # that resolves back to the cwd is not.
 classify_path() {
-  local p=$1 dir top common
+  local p=$1 dir top common info
   case "$p" in
     "$PROJECTS_ROOT"|"$PROJECTS_ROOT"/*) printf '%s\n' "$PROJECTS_ROOT"; return 0 ;;
   esac
@@ -225,8 +250,10 @@ classify_path() {
   case "$dir" in
     "$PROJECTS_ROOT"|"$PROJECTS_ROOT"/*) printf '%s\n' "$PROJECTS_ROOT"; return 0 ;;
   esac
-  top=$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null) || return 0
-  common=$(repo_common_dir "$dir") || return 0
+  info=$(repo_info "$dir") || return 0
+  top=${info%%$'\n'*}
+  common=${info#*$'\n'}
+  common=${common%%$'\n'*}
   [ "$common" != "$HOME_COMMON" ] || return 0
   # A firstmate home clone carries the home contract; supervising one is the
   # primary's own job, so it classifies with the home rather than as a project.
@@ -239,6 +266,15 @@ classify_path() {
 expand_token() {
   local tok=$1
   tok=${tok#\$\(}
+  case "$tok" in
+    [0-9][\<\>]*|\&[\<\>]*) tok=${tok#?} ;;
+  esac
+  while :; do
+    case "$tok" in
+      [\<\>]*) tok=${tok#?} ;;
+      *) break ;;
+    esac
+  done
   while :; do
     case "$tok" in
       \(*|\"*|\'*|\`*) tok=${tok#?} ;;
@@ -299,6 +335,7 @@ if [ "$KIND" = command ]; then
     # It decides only whether the segment is the primary's own fleet tooling;
     # every other project-targeted segment is denied, whatever it runs.
     LEAD=""
+    WRAPPED=0
     SEG_PATHS=""
     # shellcheck disable=SC2086
     for TOK in $SEG; do
@@ -311,11 +348,19 @@ if [ "$KIND" = command ]; then
       done
       RAW=${RAW#\$\(}
       if [ -z "$LEAD" ]; then
+        case "${RAW##*/}" in
+          env|exec|command|nohup|time|sudo|timeout|bash|sh|zsh) WRAPPED=1; continue ;;
+        esac
         case "$RAW" in
           ''|[A-Za-z_]*=*) continue ;;
-          env|exec|command|nohup|time|sudo|bash|sh|zsh) continue ;;
-          *) LEAD=${RAW##*/} ;;
         esac
+        # A wrapper's own options and timeout's duration are not the lead word.
+        if [ "$WRAPPED" -eq 1 ]; then
+          case "$RAW" in
+            -*|[0-9]*) continue ;;
+          esac
+        fi
+        LEAD=${RAW##*/}
       fi
       if [ "$PATHS_SEEN" -lt 32 ]; then
         CAND=$(expand_token "$TOK") || CAND=""
@@ -383,6 +428,10 @@ fi
 deny() {
   local reason=$1 escaped
   escaped=$(printf '%s' "$reason" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | tr '\n' ' ')
+  if [ "$CURSOR_MODE" -eq 1 ]; then
+    printf '{"permission":"deny","user_message":"%s"}\n' "$escaped"
+    exit 0
+  fi
   printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"},"systemMessage":"%s"}\n' "$escaped" >&2
   [ "$CLAUDE_MODE" -eq 1 ] || printf '{"decision":"deny","reason":"%s"}\n' "$escaped"
   exit 2

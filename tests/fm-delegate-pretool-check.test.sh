@@ -109,8 +109,47 @@ test_fleet_scripts_and_axi_tools_always_allowed() {
   expect_allow "lavish-axi serving a project page" \
     --tool Bash --command "lavish-axi $PROJ/docs/page.html"
   expect_allow "gh-axi" --tool Bash --command "gh-axi pr view 12"
+  expect_allow "chrome-devtools-axi shooting into a project path" \
+    --tool Bash --command "chrome-devtools-axi screenshot $PROJ/shot.png"
   expect_allow "no-mistakes daemon status" --tool Bash --command "no-mistakes daemon status"
   pass "fm-*.sh, no-mistakes, and the *-axi tools stay allowed with project arguments"
+}
+
+test_wrappers_do_not_hide_the_lead_word() {
+  # A wrapped dispatch command is still the primary's own job: refusing it would
+  # block the very fm-*.sh call the refusal tells the primary to make.
+  expect_allow "timeout-wrapped fm-spawn" \
+    --tool Bash --command "timeout 900 bin/fm-spawn.sh task-1 $PROJ --mode no-mistakes"
+  expect_allow "timeout with options and duration" \
+    --tool Bash --command "timeout -k 5 600 lavish-axi $PROJ/docs/page.html"
+  expect_allow "bash -c wrapping fm-brief" \
+    --tool Bash --command "bash -c \"bin/fm-brief.sh task-1 $PROJ\""
+  expect_allow "sh -c wrapping no-mistakes" \
+    --tool Bash --command "sh -c \"no-mistakes daemon status $PROJ\""
+  # The same wrappers must not launder project work either.
+  expect_deny "timeout-wrapped build" \
+    --tool Bash --command "timeout 600 npm --prefix $PROJ test"
+  expect_deny "bash -c wrapping a project grep" \
+    --tool Bash --command "bash -c \"grep -rn seeded $PROJ/src\""
+  pass "timeout and shell wrappers resolve to the real lead word in both directions"
+}
+
+test_redirection_targets_are_classified() {
+  # A redirect into a project is a write whether or not a space follows the
+  # operator; the same call must not classify two ways on whitespace alone.
+  expect_deny "space-separated redirect" \
+    --tool Bash --command "echo hi > $PROJ/src/patch.php"
+  expect_deny "attached redirect" \
+    --tool Bash --command "echo hi >$PROJ/src/patch.php"
+  expect_deny "attached append redirect" \
+    --tool Bash --command "echo hi >>$PROJ/src/patch.php"
+  expect_deny "attached fd redirect" \
+    --tool Bash --command "php -v 2>$PROJ/err.log"
+  expect_deny "attached input redirect" \
+    --tool Bash --command "cat <$PROJ/src/app.php"
+  expect_allow "redirect outside any project" \
+    --tool Bash --command "echo hi >/tmp/scratch-notes.txt"
+  pass "redirection targets classify the same attached or spaced"
 }
 
 test_build_run_and_write_shapes_never_pass() {
@@ -286,6 +325,49 @@ test_stdin_transports_and_output_shapes() {
   pass "both stdin transports classify correctly and Claude's deny keeps stdout empty"
 }
 
+test_harness_tool_names_and_cursor_rendering() {
+  local rc=0
+  # Grok's shell tool is run_terminal_command and Cursor's is Shell: the names
+  # the tracked sibling seatbelt registrations match. Both must classify.
+  : > "$OUT"; : > "$ERR"
+  printf '{"toolName":"run_terminal_command","toolInput":{"command":"grep -rn seeded %s/src"},"cwd":"%s"}' "$PROJ" "$PRIMARY" \
+    | FM_ROOT_OVERRIDE="$PRIMARY" FM_HOME="$PRIMARY" FM_STATE_OVERRIDE="$STATE" \
+      "$CHECK" > "$OUT" 2> "$ERR" || rc=$?
+  [ "$rc" -eq 2 ] || fail "a Grok run_terminal_command payload must deny, got exit $rc"
+  jq -e '.decision == "deny"' "$OUT" >/dev/null 2>&1 \
+    || fail "Grok deny must carry its decision object on stdout: $(cat "$OUT")"
+
+  # Cursor reads the RETURNED object, not the exit status.
+  rc=0
+  : > "$OUT"; : > "$ERR"
+  printf '{"tool_name":"Shell","tool_input":{"command":"grep -rn seeded %s/src"},"cwd":"%s","cursor_version":"2026.08.11-e8db854"}' "$PROJ" "$PRIMARY" \
+    | FM_ROOT_OVERRIDE="$PRIMARY" FM_HOME="$PRIMARY" FM_STATE_OVERRIDE="$STATE" \
+      "$CHECK" --cursor > "$OUT" 2> "$ERR" || rc=$?
+  [ "$rc" -eq 0 ] || fail "a --cursor deny must exit 0 so Cursor reads the object, got exit $rc"
+  jq -e '.permission == "deny" and (.user_message | startswith("[delegate-project-work]"))' "$OUT" >/dev/null 2>&1 \
+    || fail "--cursor deny must print Cursor's own decision object: $(cat "$OUT")"
+  [ ! -s "$ERR" ] || fail "--cursor deny wrote stderr: $(cat "$ERR")"
+
+  # Without --cursor the same payload is the Claude-settings duplicate Cursor
+  # also loads, already decided by Cursor's own registration.
+  rc=0
+  : > "$OUT"; : > "$ERR"
+  printf '{"tool_name":"Shell","tool_input":{"command":"grep -rn seeded %s/src"},"cwd":"%s","cursor_version":"2026.08.11-e8db854"}' "$PROJ" "$PRIMARY" \
+    | FM_ROOT_OVERRIDE="$PRIMARY" FM_HOME="$PRIMARY" FM_STATE_OVERRIDE="$STATE" \
+      "$CHECK" --claude > "$OUT" 2> "$ERR" || rc=$?
+  [ "$rc" -eq 0 ] || fail "the Claude-settings duplicate of a Cursor payload must stand down, got exit $rc"
+  [ ! -s "$OUT" ] && [ ! -s "$ERR" ] || fail "the Cursor duplicate stand-down wrote output"
+
+  rc=0
+  : > "$OUT"; : > "$ERR"
+  printf '{"tool_name":"Shell","tool_input":{"command":"ls bin"},"cwd":"%s","cursor_version":"2026.08.11-e8db854"}' "$PRIMARY" \
+    | FM_ROOT_OVERRIDE="$PRIMARY" FM_HOME="$PRIMARY" FM_STATE_OVERRIDE="$STATE" \
+      "$CHECK" --cursor > "$OUT" 2> "$ERR" || rc=$?
+  [ "$rc" -eq 0 ] || fail "a home-target Cursor payload must allow, got exit $rc"
+  [ ! -s "$OUT" ] && [ ! -s "$ERR" ] || fail "--cursor allow wrote output"
+  pass "Grok and Cursor shell tool names classify, and --cursor renders Cursor's own decision"
+}
+
 test_malformed_transport_fails_open() {
   local rc payload
   for payload in '{not-json' '' '{}' '{"tool_name":null}' '{"tool_name":"Read"}'; do
@@ -321,10 +403,101 @@ test_tracked_registration_covers_the_classified_tools() {
   pass "the tracked Claude registration covers every classified tool and passes --claude"
 }
 
+# A stub guard home: every tracked registration must actually reach the guard
+# script with the harness payload, which is what each JSON entry promises.
+make_stub_home() {
+  local dir=$1
+  mkdir -p "$dir/bin" "$dir/.codex"
+  printf '# fixture\n' > "$dir/AGENTS.md"
+  cp "$ROOT/.codex/hooks.json" "$dir/.codex/hooks.json"
+  cat > "$dir/bin/fm-delegate-pretool-check.sh" <<'STUB'
+#!/usr/bin/env bash
+payload=$(cat 2>/dev/null || true)
+printf 'args=%s payload=%s
+' "$*" "$payload" > "${FM_STUB_LOG:?}"
+STUB
+  chmod +x "$dir/bin/fm-delegate-pretool-check.sh"
+}
+
+test_every_primary_harness_registration_reaches_the_guard() {
+  local dir log cmd payload
+  command -v jq >/dev/null 2>&1 || fail "test host must provide jq"
+  dir="$TMP_ROOT/harness-wiring"
+  log="$TMP_ROOT/harness-wiring.log"
+  make_stub_home "$dir"
+  payload='{"tool_name":"Bash","tool_input":{"command":"grep -rn seeded /proj/src"}}'
+
+  cmd=$(jq -r '.hooks.PreToolUse[] | select(.matcher == "Bash") | .hooks[].command | select(contains("fm-delegate-pretool-check.sh"))' \
+    "$ROOT/.grok/hooks/fm-primary-delegate-check.json")
+  [ -n "$cmd" ] || fail "tracked .grok/hooks must register the delegate guard on the Bash matcher"
+  rm -f "$log"
+  printf '%s' "$payload" | env FM_STUB_LOG="$log" GROK_WORKSPACE_ROOT="$dir" bash -c "$cmd" >/dev/null 2>&1
+  grep -q "payload=$payload" "$log" 2>/dev/null \
+    || fail "the Grok registration did not deliver the payload to the guard: $(cat "$log" 2>/dev/null)"
+
+  cmd=$(jq -r '.hooks.PreToolUse[] | select(.matcher == "Bash") | .hooks[].command | select(contains("fm-delegate-pretool-check.sh"))' \
+    "$ROOT/.codex/hooks.json")
+  [ -n "$cmd" ] || fail "tracked .codex/hooks.json must register the delegate guard on the Bash matcher"
+  rm -f "$log"
+  printf '%s' "$payload" | (cd "$dir" && env FM_STUB_LOG="$log" bash -c "$cmd") >/dev/null 2>&1
+  grep -q "payload=$payload" "$log" 2>/dev/null \
+    || fail "the Codex registration did not deliver the payload to the guard: $(cat "$log" 2>/dev/null)"
+
+  cmd=$(jq -r '.hooks.preToolUse[] | select(.matcher == "Shell") | .command | select(contains("fm-delegate-pretool-check.sh"))' \
+    "$ROOT/.cursor/hooks.json")
+  [ -n "$cmd" ] || fail "tracked .cursor/hooks.json must register the delegate guard on the Shell matcher"
+  rm -f "$log"
+  printf '%s' "$payload" | env FM_STUB_LOG="$log" CURSOR_PROJECT_DIR="$dir" bash -c "$cmd" >/dev/null 2>&1
+  grep -q 'args=--cursor' "$log" 2>/dev/null \
+    || fail "the Cursor registration must pass --cursor: $(cat "$log" 2>/dev/null)"
+  pass "the Grok, Codex, and Cursor registrations each reach the guard with the harness payload"
+}
+
+test_opencode_plugin_blocks_a_denied_command() {
+  local plugin dir out status
+  command -v node >/dev/null 2>&1 || fail "test host must provide node"
+  plugin="$ROOT/.opencode/plugins/fm-primary-delegate-check.js"
+  [ -f "$plugin" ] || fail "tracked OpenCode delegate plugin is missing"
+  dir="$TMP_ROOT/opencode-delegate"
+  mkdir -p "$dir/bin"
+  cat > "$dir/bin/fm-delegate-pretool-check.sh" <<'STUB'
+#!/usr/bin/env bash
+printf 'tool=%s
+' "$2"
+printf '[delegate-project-work] refused
+' >&2
+exit 2
+STUB
+  chmod +x "$dir/bin/fm-delegate-pretool-check.sh"
+  out=$(NODE_NO_WARNINGS=1 PLUGIN="$plugin" WORKTREE="$dir" node 2>&1 <<'EOF'
+import { pathToFileURL } from "node:url";
+
+const mod = await import(pathToFileURL(process.env.PLUGIN).href);
+const hooks = await mod.FmPrimaryDelegateCheck({ worktree: process.env.WORKTREE });
+let blocked = "";
+try {
+  await hooks["tool.execute.before"]({ tool: "bash" }, { args: { command: "grep -rn seeded /proj/src" } });
+} catch (error) {
+  blocked = error.message;
+}
+if (!blocked.includes("[delegate-project-work]")) {
+  console.error(`plugin did not surface the guard refusal: ${blocked}`);
+  process.exit(1);
+}
+await hooks["tool.execute.before"]({ tool: "read" }, { args: { command: "grep -rn seeded /proj/src" } });
+EOF
+)
+  status=$?
+  [ "$status" -eq 0 ] || fail "OpenCode delegate plugin must block a denied bash command: $out"
+  pass "the OpenCode plugin surfaces the guard's refusal and ignores non-bash tools"
+}
+
 test_project_reads_are_denied_outright
 test_no_state_file_paces_the_guard
 test_firstmate_home_clones_are_supervision_not_project_work
 test_fleet_scripts_and_axi_tools_always_allowed
+test_wrappers_do_not_hide_the_lead_word
+test_redirection_targets_are_classified
 test_build_run_and_write_shapes_never_pass
 test_read_grep_glob_edit_write_tools_are_classified
 test_home_and_neutral_paths_stay_free
@@ -334,6 +507,9 @@ test_deny_message_names_the_dispatch_path
 test_crewmate_worktree_and_non_firstmate_repo_are_inert
 test_secondmate_home_is_in_scope
 test_stdin_transports_and_output_shapes
+test_harness_tool_names_and_cursor_rendering
 test_malformed_transport_fails_open
 test_other_tools_and_mcp_names_are_out_of_scope
 test_tracked_registration_covers_the_classified_tools
+test_every_primary_harness_registration_reaches_the_guard
+test_opencode_plugin_blocks_a_denied_command
