@@ -248,19 +248,32 @@ test_server_refuses_bad_input_before_running_anything() {
   start_server "$home" || fail "the server did not start"
   port=$SERVER_PORT
 
-  assert_contains "$(post "$port" /api/answer '{"home":"main","id":"cc-live","text":"   "}')" \
+  assert_contains "$(post "$port" /api/answer '{"home":"main","id":"cc-live","source":"hold","key":"cc-live","text":"   "}')" \
     'an empty answer is not an answer' "an empty answer was accepted"
-  assert_contains "$(post "$port" /api/answer '{"home":"main","id":"../../etc/passwd","text":"x"}')" \
+  assert_contains "$(post "$port" /api/answer '{"home":"main","id":"../../etc/passwd","source":"hold","text":"x"}')" \
     '"ok":false' "a traversal-shaped task id was not refused"
-  assert_contains "$(post "$port" /api/answer '{"home":"main","id":"cc-nonexistent","text":"x"}')" \
+  assert_contains "$(post "$port" /api/answer '{"home":"main","id":"cc-nonexistent","source":"hold","key":"cc-nonexistent","text":"x"}')" \
     'no longer waiting for you' "an unknown item was not refused"
   assert_contains "$(post "$port" /api/answer \
-      "{\"home\":\"main\",\"id\":\"cc-live\",\"text\":\"$(head -c 9000 /dev/zero | tr '\0' 'a')\"}")" \
+      "{\"home\":\"main\",\"id\":\"cc-live\",\"source\":\"hold\",\"key\":\"cc-live\",\"text\":\"$(head -c 9000 /dev/zero | tr '\0' 'a')\"}")" \
     '8192 bytes' "an oversize answer was not refused at the recorded-decision limit"
   assert_equals "400" \
-    "$(curl -s -o /dev/null -w '%{http_code}' -X POST -d 'not json' \
-        "http://127.0.0.1:$port/api/answer")" \
+    "$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' \
+        -d 'not json' "http://127.0.0.1:$port/api/answer")" \
     "an unreadable request body was not refused"
+  # The trust boundary is loopback, so a page the captain happens to have open
+  # must not be able to steer a worker as him.
+  assert_equals "403" \
+    "$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+        -H 'Content-Type: text/plain' -H 'Origin: http://evil.example' \
+        -H 'Sec-Fetch-Site: cross-site' \
+        -d '{"home":"main","id":"cc-live","source":"hold","key":"cc-live","text":"x"}' \
+        "http://127.0.0.1:$port/api/answer")" \
+    "a cross-site POST reached a firstmate command"
+  assert_equals "403" \
+    "$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: attacker.example' \
+        "http://127.0.0.1:$port/api/items")" \
+    "a rebound hostname could read the records"
   stop_server
   pass "bad input is refused before any firstmate command runs"
 }
@@ -280,7 +293,7 @@ test_answering_a_hold_records_the_captains_words_and_clears_the_item() {
   start_server "$home" || fail "the server did not start"
   port=$SERVER_PORT
   result=$(post "$port" /api/answer \
-    '{"home":"main","id":"cc-answer","text":"Green. Blue reads as disabled."}')
+    '{"home":"main","id":"cc-answer","source":"hold","key":"cc-answer","text":"Green. Blue reads as disabled."}')
   assert_contains "$result" '"ok":true' "the answer was not delivered"
   assert_contains "$result" 'fm-captain-hold.sh answer' \
     "a held decision was not answered through the script that owns decision records"

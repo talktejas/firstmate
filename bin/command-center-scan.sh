@@ -86,12 +86,15 @@ home_records() {  # prints "<id>\t<name>\t<path>"
 
 # --- fingerprint -------------------------------------------------------------
 fingerprint() {
-  local path
+  local path backlog
   while IFS=$'\t' read -r _ _ path; do
     [ -n "$path" ] || continue
+    # The same backlog file the scan reads, or the change check would go blind
+    # to every hold on a home whose .tasks.toml names another path.
+    backlog=$(backlog_path "$path") || backlog=
     stat -c '%Y %s %n' \
       "$path"/state/*.status "$path"/state/*.meta "$path"/state/*.inbox \
-      "$path"/state/.last-watcher-beat "$path"/data/backlog.md 2>/dev/null || true
+      "$path"/state/.last-watcher-beat ${backlog:+"$backlog"} 2>/dev/null || true
   done < <(home_records) | sort | cksum
 }
 

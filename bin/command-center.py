@@ -133,14 +133,28 @@ class Records:
                 return home["path"]
         return None
 
-    def item(self, home_id, task_id):
+    def item(self, home_id, task_id, source, key):
+        # A task can be waiting twice at once - captain-held AND stopped on its
+        # own status record - and the two are answered by different commands, so
+        # the record it came from is part of its identity, not a detail of it.
         for it in self.view().get("items", []):
-            if it["home"] == home_id and it["id"] == task_id:
+            if (it["home"], it["id"], it["source"], it.get("key") or "") \
+                    == (home_id, task_id, source, key):
                 return it
         return None
 
 
+def item_key(item):
+    """The identity the page uses too (itemKey in bin/command-center.html)."""
+    return "/".join([item["home"], item["source"], item["id"], item.get("key") or ""])
+
+
 def said_log(home):
+    """The one log, in the home this server was started on.
+
+    Every entry lands here whichever home the answer went to - the record
+    carries that - because this is the only log /api/said reads back.
+    """
     return os.path.join(home, "data", "command-center", "said.jsonl")
 
 
@@ -263,6 +277,24 @@ class Handler(BaseHTTPRequestHandler):
         except (json.JSONDecodeError, UnicodeDecodeError):
             return None
 
+    def _local_request(self):
+        """Hold the loopback trust boundary at the door.
+
+        Binding to 127.0.0.1 keeps the network out but not the captain's own
+        browser: any page he visits can post here, and a rebound hostname can
+        read here. Both arrive with a Host, Origin or Sec-Fetch-Site that is not
+        this server's, so that is what is checked.
+        """
+        port = self.server.server_address[1]
+        if self.headers.get("Host") not in (f"127.0.0.1:{port}", f"localhost:{port}"):
+            return False
+        site = self.headers.get("Sec-Fetch-Site")
+        if site is not None and site not in ("same-origin", "none"):
+            return False
+        origin = self.headers.get("Origin")
+        return origin is None or origin in (
+            f"http://127.0.0.1:{port}", f"http://localhost:{port}")
+
     def _text_field(self, payload):
         """Validate the one free-text field at the trust boundary."""
         text = payload.get("text")
@@ -278,6 +310,9 @@ class Handler(BaseHTTPRequestHandler):
     # --- routes --------------------------------------------------------------
     def do_GET(self):
         path = self.path.split("?", 1)[0]
+        if not self._local_request():
+            self._send(403, b"not your server", "text/plain; charset=utf-8")
+            return
         if path == "/":
             try:
                 with open(PAGE, "rb") as fh:
@@ -293,7 +328,6 @@ class Handler(BaseHTTPRequestHandler):
             self.records.refresh()
             view = self.records.view()
             view["error"] = self.records.error
-            view["said_count"] = len(read_said(self.records.home))
             etag = self.records.etag or "none"
             if self.headers.get("If-None-Match") == etag and not self.records.error:
                 self.send_response(304)
@@ -314,6 +348,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = self.path.split("?", 1)[0]
+        ctype = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+        if not self._local_request() or ctype != "application/json":
+            self._json(403, {"ok": False, "error": "refused: not this page"})
+            return
         payload = self._body()
         if payload is None or not isinstance(payload, dict):
             self._json(400, {"ok": False, "error": "unreadable request"})
@@ -324,9 +362,8 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if path == "/api/note":
-            home_path = self.records.home
-            ok, route, detail = send_note(home_path, text)
-            warn = record_said(home_path, {
+            ok, route, detail = send_note(self.records.home, text)
+            warn = record_said(self.records.home, {
                 "at": utc_now(), "kind": "note", "home": "main",
                 "text": text, "route": route, "delivered": ok, "detail": detail,
             }) if ok else None
@@ -337,12 +374,15 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/answer":
             home_id = payload.get("home")
             task_id = payload.get("id")
+            source = payload.get("source")
+            key = payload.get("key") or ""
             if not isinstance(home_id, str) or not isinstance(task_id, str) \
+                    or not isinstance(key, str) or source not in ("hold", "status") \
                     or not ID_RE.match(task_id):
                 self._json(400, {"ok": False, "error": "unknown item"})
                 return
             self.records.refresh(min_interval=0)
-            item = self.records.item(home_id, task_id)
+            item = self.records.item(home_id, task_id, source, key)
             home_path = self.records.home_path(home_id)
             if item is None or home_path is None:
                 self._json(404, {"ok": False,
@@ -353,9 +393,10 @@ class Handler(BaseHTTPRequestHandler):
             except subprocess.SubprocessError as exc:
                 self._json(502, {"ok": False, "error": f"delivery failed: {exc}"})
                 return
-            warn = record_said(home_path, {
+            warn = record_said(self.records.home, {
                 "at": utc_now(), "kind": "answer", "home": home_id, "item": task_id,
-                "key": item.get("key"), "title": item.get("title"),
+                "source": item["source"], "key": item.get("key"),
+                "item_key": item_key(item), "title": item.get("title"),
                 "text": text, "route": route, "delivered": ok, "detail": detail,
             }) if ok else None
             if ok:

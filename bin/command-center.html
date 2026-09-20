@@ -278,11 +278,6 @@
   .dlg textarea{width:100%;min-height:110px;resize:vertical;border:1px solid var(--line);
     border-radius:7px;padding:10px 11px;font:inherit;font-size:14px}
   .dlg-foot{display:flex;gap:9px;justify-content:flex-end;margin-top:13px}
-  .setting{display:flex;align-items:center;gap:9px;font-size:13px;margin-bottom:11px}
-  .setting input{width:62px;border:1px solid var(--line);border-radius:6px;padding:5px 7px;font:inherit}
-  .setting .hint{color:var(--faint);font-size:12px}
-  .gear{background:transparent;border:0;color:var(--faint);cursor:pointer;font-size:13px;padding:2px 4px}
-  .gear:hover{color:var(--ink)}
 </style></head>
 <body>
 
@@ -293,9 +288,7 @@
         <h1>Command Center</h1>
         <span class="live" id="live"><span class="beat"></span>Live</span>
       </div>
-      <div class="watcher" id="watcher"><span class="beat"></span><span>Checking…</span>
-        <button class="gear" id="open-settings" title="Where the numbers come from">⚙</button>
-      </div>
+      <div class="watcher" id="watcher"><span class="beat"></span><span>Checking…</span></div>
       <div class="search">
         <span class="mag">⌕</span>
         <input id="q" type="search" autocomplete="off"
@@ -347,21 +340,6 @@
   </form>
 </dialog>
 
-<dialog id="set-dlg">
-  <form method="dialog" class="dlg">
-    <h3>Where these numbers come from</h3>
-    <p>Nothing here is invented. The stuck thresholds are firstmate's own retry settings,
-       read rather than reimplemented.</p>
-    <div class="setting"><input type="text" value="90" readonly>
-      <span>seconds before an unread message is rung again<br>
-      <span class="hint"><code>FM_TASK_INBOX_GRACE_SECS</code></span></span></div>
-    <div class="setting"><input type="text" value="3" readonly>
-      <span>rings before firstmate calls it stuck — about 4½ minutes<br>
-      <span class="hint"><code>FM_TASK_INBOX_RING_MAX</code></span></span></div>
-    <p>Set either in your environment to change both firstmate's behaviour and this page.</p>
-    <div class="dlg-foot"><button class="send" value="ok">Close</button></div>
-  </form>
-</dialog>
 <script>
 "use strict";
 // The page is a view. Every fact it shows comes from /api/items, which is
@@ -369,8 +347,10 @@
 // the browser keeps is what is genuinely the captain's and nowhere else: an
 // unsent draft, and which items he has already looked at.
 
-// firstmate's own retry ladder (bin/fm-task-inbox-lib.sh), so "stuck" here and
-// "stuck" there are the same fact.
+// This page's own thresholds, defaulted to match firstmate's retry ladder
+// (FM_TASK_INBOX_GRACE_SECS and FM_TASK_INBOX_RING_MAX in
+// bin/fm-task-inbox-lib.sh). Nothing serves that environment to the browser, so
+// if either is overridden there, change these to match.
 const GRACE_SECS = 90, RING_MAX = 3;
 const STUCK_SECS = GRACE_SECS * RING_MAX;
 const POLL_MS = 3000;
@@ -438,7 +418,10 @@ const isPending = it => sentUnhandled(it).length > 0 && !isStuck(it);
 const isDeferred = it => Boolean(it.deferred_until) &&
   /^\d{4}-\d{2}-\d{2}$/.test(it.deferred_until) &&
   Date.parse(it.deferred_until + 'T00:00:00Z') / 1000 > nowSecs();
-const itemKey = it => it.home + '/' + it.id;
+// Matches item_key() in bin/command-center.py. A task can be captain-held AND
+// stopped on its own status record at once; the two are answered by different
+// commands, so home+id alone would merge them into one row and one draft.
+const itemKey = it => [it.home, it.source, it.id, it.key || ''].join('/');
 const isUnread = it => !state.seen[itemKey(it)];
 const projectOf = it => it.project || 'No project';
 const homeOf = id => state.view.homes.find(h => h.id === id) || {id, name:id};
@@ -495,11 +478,7 @@ function ordered(rows){
     dated.sort((a,b) => a.since_epoch - b.since_epoch);
   else
     dated.sort((a,b) => a.since_epoch - b.since_epoch);   // longest waiting first
-  // Stuck always floats, whichever order is chosen: somebody is blocked on it.
-  const boost = r => (isStuck(r) ? 0 : 1);
-  const all = dated.concat(undated);
-  return all.sort((a,b) => boost(a) - boost(b) ||
-    all.indexOf(a) - all.indexOf(b));
+  return dated.concat(undated);
 }
 
 // --- render ------------------------------------------------------------------
@@ -525,15 +504,13 @@ function renderWatcher(){
     el.style.background = 'var(--warn-soft)';
     el.innerHTML = `<span class="lamp unknown"></span><span><b>Firstmate is not watching
       ${stale.map(h => esc(h.name)).join(', ')}.</b> An answer you send there is saved, but
-      nothing will ring it until firstmate is back.</span>
-      <button class="gear" id="open-settings" title="Where the numbers come from">⚙</button>`;
+      nothing will ring it until firstmate is back.</span>`;
     return;
   }
   const newest = Math.max(...(state.view.homes || []).map(h => h.watcher_beat_epoch || 0));
   const ago = nowSecs() - newest;
   el.innerHTML = `<span class="beat"></span><span><b>Firstmate is up.</b>
-    Last heard from ${ago < 60 ? ago + ' seconds' : Math.round(ago/60) + ' minutes'} ago.</span>
-    <button class="gear" id="open-settings" title="Where the numbers come from">⚙</button>`;
+    Last heard from ${ago < 60 ? ago + ' seconds' : Math.round(ago/60) + ' minutes'} ago.</span>`;
 }
 
 function itemRow(it){
@@ -576,14 +553,13 @@ function renderWords(){
   if (!rows.length){ $('#list').innerHTML = head + '<div class="empty">Nothing yet.</div>'; return; }
   $('#list').innerHTML = head + rows.map(r => {
     const draft = r.kind === 'draft';
-    const item = (state.view.items || []).find(i =>
-      itemKey(i) === (r.key || (r.home + '/' + r.item)));
+    const item = (state.view.items || []).find(i => itemKey(i) === (r.item_key || r.key));
     const where = item ? esc(item.title)
       : r.kind === 'note' ? 'Note to firstmate — not about one item'
       : esc(r.title || r.item || '—');
     const out = draft ? 'Not sent. Kept here so it is not lost.'
       : (r.delivered ? 'Delivered through ' + esc(r.route) : 'Not delivered: ' + esc(r.detail || ''));
-    return `<button class="word" data-key="${esc(r.key || (item ? itemKey(item) : ''))}">
+    return `<button class="word" data-key="${esc(r.item_key || (draft ? r.key : '') || '')}">
       <span class="word-top">
         <span class="word-when">${esc(draft ? 'unsent' : (r.at || '').replace('T',' ').replace('Z',''))}</span>
         <span class="word-where">${where}</span>
@@ -751,8 +727,9 @@ async function poll(){
   try {
     const res = await fetch('/api/items', {
       headers: state.etag ? {'If-None-Match': state.etag} : {} });
+    if (!res.ok && res.status !== 304) throw new Error('HTTP ' + res.status);
+    $('#live').innerHTML = '<span class="beat"></span>Live';
     if (res.status === 304) return;
-    if (!res.ok) throw new Error('HTTP ' + res.status);
     state.etag = res.headers.get('ETag');
     const next = await res.json();
     const before = new Set((state.view.items || []).map(itemKey));
@@ -790,7 +767,7 @@ async function sendAnswer(){
   if (!text || state.sending) return;
   state.sending = true; renderMain();
   const { ok, data } = await post('/api/answer',
-    { home: it.home, id: it.id, text });
+    { home: it.home, id: it.id, source: it.source, key: it.key || '', text });
   state.sending = false;
   if (!ok || !data.ok){
     $('#sendnote').innerHTML = `<b style="color:var(--hot)">Not sent.</b> ${
@@ -821,8 +798,7 @@ document.addEventListener('click', async e => {
   if (e.target.id === 'send'){ await sendAnswer(); return; }
   if (e.target.id === 'defer'){ state.open = null; render(); return; }
   if (e.target.id === 'clr'){ state.q = ''; $('#q').value = ''; renderList(); return; }
-  if (e.target.id === 'open-note'){ $('#note-dlg').showModal(); return; }
-  if (e.target.id === 'open-settings'){ $('#set-dlg').showModal(); }
+  if (e.target.id === 'open-note'){ $('#note-dlg').showModal(); }
 });
 
 $('#grouping').addEventListener('change', e => { state.group = e.target.value; renderList(); });
