@@ -370,8 +370,9 @@ Once validation starts, prefer routing new requirements to follow-up work rather
 
 Only a current, explicit captain instruction that completely invalidates the work being validated keeps the task with the same worker instead of routing it to follow-up work or handing it to a replacement.
 That worker cancels the active run through no-mistakes axi's supported abort command and confirms through axi status that the run has stopped before changing any code.
-The worker then follows `branch_sync.next_action` from structured axi status: use axi sync's supported guarded recovery only when its code is `recover_custody`, and otherwise proceed only when structured status confirms that branch ownership is already returned and no recovery is required.
-Custody recovery settles branch ownership, not content: the worker must replace the obsolete work from the correct pre-invalidation base rather than building on top of the recovered-but-obsolete head, keeping the obsolete run's own pipeline-fix commits out of what gets validated and shipped.
+The worker then follows `branch_sync.next_action` from structured axi status: when its code is `recover_custody`, run that same `next_action.command` exactly as printed, because the guarded recovery variants are not interchangeable and none of them may be composed from the code name; otherwise proceed only when structured status confirms that branch ownership is already returned and no recovery is required.
+Custody recovery settles branch ownership, not content, and the recovered branch is spent: the pipeline publishes only a head equal to or descended from the head it reviewed, so rewriting that branch back onto the pre-invalidation base leaves every later run on it refused.
+The replacement work therefore starts on a fresh branch from the correct pre-invalidation base, leaving the obsolete run's own pipeline-fix commits behind, and the recovered branch and any PR it opened are abandoned rather than repaired.
 Apart from that single supported abort, do not hand-edit, commit, restart, or start a second validation run while the obsolete run still owns the branch.
 Once ownership is settled, validate exactly once against that final head so no obsolete or intermediate head is ever treated as authoritative.
 
