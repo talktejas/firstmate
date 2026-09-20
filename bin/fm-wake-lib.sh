@@ -1218,19 +1218,23 @@ fm_firstmate_root_home() {
 #
 # The refusal itself is the CALLER's to phrase, because "nothing was changed"
 # means something different to a cleanup than to a spawn holding a pool lease:
-# what happened is left in FM_LOCAL_STATES_ERROR, and the registry file the
-# operator has to repair in FM_LOCAL_STATES_ERROR_REGISTRY (empty when the walk
-# never reached a registry).
+# what happened is left in FM_LOCAL_STATES_ERROR, the home whose records went
+# unread in FM_LOCAL_STATES_ERROR_HOME, and the registry file the operator has
+# to repair in FM_LOCAL_STATES_ERROR_REGISTRY (empty when the walk never reached
+# a registry, which means the home's own parent marker is what is broken).
 FM_LOCAL_STATES_ERROR=
+FM_LOCAL_STATES_ERROR_HOME=
 FM_LOCAL_STATES_ERROR_REGISTRY=
 collect_local_firstmate_states() {  # <record-state-dir>
   local record_state=$1 root home reg line child known existing i=0
   local -a homes
   TREEHOUSE_OWNER_STATES=("$record_state")
   FM_LOCAL_STATES_ERROR=
+  FM_LOCAL_STATES_ERROR_HOME=
   FM_LOCAL_STATES_ERROR_REGISTRY=
   root=$(fm_firstmate_root_home "$FM_HOME") || {
     FM_LOCAL_STATES_ERROR="cannot resolve the root Firstmate home"
+    FM_LOCAL_STATES_ERROR_HOME=$FM_HOME
     return 1
   }
   homes=("$root")
@@ -1246,6 +1250,7 @@ collect_local_firstmate_states() {  # <record-state-dir>
     [ ! -e "$reg" ] && [ ! -L "$reg" ] && continue
     [ -f "$reg" ] && [ ! -L "$reg" ] || {
       FM_LOCAL_STATES_ERROR="local Firstmate registry is unsafe at $reg"
+      FM_LOCAL_STATES_ERROR_HOME=$home
       FM_LOCAL_STATES_ERROR_REGISTRY=$reg
       return 1
     }
@@ -1258,12 +1263,14 @@ collect_local_firstmate_states() {  # <record-state-dir>
         "- "*)
           secondmate_registry_parse_line "$line" || {
             FM_LOCAL_STATES_ERROR="malformed local Firstmate registry entry in $reg"
+            FM_LOCAL_STATES_ERROR_HOME=$home
             FM_LOCAL_STATES_ERROR_REGISTRY=$reg
             return 1
           }
           [ "$SECONDMATE_REGISTRY_REMOTE" -eq 0 ] || continue
           child=$(CDPATH='' cd -- "$SECONDMATE_REGISTRY_HOME" 2>/dev/null && pwd -P) || {
             FM_LOCAL_STATES_ERROR="registered local Firstmate home is unavailable: $SECONDMATE_REGISTRY_HOME"
+            FM_LOCAL_STATES_ERROR_HOME=$SECONDMATE_REGISTRY_HOME
             FM_LOCAL_STATES_ERROR_REGISTRY=$reg
             return 1
           }
