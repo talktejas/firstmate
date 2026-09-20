@@ -13,8 +13,13 @@ Confirmed still present as of the installed 0.1.63 (the original report checked 
 ## The patch
 
 `bin/fm-lavish-client-patch.sh` edits the installed `dist/chrome-client.js` in place.
-It releases the page's `EventSource` when the tab goes to the background (`document.visibilitychange`, `document.hidden`) and reopens it when the tab is shown again.
+It releases the page's `EventSource` when the tab goes to the background (`document.visibilitychange`, `document.hidden`) and reopens it when the tab is shown again; a page opened straight into a background tab never takes a connection until it is first looked at.
 Since the captain looks at one page at a time, this removes the six-page ceiling entirely.
+Because the server only replays chat and presence to a reconnecting stream, a reopened page also resyncs the artifact frame, so a regeneration pushed while the tab was hidden is not missed.
+
+One tradeoff this patch does not solve: while every review page is hidden, the shared server sees no connections, so its idle timer runs.
+If the whole browser stays backgrounded or minimized for `LAVISH_AXI_IDLE_TIMEOUT_MS` (default 30m) with no agent polling, the server shuts down and the open pages go dead until it is relaunched.
+Raise or disable that timeout on the shared server if that bites.
 
 Run it any time to check or reapply:
 

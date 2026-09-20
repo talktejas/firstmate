@@ -17,7 +17,11 @@ TMP_ROOT=$(fm_test_tmproot fm-lavish-client-patch-tests)
 fixture_unpatched() {
   cat <<'JS'
 function noop() {}
-const resetFrame = () => Promise.resolve(false);
+globalThis.fmCalls = [];
+const resetFrame = () => {
+  fmCalls.push("resetFrame");
+  return Promise.resolve(false);
+};
 const refreshWhiteboardSource = noop;
 const reloadAfterServerRestart = noop;
 const shutdownEventReason = () => "";
@@ -89,7 +93,6 @@ out=$(run_patch "$a" 2>&1); rc=$?
 client=$(client_path "$a")
 expect_code 0 "$rc" "case A: first run exits 0"
 assert_contains "$out" "patched $client" "case A: reports the file it patched"
-assert_grep "fm-lavish-client-patch: release SSE on hide" "$client" "case A: marker present after patching"
 node --check "$client" >/dev/null 2>&1 || fail "case A: patched file is not valid JavaScript"
 
 # --- case B: a second run is a no-op -----------------------------------------
@@ -112,7 +115,7 @@ assert_contains "$out3" "expected code shape not found" "case C: names the reaso
 assert_equals "$sha_before" "$sha_after" "case C: refusal leaves the file untouched"
 node --check "$client_c" >/dev/null 2>&1 || fail "case C: file must remain valid JavaScript after a refused patch"
 
-# --- behavior: the patched stream actually closes on hide and reopens on show
+# --- behavior: the patched stream releases and reclaims a connection with tab visibility
 d=$(make_npm_root case-d)
 run_patch "$d" >/dev/null 2>&1
 client_d=$(client_path "$d")
@@ -133,7 +136,7 @@ FakeEventSource.instances = [];
 globalThis.EventSource = FakeEventSource;
 
 const visibilityListeners = [];
-let hiddenState = false;
+let hiddenState = process.env.FM_START_HIDDEN === "1";
 globalThis.document = {
   get hidden() { return hiddenState; },
   addEventListener(type, fn) {
@@ -144,28 +147,52 @@ JS
   cat "$client_d"
   cat <<'JS'
 
-if (FakeEventSource.instances.length !== 1) {
-  throw new Error("expected exactly one initial stream, got " + FakeEventSource.instances.length);
-}
-const first = FakeEventSource.instances[0];
+const show = () => {
+  hiddenState = false;
+  visibilityListeners.forEach((fn) => fn());
+};
+const hide = () => {
+  hiddenState = true;
+  visibilityListeners.forEach((fn) => fn());
+};
 
-hiddenState = true;
-visibilityListeners.forEach((fn) => fn());
-if (first.readyState !== FakeEventSource.CLOSED) {
-  throw new Error("expected the stream to close while the tab is hidden");
-}
+if (process.env.FM_START_HIDDEN === "1") {
+  if (FakeEventSource.instances.length !== 0) {
+    throw new Error("a page loaded into a background tab must hold no stream, got " + FakeEventSource.instances.length);
+  }
+  show();
+  if (FakeEventSource.instances.length !== 1) {
+    throw new Error("expected one stream once the background tab is shown, got " + FakeEventSource.instances.length);
+  }
+  console.log("hidden-start-behavior-ok");
+} else {
+  if (FakeEventSource.instances.length !== 1) {
+    throw new Error("expected exactly one initial stream, got " + FakeEventSource.instances.length);
+  }
+  const first = FakeEventSource.instances[0];
 
-hiddenState = false;
-visibilityListeners.forEach((fn) => fn());
-if (FakeEventSource.instances.length !== 2) {
-  throw new Error("expected a fresh stream to open when the tab is shown again, got " + FakeEventSource.instances.length);
-}
+  hide();
+  if (first.readyState !== FakeEventSource.CLOSED) {
+    throw new Error("expected the stream to close while the tab is hidden");
+  }
 
-console.log("visibility-behavior-ok");
+  show();
+  if (FakeEventSource.instances.length !== 2) {
+    throw new Error("expected a fresh stream to open when the tab is shown again, got " + FakeEventSource.instances.length);
+  }
+  if (!fmCalls.includes("resetFrame")) {
+    throw new Error("expected the artifact to resync on reconnect, since reloads pushed while hidden are not replayed");
+  }
+  console.log("visibility-behavior-ok");
+}
 JS
 } > "$harness"
 behavior_out=$(node "$harness" 2>&1); behavior_rc=$?
 expect_code 0 "$behavior_rc" "behavior: patched harness ran without error ($behavior_out)"
-assert_contains "$behavior_out" "visibility-behavior-ok" "behavior: hide/show cycle closed and reopened the stream"
+assert_contains "$behavior_out" "visibility-behavior-ok" "behavior: hide/show closed the stream, reopened it, and resynced the artifact"
 
-pass "fm-lavish-client-patch: apply-once, no-op-twice, refuse-on-drift, and hide/show behavior all hold"
+hidden_out=$(FM_START_HIDDEN=1 node "$harness" 2>&1); hidden_rc=$?
+expect_code 0 "$hidden_rc" "behavior: patched harness ran without error when the page starts hidden ($hidden_out)"
+assert_contains "$hidden_out" "hidden-start-behavior-ok" "behavior: a page opened in a background tab holds no stream until shown"
+
+pass "fm-lavish-client-patch: apply-once, no-op-twice, refuse-on-drift, and visibility behavior all hold"

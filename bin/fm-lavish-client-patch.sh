@@ -75,15 +75,22 @@ function fmBindEventsStream() {
   // A reconnecting stream means this chrome may have missed updates while it was away.
   events.addEventListener("open", () => refreshLayoutWarnings());
 }
-fmBindEventsStream();
 // fm-lavish-client-patch: release SSE on hide - each open page permanently holds one of the
-// browser'"'"'s six per-origin connections; drop it while backgrounded and reopen when shown again
+// browser'"'"'s six per-origin connections; drop it while backgrounded (a page opened into a
+// background tab never binds one at all) and reopen when shown again, resyncing the artifact
+// because the server does not replay reloads missed while away
 // (bin/fm-lavish-client-patch.sh, docs/lavish-connection-limit.md).
+if (!document.hidden) fmBindEventsStream();
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
-    events.close();
+    events?.close();
+  } else if (!events) {
+    fmBindEventsStream();
   } else if (events.readyState === EventSource.CLOSED) {
     fmBindEventsStream();
+    resetFrame().then((reloaded) => {
+      if (reloaded) refreshWhiteboardSource();
+    });
   }
 });`;
 
