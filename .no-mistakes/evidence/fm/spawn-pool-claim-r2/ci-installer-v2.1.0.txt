@@ -1,0 +1,11 @@
+### bin/fm-install-treehouse.sh <dir> - real download + SHA-256 verification (linux-amd64)
+fm-install-treehouse.sh: downloading treehouse-v2.1.0-linux-amd64.tar.gz from https://github.com/kunchenguid/treehouse/releases/download/v2.1.0/treehouse-v2.1.0-linux-amd64.tar.gz
+fm-install-treehouse.sh: installed treehouse v2.1.0 to /tmp/fm-th-pin/treehouse
+v2.1.0
+installer exit=0
+
+### advertised flag surface of the installed pin
+v2.1.0
+      --lease                 Durably lease a worktree without opening a subshell; print only its path to stdout
+      --lease-holder string   Optional label recorded as the lease holder (defaults to $TREEHOUSE_LEASE_HOLDER)
+      --if-lease-holder string   Return only if the current lease has this holder

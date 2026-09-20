@@ -1,0 +1,5 @@
+=== every pinned platform checksum in bin/fm-install-treehouse.sh, verified against the real v2.1.0 release assets ===
+  MATCH  linux-amd64  ff030255663bb5d384309cdf1b3a0bd62006e0ac978340d292039697cb70c225
+  MATCH  linux-arm64  d4e37ad11d50fb6381c060d34e7372e944e01af78b0c6707c6d0ff966c7c2c44
+  MATCH  darwin-arm64  a2e9bcba88d643a828062f3425dcf601886372fc2aca87b542b36fc8bbf2c992
+  MATCH  darwin-amd64  8eb2eb3b63f409a316bd9c19af5d3035e5b72f6feffc98f0fac658e1ed33a397

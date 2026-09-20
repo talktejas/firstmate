@@ -1,0 +1,21 @@
+=== PRE-FIX bin/fm-spawn.sh (base commit e80a29a), real treehouse v2.1.0 ===
+
+=== 1. spawn alpha-1 ===
+  warning: /tmp/fm-base-repro.2pSark/home/data/alpha-1/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+  spawned alpha-1 harness=codex kind=ship mode=no-mistakes yolo=off window=firstmate:fm-alpha-1 worktree=/tmp/fm-base-repro.2pSark/project/.treehouse/project-2ae262/1/project
+  alpha-1 worktree : /tmp/fm-base-repro.2pSark/project/.treehouse/project-2ae262/1/project
+  alpha-1 claim    : (none - pre-fix record carries no pool claim)
+
+=== 2. alpha-1 does work; its agent exits (paused task, nothing running in the copy) ===
+  branch: alpha-feature, WIP present: yes
+  pool sees:
+    [{"name":"1","path":"/tmp/fm-base-repro.2pSark/project/.treehouse/project-2ae262/1/project","status":"available","lease_id":"","lease_holder":"","leased_at":null,"processes":[]}]
+
+=== 3. a new spawn (beta-2) asks the pool ===
+  warning: /tmp/fm-base-repro.2pSark/home/data/beta-2/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+  spawned beta-2 harness=codex kind=ship mode=no-mistakes yolo=off window=firstmate:fm-beta-2 worktree=/tmp/fm-base-repro.2pSark/project/.treehouse/project-2ae262/1/project
+  beta-2 worktree  : /tmp/fm-base-repro.2pSark/project/.treehouse/project-2ae262/1/project
+
+=== 4. verdict (pre-fix) ===
+  REPRODUCED: beta-2 was handed alpha-1's live copy - the 2026-08-19 incident
+  alpha-1's copy now: HEAD=HEAD detached=YES WIP present=NO

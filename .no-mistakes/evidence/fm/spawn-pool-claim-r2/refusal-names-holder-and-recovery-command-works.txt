@@ -1,0 +1,34 @@
+=== 1. legacy task 'oldtimer-9' holds a pool copy with nothing but its processes (spawned before claims existed) ===
+  oldtimer-9's record still names : /tmp/fm-refusal-recovery.8MziIC/project/.treehouse/project-9e21c8/1/project
+  its record carries a claim      : 0 line(s)
+  the pool sees that copy as      : "status":"available"
+
+=== 2. a new spawn is offered that very copy ===
+  exit: 1
+  warning: /tmp/fm-refusal-recovery.8MziIC/home/data/newcomer-10/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+  A new version of treehouse is available: v2.1.0 → v2.3.0
+  Run "treehouse update" to update
+  
+  🌳 Setting up worktree...
+  🌳 Leased worktree at /tmp/fm-refusal-recovery.8MziIC/project/.treehouse/project-9e21c8/1/project. Run 'treehouse return /tmp/fm-refusal-recovery.8MziIC/project/.treehouse/project-9e21c8/1/project' to release it.
+  error: the pool offered '/tmp/fm-refusal-recovery.8MziIC/project/.treehouse/project-9e21c8/1/project', which task oldtimer-9's own record still names as its working copy; refusing to launch task newcomer-10 into it and reset another worker's work
+  That copy is now held under 'fm:newcomer-10@/tmp/fm-refusal-recovery.8MziIC/home/state' so it is not offered again; reconcile whichever record is wrong (bin/fm-crew-state.sh oldtimer-9), then release it with: (cd '/tmp/fm-refusal-recovery.8MziIC/project' && treehouse return --force --if-lease-holder 'fm:newcomer-10@/tmp/fm-refusal-recovery.8MziIC/home/state' '/tmp/fm-refusal-recovery.8MziIC/project/.treehouse/project-9e21c8/1/project')
+  Re-running this spawn is safe: it is given a different copy.
+
+=== 2b. adversarial: the refusal claims re-running is safe - re-run it right now, while the bad copy is still quarantined ===
+  spawned newcomer-10 harness=codex kind=ship mode=no-mistakes yolo=off window=firstmate:fm-newcomer-10 worktree=/tmp/fm-refusal-recovery.8MziIC/project/.treehouse/project-9e21c8/2/project
+  PASS: the re-run was given a different copy (/tmp/fm-refusal-recovery.8MziIC/project/.treehouse/project-9e21c8/2/project) and launched - the pool did not deadlock on the quarantined slot
+
+=== 3. the operator pastes the printed recovery command VERBATIM, from an unrelated working directory ===
+  cwd: /
+  $ (cd '/tmp/fm-refusal-recovery.8MziIC/project' && treehouse return --force --if-lease-holder 'fm:newcomer-10@/tmp/fm-refusal-recovery.8MziIC/home/state' '/tmp/fm-refusal-recovery.8MziIC/project/.treehouse/project-9e21c8/1/project')
+  A new version of treehouse is available: v2.1.0 → v2.3.0
+  Run "treehouse update" to update
+  
+  🌳 Worktree returned to pool.
+  recovery exit: 0
+
+=== 4. after recovery ===
+  [{"name":"1","path":"/tmp/fm-refusal-recovery.8MziIC/project/.treehouse/project-9e21c8/1/project","status":"available","lease_id":"","lease_holder":"","leased_at":null,"processes":[]},{"name":"2","path":"/tmp/fm-refusal-recovery.8MziIC/project/.treehouse/project-9e21c8/2/project","status":"leased","lease_id":"a23014e40baf365abbe946a3ec5dea2b","lease_holder":"fm:newcomer-10@/tmp/fm-refusal-recovery.8MziIC/home/state","leased_at":"2026-09-20T18:11:30.394581889+07:00","processes":[]}]
+  quarantined slot now: [{"name":"1","path":"/tmp/fm-refusal-recovery.8MziIC/project/.treehouse/project-9e21c8/1/project","status":"available","lease_id":"","lease_holder":"","leased_at":null,"processes":[]},{"name":"2","path":"/tmp/fm-refusal-recovery.8MziIC/project/.treehouse/project-9e21c8/2/project","status":"leased","lease_id":"a23014e40baf365abbe946a3ec5dea2b","lease_holder":"fm:newcomer-10@/tmp/fm-refusal-recovery.8MziIC/home/state","leased_at":"2026-09-20T18:11:30.394581889+07:00","processes":[]}]
+  PASS: the pasted command released the quarantine claim and returned that slot to the pool

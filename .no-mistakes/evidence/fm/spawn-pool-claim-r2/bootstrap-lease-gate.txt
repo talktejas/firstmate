@@ -1,0 +1,8 @@
+### A. real pinned treehouse (v2.1.0, installed by fm-install-treehouse.sh)
+v2.1.0
+bootstrap output: []
+RESULT: PASS - pinned build satisfies the lease gate
+
+### B. v2.0.1-shaped build: get --lease/--lease-holder, no return --if-lease-holder
+bootstrap output: [MISSING: treehouse (install: curl -fsSL https://kunchenguid.github.io/treehouse/install.sh | sh)]
+RESULT: PASS - gate refuses a build with no holder-matched release

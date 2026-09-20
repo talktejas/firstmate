@@ -1,0 +1,15 @@
+=== tests/fm-spawn-dispatch-profile.test.sh (CI lane 'Behavior portable serial 8') ===
+
+-- BEFORE: the suite's pass-through 'timeout' stub dropped one argument, so the branch's
+   bounded pool allocation (timeout -k <bound> <bound> treehouse get --lease) tried to exec the bound --
+   not ok - allowlist=absent spawn should succeed: warning: /tmp/fm-spawn-dispatch-profile.PbLzcB/env-absent/home/data/env-absent/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+   /tmp/fm-spawn-dispatch-profile.PbLzcB/env-absent/fake/fakebin/timeout: line 3: exec: 60: not found
+   error: treehouse get --lease could not lease a worktree for project '/tmp/fm-spawn-dispatch-profile.PbLzcB/env-absent/project'; nothing was launched: expected exit 0, got 1
+
+-- AFTER: stub teaches the GNU -k shape; suite green --
+   exit=0
+   59
+   ok - active crew-dispatch profile does not block secondmate launches
+   # all fm-spawn-dispatch-profile tests passed
+   
+   [exited with code 0]

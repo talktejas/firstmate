@@ -1,0 +1,35 @@
+== treehouse version ==
+v2.1.0
+
+== spawn-style claim: get --lease --lease-holder ==
+A new version of treehouse is available: v2.1.0 → v2.3.0
+Run "treehouse update" to update
+
+🌳 Setting up worktree...
+🌳 Leased worktree at /tmp/tmp.kNdGSFl67h/repo/.treehouse/repo-4d2c79/1/repo. Run 'treehouse return /tmp/tmp.kNdGSFl67h/repo/.treehouse/repo-4d2c79/1/repo' to release it.
+leased slot: /tmp/tmp.kNdGSFl67h/repo/.treehouse/repo-4d2c79/1/repo
+
+== pool state while claimed ==
+A new version of treehouse is available: v2.1.0 → v2.3.0
+Run "treehouse update" to update
+
+[{"name":"1","path":"/tmp/tmp.kNdGSFl67h/repo/.treehouse/repo-4d2c79/1/repo","status":"leased","lease_id":"f1cb92017ba93e19e34326f124c34b60","lease_holder":"fm:task-42@/home/u/state","leased_at":"2026-09-20T17:25:14.610895162+07:00","processes":[]}]
+
+== ordinary teardown release: treehouse return --force <slot> ==
+A new version of treehouse is available: v2.1.0 → v2.3.0
+Run "treehouse update" to update
+
+🌳 Worktree returned to pool.
+return exit: 0
+
+== pool state after ordinary teardown ==
+A new version of treehouse is available: v2.1.0 → v2.3.0
+Run "treehouse update" to update
+
+[{"name":"1","path":"/tmp/tmp.kNdGSFl67h/repo/.treehouse/repo-4d2c79/1/repo","status":"available","lease_id":"","lease_holder":"","leased_at":null,"processes":[]}]
+
+== is the claim gone? ==
+A new version of treehouse is available: v2.1.0 → v2.3.0
+Run "treehouse update" to update
+
+OK: teardown released the claim

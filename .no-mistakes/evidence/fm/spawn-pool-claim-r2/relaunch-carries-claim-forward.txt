@@ -1,0 +1,12 @@
+=== record before the relaunch ===
+  worktree=/tmp/fm-relaunch-claim2.s1E5fq/case/wt
+  worktree_lease=fm:relaunch-claim-1@/tmp/fm-relaunch-claim2.s1E5fq/case/home/state
+
+=== fm-spawn.sh relaunch-claim-1 --relaunch ===
+  warning: /tmp/fm-relaunch-claim2.s1E5fq/case/home/data/relaunch-claim-1/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+  spawned relaunch-claim-1 harness=claude kind=ship mode=no-mistakes yolo=off window=fmses:fm-relaunch-claim-1 worktree=/tmp/fm-relaunch-claim2.s1E5fq/case/wt
+
+=== record after the relaunch ===
+  worktree=/tmp/fm-relaunch-claim2.s1E5fq/case/wt
+  worktree_lease=fm:relaunch-claim-1@/tmp/fm-relaunch-claim2.s1E5fq/case/home/state
+  PASS: the relaunch carried the task's original pool claim forward, exactly once

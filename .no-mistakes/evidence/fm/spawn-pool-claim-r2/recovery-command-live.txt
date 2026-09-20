@@ -1,0 +1,16 @@
+### Ordinary teardown path (treehouse return --force <slot>) frees a durable claim - real treehouse v2.1.0
+leased slot: /tmp/fm-recovery-cmd-check/repo/.treehouse/repo-ea1569/1/repo
+[{"name":"1","path":"/tmp/fm-recovery-cmd-check/repo/.treehouse/repo-ea1569/1/repo","status":"leased","lease_id":"7e786d71768652283211f190212edd19","lease_holder":"fm:recovery-demo@state","leased_at":"2026-09-20T18:07:17.140937317+07:00","processes":[]}]
+
+### Printed recovery command run from an unrelated cwd ($HOME), project-scoped form
+cwd: /home/tds
+$ (cd '/tmp/fm-recovery-cmd-check/repo' && treehouse return --force --if-lease-holder 'fm:someone-else@state' '/tmp/fm-recovery-cmd-check/repo/.treehouse/repo-ea1569/1/repo')   # wrong holder
+
+failed to return worktree: lease precondition failed: lease holder does not match worktree /tmp/fm-recovery-cmd-check/repo/.treehouse/repo-ea1569/1/repo
+exit=1
+$ (cd '/tmp/fm-recovery-cmd-check/repo' && treehouse return --force --if-lease-holder 'fm:recovery-demo@state' '/tmp/fm-recovery-cmd-check/repo/.treehouse/repo-ea1569/1/repo')   # holder that took it
+
+🌳 Worktree returned to pool.
+exit=0
+-- pool after:
+[{"name":"1","path":"/tmp/fm-recovery-cmd-check/repo/.treehouse/repo-ea1569/1/repo","status":"available","lease_id":"","lease_holder":"","leased_at":null,"processes":[]}]

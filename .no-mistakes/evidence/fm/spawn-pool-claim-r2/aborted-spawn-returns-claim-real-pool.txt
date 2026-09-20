@@ -1,0 +1,10 @@
+=== spawn whose pane never enters the leased copy (real treehouse v2.1.0) ===
+  warning: /tmp/fm-abort-release.gYdwCv/home/data/stuck-7/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+  🌳 Setting up worktree...
+  🌳 Leased worktree at /tmp/fm-abort-release.gYdwCv/project/.treehouse/project-4f0a48/1/project. Run 'treehouse return /tmp/fm-abort-release.gYdwCv/project/.treehouse/project-4f0a48/1/project' to release it.
+  error: window firstmate:fm-stuck-7 did not enter its leased worktree '/tmp/fm-abort-release.gYdwCv/project/.treehouse/project-4f0a48/1/project' within 60s (last seen 'none'; spawning project '/tmp/fm-abort-release.gYdwCv/project'); inspect window firstmate:fm-stuck-7
+  spawn exit: 1
+  task record published: no
+=== pool state after the abort ===
+  [{"name":"1","path":"/tmp/fm-abort-release.gYdwCv/project/.treehouse/project-4f0a48/1/project","status":"available","lease_id":"","lease_holder":"","leased_at":null,"processes":[]}]
+  PASS: the aborted spawn gave the claim straight back - no record, no orphaned claim

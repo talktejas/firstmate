@@ -1,0 +1,38 @@
+=== treehouse: v2.1.0 (real binary: /home/tds/.local/bin/treehouse) ===
+
+=== 1. spawn task alpha-1 ===
+  warning: /tmp/fm-real-pool.yurAva/home/data/alpha-1/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+  🌳 Setting up worktree...
+  🌳 Leased worktree at /tmp/fm-real-pool.yurAva/project/.treehouse/project-148de5/1/project. Run 'treehouse return /tmp/fm-real-pool.yurAva/project/.treehouse/project-148de5/1/project' to release it.
+  spawned alpha-1 harness=codex kind=ship mode=no-mistakes yolo=off window=firstmate:fm-alpha-1 worktree=/tmp/fm-real-pool.yurAva/project/.treehouse/project-148de5/1/project
+  alpha-1 worktree : /tmp/fm-real-pool.yurAva/project/.treehouse/project-148de5/1/project
+  alpha-1 claim    : worktree_lease=fm:alpha-1@/tmp/fm-real-pool.yurAva/home/state
+
+=== 2. alpha-1's worker does real work, then its agent EXITS (the paused task) ===
+  branch in alpha's copy : alpha-feature
+  uncommitted work       : alpha work in progress
+  processes in the slot  : 1 slot(s) with NO process inside
+  pool sees:
+    [{"name":"1","path":"/tmp/fm-real-pool.yurAva/project/.treehouse/project-148de5/1/project","status":"leased","lease_id":"29de33c1d36e739848efc07c49fac128","lease_holder":"fm:alpha-1@/tmp/fm-real-pool.yurAva/home/state","leased_at":"2026-09-20T18:11:10.272219351+07:00","processes":[]}]
+
+=== 3. a NEW spawn (beta-2) asks the pool for a worktree ===
+  warning: /tmp/fm-real-pool.yurAva/home/data/beta-2/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+  A new version of treehouse is available: v2.1.0 → v2.3.0
+  Run "treehouse update" to update
+  
+  🌳 Setting up worktree...
+  🌳 Leased worktree at /tmp/fm-real-pool.yurAva/project/.treehouse/project-148de5/2/project. Run 'treehouse return /tmp/fm-real-pool.yurAva/project/.treehouse/project-148de5/2/project' to release it.
+  spawned beta-2 harness=codex kind=ship mode=no-mistakes yolo=off window=firstmate:fm-beta-2 worktree=/tmp/fm-real-pool.yurAva/project/.treehouse/project-148de5/2/project
+  beta-2 worktree  : /tmp/fm-real-pool.yurAva/project/.treehouse/project-148de5/2/project
+
+=== 4. verdict ===
+  PASS: beta-2 got a DIFFERENT copy (/tmp/fm-real-pool.yurAva/project/.treehouse/project-148de5/2/project) - alpha-1's copy was never offered
+  PASS: alpha-1's copy still on branch alpha-feature with its uncommitted work intact (not reset to a detached HEAD)
+
+=== 5. ordinary teardown of alpha-1 releases its claim ===
+  A new version of treehouse is available: v2.1.0 → v2.3.0
+  Run "treehouse update" to update
+  
+  🌳 Worktree returned to pool.
+    [{"name":"1","path":"/tmp/fm-real-pool.yurAva/project/.treehouse/project-148de5/1/project","status":"available","lease_id":"","lease_holder":"","leased_at":null,"processes":[]},{"name":"2","path":"/tmp/fm-real-pool.yurAva/project/.treehouse/project-148de5/2/project","status":"leased","lease_id":"c596469460b72dd00e9d2b26f28fe59a","lease_holder":"fm:beta-2@/tmp/fm-real-pool.yurAva/home/state","leased_at":"2026-09-20T18:11:11.623639589+07:00","processes":[]}]
+  PASS: teardown released alpha-1's claim; slot is back in the pool

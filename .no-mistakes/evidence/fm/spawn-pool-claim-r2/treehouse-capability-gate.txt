@@ -1,0 +1,12 @@
+=== The capability gate the branch widened, run against real builds ===
+
+-- real treehouse v2.1.0 (the version bin/fm-install-treehouse.sh now pins for CI) --
+   advertised: get --lease
+   advertised: get --lease-holder
+   advertised: return --if-lease-holder
+
+-- the old pin, treehouse v2.0.1 (what the branch replaced) --
+   version: v2.0.1
+   advertised: get --lease
+   advertised: get --lease-holder
+   MISSING   : return --if-lease-holder  <- why the pin had to be raised
