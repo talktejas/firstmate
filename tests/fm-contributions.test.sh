@@ -564,6 +564,8 @@ case "$fault:$*" in
     printf 'HTTP 502\n' >&2; exit 1 ;;
   fail:'api repos/o/r/pulls/8/reviews?'*) printf 'HTTP 502\n' >&2; exit 1 ;;
   down:*) printf 'HTTP 502\n' >&2; exit 1 ;;
+  slow:*)
+    printf '%s\n' "$(( $(cat "$FORGE/clock") + 5 ))" > "$FORGE/clock" ;;
   *:'api repos/o/r/issues/9/comments?'*)
     if [ -f "$FORGE/clock" ]; then printf '%s\n' "$(( $(cat "$FORGE/clock") + 1 ))" > "$FORGE/clock"; fi ;;
   hang:'api repos/o/r/pulls/8') sleep 30 ;;
@@ -626,6 +628,28 @@ test_budget_too_small_for_one_observation_is_reported() {
     || fail 'second poll failed'
   [ -z "$out" ] || fail "a budget too small for one observation reported twice: $out"
   pass 'a budget that cannot finish one observation is reported once with the bound it needs'
+}
+
+test_unset_budget_takes_the_whole_watcher_bound() {
+  local home out
+  home=$(new_home unset-budget)
+  forge_home "$home"
+  wrap_forge "$home"
+  mutate_record "$home" delivery '.records[0].checked_at="2026-09-15T08:00:00Z"'
+  # Every forge read costs five seconds of the poll's clock, so one PR's eight
+  # calls need forty seconds of budget.
+  /bin/date +%s > "$home/forge/clock"
+  printf 'slow\n' > "$home/forge/fault"
+  out=$(with_home "$home" "$ROOT/bin/fm-contributions.sh" poll) || fail 'poll failed on a slow link'
+  [ "$out" = 'contributions: observation needs more than the 27s poll budget for https://github.com/o/r/pull/8; raise FM_CHECK_TIMEOUT to at least 138s' ] \
+    || fail "an unset budget did not take the whole watcher bound: $out"
+  /bin/date +%s > "$home/forge/clock"
+  out=$(with_home "$home" env FM_CHECK_TIMEOUT=60 "$ROOT/bin/fm-contributions.sh" poll) \
+    || fail 'poll failed with a raised watcher bound'
+  jq -e --arg now "$NOW" '.records[0].checked_at == $now and .records[0].error == null
+    and .records[0].observation != null' "$home/data/delivery/contributions.json" >/dev/null \
+    || fail "the advised bound did not buy the budget one observation needs: $out"
+  pass 'an unset budget follows FM_CHECK_TIMEOUT, so the advised bound observes the PR'
 }
 
 test_call_timeout_above_budget_is_the_calls_outcome() {
@@ -866,7 +890,7 @@ test_late_owner_keeps_failure_episode_suppressed() {
 }
 
 failures=0
-for test_name in test_actor_coverage test_stale_verdict test_unchecked_is_not_silence test_newest_check_has_no_verdict test_comment_wake test_review_wake test_inline_wake test_ready_issue_wake test_fresh_issue_requires_maintainer test_missing_lane_remains_missing test_partial_freshness_keeps_measured_rows test_malformed_record_cannot_prove_silence test_issue_timeline_and_exact_ack test_verdict_retains_judged_head test_observed_replacement_refreshes_verdict test_unobserved_head_leaves_verdict_unknown test_away_yolo_is_fleet_work test_away_yolo_cross_home_is_fleet_work test_retired_and_unsupported_coverage test_unsupported_forge_is_not_fleet_work test_held_unsupported_forge_is_not_captain_work test_shared_contribution_signal_wakes_once test_watcher_keeps_diagnostics_separate_from_contribution_wakes test_expired_child_unsupported_forge_stays_unmeasured test_watcher_surfaces_new_contribution_once test_home_summary_coverage test_unreadable_pending_is_not_empty test_budget_refusal_between_calls test_budget_bounded_call_timeout test_budget_too_small_for_one_observation_is_reported test_call_timeout_above_budget_is_the_calls_outcome test_per_call_timeout_is_unavailable test_genuine_failure_near_deadline_is_unavailable test_shared_url_observed_once test_terminal_contribution_settles test_late_owner_inherits_terminal_observation test_done_task_open_pr_still_observed test_failure_wakes_once_per_episode test_late_owner_keeps_failure_episode_suppressed; do
+for test_name in test_actor_coverage test_stale_verdict test_unchecked_is_not_silence test_newest_check_has_no_verdict test_comment_wake test_review_wake test_inline_wake test_ready_issue_wake test_fresh_issue_requires_maintainer test_missing_lane_remains_missing test_partial_freshness_keeps_measured_rows test_malformed_record_cannot_prove_silence test_issue_timeline_and_exact_ack test_verdict_retains_judged_head test_observed_replacement_refreshes_verdict test_unobserved_head_leaves_verdict_unknown test_away_yolo_is_fleet_work test_away_yolo_cross_home_is_fleet_work test_retired_and_unsupported_coverage test_unsupported_forge_is_not_fleet_work test_held_unsupported_forge_is_not_captain_work test_shared_contribution_signal_wakes_once test_watcher_keeps_diagnostics_separate_from_contribution_wakes test_expired_child_unsupported_forge_stays_unmeasured test_watcher_surfaces_new_contribution_once test_home_summary_coverage test_unreadable_pending_is_not_empty test_budget_refusal_between_calls test_budget_bounded_call_timeout test_budget_too_small_for_one_observation_is_reported test_unset_budget_takes_the_whole_watcher_bound test_call_timeout_above_budget_is_the_calls_outcome test_per_call_timeout_is_unavailable test_genuine_failure_near_deadline_is_unavailable test_shared_url_observed_once test_terminal_contribution_settles test_late_owner_inherits_terminal_observation test_done_task_open_pr_still_observed test_failure_wakes_once_per_episode test_late_owner_keeps_failure_episode_suppressed; do
   ( "$test_name" ) || failures=$((failures + 1))
 done
 [ "$failures" -eq 0 ] || fail "$failures contribution regressions"

@@ -31,17 +31,19 @@
 # an eligible merge remains a captain call, never an automatic forge action.
 #
 # poll consumes fm-fleet-snapshot.sh --contribution-input, a local-only read,
-# and spends at most FM_CONTRIBUTIONS_BUDGET seconds on forge reads (default
-# 20). The watcher kills this check at FM_CHECK_TIMEOUT (default 30) seconds,
-# so the budget is capped at FM_CHECK_TIMEOUT minus three: 27 seconds by
-# default, which leaves the default 20 untouched. Each gh call is bounded by
-# the remaining budget and FM_CONTRIBUTIONS_CALL_TIMEOUT seconds (default 15,
-# cut below the budget so a per-call kill is never mistaken for the deadline).
-# The 15-second default leaves headroom over the 12.2-second slow-link forge
-# call observed in the contributions-poll incident. A PR costs eight
-# sequential calls, so observing one at that bound needs 8 x 15 = 120 seconds
-# of forge time plus the local work between reads; the advised bound carries a
-# ninth call of margin for it, so FM_CHECK_TIMEOUT 9 x 15 + 3 = 138. When the
+# and spends at most FM_CONTRIBUTIONS_BUDGET seconds on forge reads. The
+# watcher kills this check at FM_CHECK_TIMEOUT (default 30) seconds, so the
+# whole bound available to a poll is FM_CHECK_TIMEOUT minus three: 27 seconds
+# by default. An unset budget takes that whole bound and a configured one is
+# capped by it, so raising FM_CHECK_TIMEOUT is what buys a slow link more
+# forge time. Each gh call is bounded by the remaining budget and
+# FM_CONTRIBUTIONS_CALL_TIMEOUT seconds (default 15, cut below the budget so a
+# per-call kill is never mistaken for the deadline). The 15-second default
+# leaves headroom over the 12.2-second slow-link forge call observed in the
+# contributions-poll incident. A PR costs eight sequential calls, so observing
+# one at that bound needs 8 x 15 = 120 seconds of forge time plus the local
+# work between reads; the advised bound carries a ninth call of margin for it,
+# so FM_CHECK_TIMEOUT 9 x 15 + 3 = 138 buys a 135-second budget. When the
 # whole budget goes to one PR and it still does not finish, the poll records
 # that URL unavailable naming the bound it needs, rather than leaving it
 # silently unobserved poll after poll.
@@ -95,11 +97,10 @@ command -v jq >/dev/null 2>&1 || fail 'jq is required to measure contribution co
 NOW=${FM_CONTRIBUTIONS_NOW:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}
 EPOCH=$(jq -nr --arg now "$NOW" '$now | fromdateiso8601') || fail 'invalid observation clock'
 MAX_AGE=${FM_CONTRIBUTIONS_MAX_AGE:-900}
-BUDGET=${FM_CONTRIBUTIONS_BUDGET:-20}
+BUDGET=${FM_CONTRIBUTIONS_BUDGET:-}
 CALL_TIMEOUT=${FM_CONTRIBUTIONS_CALL_TIMEOUT:-15}
 CHECK_TIMEOUT=${FM_CHECK_TIMEOUT:-30}
 case "$MAX_AGE" in ''|*[!0-9]*) fail 'invalid freshness bound' ;; esac
-case "$BUDGET" in ''|*[!0-9]*|0) fail 'poll budget must be a whole number of seconds' ;; esac
 case "$CALL_TIMEOUT" in ''|*[!0-9]*|0) fail 'per-call timeout must be a whole number of seconds' ;; esac
 case "$CHECK_TIMEOUT" in ''|*[!0-9]*|0) CHECK_TIMEOUT=30 ;; esac
 # Eight sequential calls observe one PR; a ninth call of margin covers the
@@ -107,11 +108,18 @@ case "$CHECK_TIMEOUT" in ''|*[!0-9]*|0) CHECK_TIMEOUT=30 ;; esac
 # mail and tool-update checks leave. This is the watcher bound one observation
 # needs at this per-call timeout.
 NEEDED_CHECK_TIMEOUT=$((9 * CALL_TIMEOUT + 3))
-# The watcher kills this check at FM_CHECK_TIMEOUT; a budget past that bound
-# would be killed mid-observation with nothing recorded.
+# The watcher kills this check at FM_CHECK_TIMEOUT, so that bound less the
+# kill margin is the whole time a poll has: an unset budget takes it, and a
+# configured budget past it would be killed mid-observation with nothing
+# recorded.
 BUDGET_MAX=$((CHECK_TIMEOUT - 3))
 [ "$BUDGET_MAX" -ge 1 ] || BUDGET_MAX=1
-[ "$BUDGET" -le "$BUDGET_MAX" ] || BUDGET=$BUDGET_MAX
+if [ -z "$BUDGET" ]; then
+  BUDGET=$BUDGET_MAX
+else
+  case "$BUDGET" in *[!0-9]*|0) fail 'poll budget must be a whole number of seconds' ;; esac
+  [ "$BUDGET" -le "$BUDGET_MAX" ] || BUDGET=$BUDGET_MAX
+fi
 # A call must be able to end inside the budget for its kill to be the call's
 # outcome rather than the deadline's.
 [ "$CALL_TIMEOUT" -lt "$BUDGET" ] || CALL_TIMEOUT=$((BUDGET - 1))
