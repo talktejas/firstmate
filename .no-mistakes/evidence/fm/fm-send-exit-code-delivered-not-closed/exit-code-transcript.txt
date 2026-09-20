@@ -1,0 +1,19 @@
+=== fm-send --resolve-key exit-code contract ===
+PASS  local: delivered + closed                      exit=0 (0, decision closed, record enqueued)
+      status now: needs-decision [key=creds]: which token?|resolved [key=creds]: answered: use the vault token|
+      open decisions after: 0
+PASS  local: delivered, close failed                 exit=4 (4, answer still enqueued)
+      stderr: error: the answer was delivered to sess:fm-t1, but decision key 'creds' could not be closed in /tmp/fm-send-exit.VREunH/notclosed/state/t1.status. Close it manually with: printf '%s
+PASS  local: undelivered (enqueue failed)            exit=1 (nonzero != 4, decision stays open)
+      stderr: error: steer not sent to t5: its inbox record could not be written under /tmp/fm-send-exit.VREunH/undelivered/state/t5.inbox
+PASS  local: endpoint retired/changed                exit=1 (nonzero != 4)
+      stderr: error: steer not sent to t1: the task retired or changed endpoint during target resolution
+PASS  remote: delivered, close failed                exit=4 (4, transport did run)
+      stderr: error: the answer was delivered to remote:rsm, but decision key 'creds' could not be closed in /tmp/fm-send-exit.VREunH/remote-notclosed/state/rsm.status. Close it manually with: printf '%s
+PASS  remote: transport failed                       exit=1 (nonzero != 4, decision stays open)
+      stderr: error: steer not sent to remote secondmate rsm (the remote steering-inbox record could not be written; the remote leg's stderr above has the reason)
+PASS  typed plane: unchanged (no exit 4)             exit=1 (1 (typed), text typed)
+      typed bytes: /compact now
+      stderr: error: the answer was delivered to sess:fm-t1, but decision key 'creds' could not be closed in /tmp/fm-send-exit.VREunH/typed/state/t1.status. Close it manually with: printf '%s
+
+ALL SCENARIOS PASSED
