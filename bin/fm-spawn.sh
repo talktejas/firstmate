@@ -1249,11 +1249,15 @@ spawn_abort_cleanup() {
       echo "warning: leaving task $ID's slot claim on $WT in place; the Treehouse project lock is no longer held, so the next spawn's claim replaces it" >&2
     fi
   fi
-  if [ "$SPAWN_TREEHOUSE_LEASE_PENDING" = 1 ]; then
+  if [ "$SPAWN_TREEHOUSE_LEASE_PENDING" = 1 ] &&
+    [ ! -e "$STATE/$ID.meta" ] && [ ! -L "$STATE/$ID.meta" ]; then
     # The spawn is aborting before any task record can name this lease, so the
     # slot would otherwise stay claimed by a task that never existed. Return it
     # while the project lock is still held, and match on the holder label so a
     # slot some later allocation has already taken over is never returned here.
+    # A record that survived the abort (its rollback failed) names this lease
+    # itself, so the release is skipped: handing that copy back to the pool is
+    # the reassignment this claim exists to prevent.
     SPAWN_TREEHOUSE_LEASE_PENDING=0
     ( cd "$PROJ_ABS" && treehouse return --force \
         --if-lease-holder "$SPAWN_TREEHOUSE_LEASE_HOLDER" \
