@@ -1740,7 +1740,18 @@ validate_worktree_teardown_safety() {
   unpushed=$(printf '%s\n' "$unpushed_raw" | head -5)
 
   if [ -n "$unpushed" ] && [ "$MODE" = local-only ]; then
-    DEFAULT=$("$FM_ROOT/bin/fm-project-base.sh" "$PROJ" "$(basename "$PROJ")" 2>/dev/null || true)
+    # Landed means merged into the branch this task was dispatched against.
+    # A task created with an explicit --base lands on that branch (see
+    # bin/fm-merge-local.sh), so measuring its work against the project's
+    # standing base would report already-merged commits as unmerged and refuse
+    # cleanup. A recorded base this copy cannot resolve falls back to the
+    # standing one, which only ever refuses more.
+    DEFAULT=$(meta_value "$META" base)
+    if [ -n "$DEFAULT" ] \
+       && ! git -C "$WT" rev-parse --verify --quiet "refs/heads/$DEFAULT^{commit}" >/dev/null 2>&1; then
+      DEFAULT=
+    fi
+    [ -n "$DEFAULT" ] || DEFAULT=$("$FM_ROOT/bin/fm-project-base.sh" "$PROJ" "$(basename "$PROJ")" 2>/dev/null || true)
     [ -n "$DEFAULT" ] || DEFAULT=$(default_branch) || { echo "REFUSED: cannot determine default branch for $PROJ; expected origin/HEAD, main, or master." >&2; return 1; }
     if ! unmerged_raw=$(git -C "$WT" log --oneline HEAD --not "$DEFAULT" -- 2>/dev/null); then
       if worktree_safety_blocked_by_lock "commits not on $DEFAULT"; then

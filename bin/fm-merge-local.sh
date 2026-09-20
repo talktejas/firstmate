@@ -95,8 +95,22 @@ git -C "$PROJ" rev-parse --verify --quiet "refs/heads/$BRANCH" >/dev/null || { e
 
 # The captain's ruling is that the recorded development branch governs the merge
 # as well as the worktree, and a local-only project lands on the LOCAL branch.
-DEFAULT=$("$FM_ROOT/bin/fm-project-base.sh" "$PROJ" "$(basename "$PROJ")" 2>/dev/null || true)
-[ -n "$DEFAULT" ] || DEFAULT=$(default_branch) || { echo "error: cannot determine default branch for $PROJ; expected origin/HEAD, main, or master" >&2; exit 1; }
+# The task's own recorded base outranks the project's standing one: a task
+# dispatched with an explicit --base was created against that branch, and
+# landing it anywhere else would fast-forward the standing branch over every
+# commit the effort has accumulated - the one-merge-checked-as-a-whole rule the
+# per-task base exists to keep. A recorded base that no longer exists refuses
+# rather than silently landing on another branch.
+DEFAULT=$(grep '^base=' "$META" | tail -n 1 | cut -d= -f2- || true)
+if [ -n "$DEFAULT" ]; then
+  git -C "$PROJ" rev-parse --verify --quiet "refs/heads/$DEFAULT" >/dev/null || {
+    echo "error: task $ID was created against base branch '$DEFAULT', which no longer exists in $PROJ; refusing to land it on another branch" >&2
+    exit 1
+  }
+else
+  DEFAULT=$("$FM_ROOT/bin/fm-project-base.sh" "$PROJ" "$(basename "$PROJ")" 2>/dev/null || true)
+  [ -n "$DEFAULT" ] || DEFAULT=$(default_branch) || { echo "error: cannot determine default branch for $PROJ; expected origin/HEAD, main, or master" >&2; exit 1; }
+fi
 
 # The project's main checkout must be on its default branch and clean, so the
 # fast-forward lands predictably (firstmate never writes here otherwise).

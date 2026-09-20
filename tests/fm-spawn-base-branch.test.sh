@@ -570,6 +570,46 @@ test_secondmate_refuses_an_explicit_base() {
   pass "--secondmate refuses --base"
 }
 
+# --- the recorded base governs landing and cleanup too ----------------------
+# Recording base= would be theatre if the landing path ignored it: a local-only
+# task dispatched against an integration branch would have bin/fm-merge-local.sh
+# fast-forward the project's STANDING branch over every commit the effort has
+# accumulated, which is precisely the one-merge-checked-as-a-whole rule the flag
+# exists to keep.
+test_local_merge_lands_on_the_tasks_recorded_base() {
+  local dir home proj wt id out status main_before
+  id=base-landing-b16
+  dir="$TMP_ROOT/landing"
+  home="$dir/home"
+  proj="$dir/projects/base-landing"
+  wt="$dir/projects/$id"
+  mkdir -p "$home/state" "$home/data" "$home/config" "$dir/projects"
+  fm_git_init_commit "$proj"
+  git -C "$proj" branch integration/x main
+  git -C "$proj" worktree add --quiet -b "fm/$id" "$wt" integration/x
+  printf 'effort work\n' > "$wt/effort.txt"
+  git -C "$wt" add effort.txt
+  git -C "$wt" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' \
+    commit -qm 'effort work'
+  git -C "$proj" checkout -q integration/x
+  fm_write_meta "$home/state/$id.meta" \
+    "window=firstmate:fm-$id" "endpoint_task_id=$id" "worktree=$wt" \
+    "project=$proj" "kind=ship" "mode=local-only" "base=integration/x" \
+    "spawn_gen=fixture-$id"
+  main_before=$(git -C "$proj" rev-parse main)
+
+  out=$(FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
+    FM_DATA_OVERRIDE="$home/data" FM_CONFIG_OVERRIDE="$home/config" \
+    "$ROOT/bin/fm-merge-local.sh" "$id" 2>&1)
+  status=$?
+  expect_code 0 "$status" "the local landing should fast-forward the task's recorded base: $out"
+  [ "$(git -C "$proj" rev-parse integration/x)" = "$(git -C "$wt" rev-parse HEAD)" ] \
+    || fail "the task's recorded base branch did not receive the work"
+  [ "$(git -C "$proj" rev-parse main)" = "$main_before" ] \
+    || fail "the landing moved the project's standing branch instead of the task's base"
+  pass "a local-only task lands on the base it was created against, not the standing one"
+}
+
 # CI's stock macOS Bash lane sets FM_TEST_ONLY to run just the resolver's
 # bash-3.2 regression. The rest of this file is not a 3.2 snapshot suite.
 if [ -n "${FM_TEST_ONLY:-}" ]; then
@@ -593,6 +633,7 @@ test_scout_accepts_an_explicit_base
 test_scout_on_a_local_only_project_uses_the_local_branch
 test_relaunch_refuses_an_explicit_base
 test_secondmate_refuses_an_explicit_base
+test_local_merge_lands_on_the_tasks_recorded_base
 
 test_declaration_is_read_from_the_branch_that_carries_it
 test_declaration_beats_the_private_registry

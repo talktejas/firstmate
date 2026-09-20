@@ -2903,12 +2903,14 @@ freshen_spawn_worktree_base() {  # <worktree>
   # origin/<branch> is the fetched truth for a shared clone. A local-only project
   # inverts that: it lands with bin/fm-merge-local.sh, which fast-forwards the
   # LOCAL branch and never pushes, so there origin/<branch> is the stale one.
-  # $MODE alone cannot decide that: a scout is refused --mode by design, so it is
-  # always empty there and every scout on a local-only project would resolve
-  # against the stale origin ref. The project's registered posture answers for
-  # the spawns that carry no mode of their own.
+  # $MODE alone cannot decide that for an explicit --base: a scout is refused
+  # --mode by design, so it is always empty there and a scout dispatched against
+  # a local integration branch would resolve it as a stale origin ref. The
+  # project's registered posture answers for that spawn; without --base the
+  # existing resolution is left exactly as it was.
   posture=$MODE
-  [ -n "$posture" ] || posture=$("$FM_ROOT/bin/fm-project-mode.sh" --raw "$PROJ_NAME" 2>/dev/null | cut -d' ' -f1 || true)
+  [ -z "$BASE_ARG" ] || [ -n "$posture" ] \
+    || posture=$("$FM_ROOT/bin/fm-project-mode.sh" --raw "$PROJ_NAME" 2>/dev/null | cut -d' ' -f1 || true)
   if [ "$posture" = local-only ] || [ "$has_origin" = 0 ]; then
     target=$default
   else
