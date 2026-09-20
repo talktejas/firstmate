@@ -1,0 +1,443 @@
+#!/usr/bin/env python3
+# command-center.py - the captain's permanent command center.
+#
+# One page at a fixed address showing everything waiting on the captain across
+# every local firstmate home, with his answer going straight back through the
+# scripts that already own delivery. bin/command-center-scan.sh is the reading
+# half; docs/command-center.md is the operator guide.
+#
+# Usage:
+#   command-center.py [--port 8765] [--home <FM_HOME>]
+#   command-center.py --install-unit [--port 8765]   write the systemd user unit
+#
+# STDLIB ONLY, BY DESIGN. No dependency to install, no lockfile to refresh, no
+# build step, nothing that rots between uses. The whole server is http.server,
+# json and subprocess.
+#
+# POLLING, NOT A HELD CONNECTION. The page asks for /api/items every few seconds
+# and gets 304 when nothing moved. Server-sent events would hold one connection
+# per open tab, and a browser allows only six per origin - the same limit that
+# already stalls this fleet's review pages once six are open. A held stream also
+# pins a ThreadingHTTPServer thread that is only reclaimed on the next write, so
+# a forgotten tab leaks. The change check is a stat sweep costing ~30ms, so the
+# expensive scan runs once per actual change however many tabs are open.
+#
+# IT STORES ONE THING. Firstmate already keeps the questions and the answers
+# that close a decision, so copying those here would create a second truth that
+# can drift. What firstmate does NOT keep is the captain's own words in three
+# cases: a steer to a worker is deleted with the task's steering inbox at
+# teardown (bin/fm-teardown.sh), an unsent draft never existed, and terminal
+# text is only scrollback. So this appends every word he sends to one
+# append-only log, <home>/data/command-center/said.jsonl, and stores nothing
+# else. Drafts and read state stay in the browser, because they are his and
+# this runs on his machine.
+#
+# TRUST BOUNDARY. It binds loopback only and runs firstmate's own scripts with
+# the captain's authority, which is the point of it; it is not an authenticated
+# multi-user surface and must never be bound to a routable address. Every
+# request field that reaches a command is validated against the scanned record
+# set first, and text reaches scripts as an argument or a file, never a shell
+# string.
+import argparse
+import hashlib
+import json
+import os
+import re
+import subprocess
+import sys
+import tempfile
+import time
+from datetime import datetime, timezone
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+BIN = os.path.dirname(os.path.abspath(__file__))
+PAGE = os.path.join(BIN, "command-center.html")
+SCAN = os.path.join(BIN, "command-center-scan.sh")
+
+# tasks-axi's own limit on a recorded decision (bin/fm-captain-hold.sh).
+MAX_TEXT = 8192
+ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+SCAN_TIMEOUT = 240
+SEND_TIMEOUT = 120
+
+
+def dump(obj):
+    """Compact JSON for the wire: no filler whitespace on a 3-second poll."""
+    return json.dumps(obj, separators=(",", ":")).encode()
+
+
+def utc_now():
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+class Records:
+    """The scanned view, refreshed only when a record actually moved.
+
+    `fingerprint` is a cheap stat sweep; `payload` is the full scan. Callers get
+    a (etag, json-bytes) pair, so an unchanged poll answers 304 with no body.
+    """
+
+    def __init__(self, home):
+        self.home = home
+        self.etag = None
+        self.body = b"{}"
+        self.error = None
+        self.checked = 0.0
+
+    def _run(self, args, timeout):
+        env = dict(os.environ, FM_HOME=self.home)
+        return subprocess.run(
+            args, capture_output=True, text=True, timeout=timeout, env=env, check=False
+        )
+
+    def refresh(self, min_interval=1.0):
+        now = time.monotonic()
+        if self.etag is not None and now - self.checked < min_interval:
+            return
+        self.checked = now
+        try:
+            fp = self._run([SCAN, "--fingerprint"], 30)
+        except subprocess.SubprocessError as exc:
+            self.error = f"change check failed: {exc}"
+            return
+        if fp.returncode != 0:
+            self.error = f"change check failed: {fp.stderr.strip()[:400]}"
+            return
+        etag = hashlib.sha256(fp.stdout.encode()).hexdigest()[:32]
+        if etag == self.etag:
+            self.error = None
+            return
+        try:
+            out = self._run([SCAN], SCAN_TIMEOUT)
+        except subprocess.SubprocessError as exc:
+            self.error = f"scan failed: {exc}"
+            return
+        if out.returncode != 0:
+            self.error = f"scan failed: {out.stderr.strip()[:400]}"
+            return
+        try:
+            data = json.loads(out.stdout)
+        except json.JSONDecodeError as exc:
+            self.error = f"scan produced unreadable output: {exc}"
+            return
+        self.error = None
+        self.etag = etag
+        self.body = dump(data)
+
+    def view(self):
+        return json.loads(self.body)
+
+    def home_path(self, home_id):
+        for home in self.view().get("homes", []):
+            if home["id"] == home_id:
+                return home["path"]
+        return None
+
+    def item(self, home_id, task_id):
+        for it in self.view().get("items", []):
+            if it["home"] == home_id and it["id"] == task_id:
+                return it
+        return None
+
+
+def said_log(home):
+    return os.path.join(home, "data", "command-center", "said.jsonl")
+
+
+def record_said(home, entry):
+    """Append one line to the only store this server owns.
+
+    Append-only and best effort: a failure here must never make a delivered
+    answer look undelivered, so it is reported alongside the send result rather
+    than raised over it.
+    """
+    path = said_log(home)
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        return None
+    except OSError as exc:
+        return f"answer sent, but it could not be written to {path}: {exc}"
+
+
+def read_said(home, limit=500):
+    path = said_log(home)
+    rows = []
+    try:
+        with open(path, encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rows.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+    except OSError:
+        return []
+    return rows[-limit:][::-1]
+
+
+def send_answer(home_path, item, text):
+    """Deliver one answer through the script that owns its delivery.
+
+    A captain hold and a stopped worker are different records answered by
+    different commands, and the item's own `source` decides which - the server
+    never guesses. Both record the captain's words durably as part of the same
+    act that closes the decision.
+    """
+    env = dict(os.environ, FM_HOME=home_path)
+    if item["source"] == "hold":
+        fd, tmp = tempfile.mkstemp(prefix="cc-decision-", text=True)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(text)
+            proc = subprocess.run(
+                [os.path.join(BIN, "fm-captain-hold.sh"), "answer", item["id"],
+                 "--decision-file", tmp],
+                capture_output=True, text=True, timeout=SEND_TIMEOUT,
+                env=env, check=False,
+            )
+        finally:
+            os.unlink(tmp)
+        route = f"fm-captain-hold.sh answer {item['id']}"
+    else:
+        args = [os.path.join(BIN, "fm-send.sh"), item["id"]]
+        if item.get("key"):
+            args += ["--resolve-key", item["key"]]
+        args.append(text)
+        proc = subprocess.run(
+            args, capture_output=True, text=True, timeout=SEND_TIMEOUT,
+            env=env, check=False,
+        )
+        route = f"fm-send.sh {item['id']}"
+    detail = (proc.stdout + proc.stderr).strip()[:600]
+    return proc.returncode == 0, route, detail
+
+
+def send_note(home_path, text):
+    proc = subprocess.run(
+        [os.path.join(BIN, "fm-inbox.sh"), "note", text],
+        capture_output=True, text=True, timeout=SEND_TIMEOUT,
+        env=dict(os.environ, FM_HOME=home_path), check=False,
+    )
+    detail = (proc.stdout + proc.stderr).strip()[:600]
+    return proc.returncode == 0, "fm-inbox.sh note", detail
+
+
+class Handler(BaseHTTPRequestHandler):
+    server_version = "firstmate-command-center"
+    protocol_version = "HTTP/1.1"
+    records = None
+
+    def log_message(self, fmt, *args):  # quieter than the stdlib default
+        if self.path.startswith("/api/items"):
+            return
+        sys.stderr.write("%s %s\n" % (self.log_date_time_string(), fmt % args))
+
+    # --- plumbing ------------------------------------------------------------
+    def _send(self, code, body, ctype="application/json; charset=utf-8", etag=None):
+        self.send_response(code)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        if etag:
+            self.send_header("ETag", etag)
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(body)
+
+    def _json(self, code, obj):
+        self._send(code, dump(obj))
+
+    def _body(self):
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            return None
+        if length <= 0 or length > 1 << 20:
+            return None
+        try:
+            return json.loads(self.rfile.read(length))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return None
+
+    def _text_field(self, payload):
+        """Validate the one free-text field at the trust boundary."""
+        text = payload.get("text")
+        if not isinstance(text, str):
+            return None, "no text"
+        text = text.strip()
+        if not text:
+            return None, "an empty answer is not an answer"
+        if len(text.encode()) > MAX_TEXT:
+            return None, f"too long: the limit is {MAX_TEXT} bytes"
+        return text, None
+
+    # --- routes --------------------------------------------------------------
+    def do_GET(self):
+        path = self.path.split("?", 1)[0]
+        if path == "/":
+            try:
+                with open(PAGE, "rb") as fh:
+                    body = fh.read()
+            except OSError as exc:
+                self._send(500, f"cannot read {PAGE}: {exc}".encode(),
+                           "text/plain; charset=utf-8")
+                return
+            self._send(200, body, "text/html; charset=utf-8")
+            return
+
+        if path == "/api/items":
+            self.records.refresh()
+            view = self.records.view()
+            view["error"] = self.records.error
+            view["said_count"] = len(read_said(self.records.home))
+            etag = self.records.etag or "none"
+            if self.headers.get("If-None-Match") == etag and not self.records.error:
+                self.send_response(304)
+                self.send_header("ETag", etag)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            self._send(200, dump(view), etag=etag)
+            return
+
+        if path == "/api/said":
+            self._json(200, {"said": read_said(self.records.home)})
+            return
+
+        self._send(404, b"not found", "text/plain; charset=utf-8")
+
+    do_HEAD = do_GET
+
+    def do_POST(self):
+        path = self.path.split("?", 1)[0]
+        payload = self._body()
+        if payload is None or not isinstance(payload, dict):
+            self._json(400, {"ok": False, "error": "unreadable request"})
+            return
+        text, err = self._text_field(payload)
+        if err:
+            self._json(400, {"ok": False, "error": err})
+            return
+
+        if path == "/api/note":
+            home_path = self.records.home
+            ok, route, detail = send_note(home_path, text)
+            warn = record_said(home_path, {
+                "at": utc_now(), "kind": "note", "home": "main",
+                "text": text, "route": route, "delivered": ok, "detail": detail,
+            }) if ok else None
+            self._json(200 if ok else 502,
+                       {"ok": ok, "route": route, "detail": detail, "warning": warn})
+            return
+
+        if path == "/api/answer":
+            home_id = payload.get("home")
+            task_id = payload.get("id")
+            if not isinstance(home_id, str) or not isinstance(task_id, str) \
+                    or not ID_RE.match(task_id):
+                self._json(400, {"ok": False, "error": "unknown item"})
+                return
+            self.records.refresh(min_interval=0)
+            item = self.records.item(home_id, task_id)
+            home_path = self.records.home_path(home_id)
+            if item is None or home_path is None:
+                self._json(404, {"ok": False,
+                                 "error": "that item is no longer waiting for you"})
+                return
+            try:
+                ok, route, detail = send_answer(home_path, item, text)
+            except subprocess.SubprocessError as exc:
+                self._json(502, {"ok": False, "error": f"delivery failed: {exc}"})
+                return
+            warn = record_said(home_path, {
+                "at": utc_now(), "kind": "answer", "home": home_id, "item": task_id,
+                "key": item.get("key"), "title": item.get("title"),
+                "text": text, "route": route, "delivered": ok, "detail": detail,
+            }) if ok else None
+            if ok:
+                self.records.etag = None      # force a rescan on the next poll
+            self._json(200 if ok else 502,
+                       {"ok": ok, "route": route, "detail": detail, "warning": warn})
+            return
+
+        self._json(404, {"ok": False, "error": "not found"})
+
+
+UNIT = """\
+[Unit]
+Description=Firstmate command center
+After=default.target
+
+[Service]
+ExecStart={python} {script} --port {port} --home {home}
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+"""
+
+
+def install_unit(home, port):
+    """Write the user unit, and print the two commands only the captain can run.
+
+    Enabling and lingering change his session, so this writes the file and stops
+    there rather than reaching into systemd on his behalf.
+    """
+    directory = os.path.expanduser("~/.config/systemd/user")
+    os.makedirs(directory, exist_ok=True)
+    path = os.path.join(directory, "firstmate-command-center.service")
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(UNIT.format(python=sys.executable, script=os.path.abspath(__file__),
+                             port=port, home=home))
+    print(f"wrote {path}")
+    print("now run:")
+    print("  systemctl --user daemon-reload")
+    print("  systemctl --user enable --now firstmate-command-center")
+    print("  loginctl enable-linger $USER   # so it starts at boot, before you log in")
+    print(f"then bookmark http://127.0.0.1:{port}")
+    return 0
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(
+        description="The captain's permanent command center.")
+    parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--home", default=os.environ.get("FM_HOME"),
+                        help="operational home to read (default: $FM_HOME, else the code root)")
+    parser.add_argument("--install-unit", action="store_true",
+                        help="write the systemd user unit and exit")
+    args = parser.parse_args(argv)
+
+    home = args.home or os.path.dirname(BIN)
+    home = os.path.abspath(os.path.expanduser(home))
+    if not os.path.isdir(home):
+        print(f"command-center: no such home: {home}", file=sys.stderr)
+        return 1
+    if args.install_unit:
+        return install_unit(home, args.port)
+    if not os.path.exists(PAGE):
+        print(f"command-center: the page is missing: {PAGE}", file=sys.stderr)
+        return 1
+
+    Handler.records = Records(home)
+    # Loopback only. This runs firstmate's scripts as the captain and has no
+    # authentication of its own, so it must never listen on a routable address.
+    httpd = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
+    httpd.daemon_threads = True
+    print(f"command center on http://127.0.0.1:{args.port}  (home: {home})")
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        httpd.server_close()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

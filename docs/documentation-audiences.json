@@ -317,6 +317,10 @@
       "audience": "operator-current"
     },
     {
+      "path": "docs/command-center.md",
+      "audience": "operator-current"
+    },
+    {
       "path": "docs/configuration.md",
       "audience": "operator-current"
     },
