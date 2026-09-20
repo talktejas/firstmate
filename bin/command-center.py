@@ -195,21 +195,20 @@ def said_log(home):
 
 
 def record_said(home, entry):
-    """Append one line to the only store this server owns.
+    """Append one line to the convenience view this server keeps.
 
-    Append-only and best effort: a failure here must never make a delivered
-    answer look undelivered, so it is reported alongside the send result rather
-    than raised over it. A failed send is logged too: the captain's words are
-    the one thing this surface exists not to lose.
+    Append-only and best effort: firstmate's own records already hold a
+    delivered answer and a queued note, so a failure here must never make one
+    look undelivered. It goes to this server's log, not over the send result.
+    A failed send is recorded too: what he typed is what this file is for.
     """
     path = said_log(home)
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "a", encoding="utf-8") as fh:
             fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
-        return None
     except OSError as exc:
-        return f"it could not be written to {path}: {exc}"
+        sys.stderr.write(f"command-center: could not write {path}: {exc}\n")
 
 
 def read_said(home, limit=500):
@@ -465,13 +464,13 @@ class Handler(BaseHTTPRequestHandler):
             except subprocess.SubprocessError as exc:
                 outcome, route, detail = "unknown", "fm-inbox.sh note", str(exc)
             ok = outcome == "sent"
-            warn = record_said(self.records.home, {
+            record_said(self.records.home, {
                 "at": utc_now(), "kind": "note", "home": "main",
                 "text": text, "route": route, "outcome": outcome, "detail": detail,
             })
             self._json(200 if ok else 502,
                        {"ok": ok, "outcome": outcome, "route": route,
-                        "detail": detail, "warning": warn})
+                        "detail": detail})
             return
 
         if path == "/api/answer":
@@ -497,7 +496,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             outcome, route, detail = send_answer(home_path, item, text)
             ok = outcome == "sent"
-            warn = record_said(self.records.home, {
+            record_said(self.records.home, {
                 "at": utc_now(), "kind": "answer", "home": home_id, "item": task_id,
                 "source": item["source"], "key": item.get("key"),
                 "item_key": item_key(item), "title": item.get("title"),
@@ -507,7 +506,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.records.invalidate()     # force a rescan on the next poll
             self._json(200 if ok else 502,
                        {"ok": ok, "outcome": outcome, "route": route,
-                        "detail": detail, "warning": warn})
+                        "detail": detail})
             return
 
         self._json(404, {"ok": False, "error": "not found"})

@@ -388,10 +388,13 @@ test_answering_a_hold_records_the_captains_words_and_clears_the_item() {
     "the answer was not appended to the captain's own record of what he said"
   # The closure is carried where it can be proved: the log line the server wrote
   # as part of the act that closed the decision.
-  assert_equals "sent" \
+  # The page's "you last sent … — …" line is derived from this record alone, so
+  # it has to carry the item it belongs to, his exact words, and the outcome.
+  assert_equals "main/hold/cc-answer/cc-answer|Green. Blue reads as disabled.|sent" \
     "$(curl -s -m 30 "http://127.0.0.1:$port/api/said" \
-        | jq -r '[.said[] | select(.item == "cc-answer")][0].outcome')" \
-    "a delivered and closed answer was not reported as closed under My words"
+        | jq -r '[.said[] | select(.item == "cc-answer")][0]
+                 | [.item_key, .text, .outcome] | join("|")')" \
+    "the record the item line is derived from did not carry what he sent and what became of it"
   assert_not_contains "$(curl -s -m 120 "http://127.0.0.1:$port/api/items")" '"id":"cc-answer"' \
     "an answered decision stayed in the waiting list"
   stop_server
@@ -456,23 +459,6 @@ test_an_unreadable_log_is_reported_not_shown_as_empty() {
   pass "an unreadable record is reported rather than shown as empty"
 }
 
-# The log is the one store this server owns. When a write to it fails the page
-# must be told, or it reports success while his words are being dropped.
-test_a_failed_log_write_is_reported_with_the_send() {
-  local home port body
-  home="$TMP_ROOT/logfail"
-  seed_home "$home"
-  mkdir -p "$home/data"
-  : > "$home/data/command-center"        # a file where the log directory must go
-  start_server "$home" || fail "the server did not start"
-  port=$SERVER_PORT
-  body=$(post "$port" /api/note '{"text":"a note worth keeping"}')
-  stop_server
-  assert_contains "$body" '"outcome":"sent"' "the note was not queued"
-  assert_contains "$body" 'could not be written' \
-    "a failed write to the captain's own log was not reported with the send"
-  pass "a failed write to the log is reported alongside the send"
-}
 
 # fm-send.sh's exit 3 means the text WAS delivered and only the read-back stayed
 # unconfirmed; its own message forbids a blind resend. Reporting that as a
@@ -597,7 +583,6 @@ test_server_serves_the_page_and_the_records
 test_server_refuses_bad_input_before_running_anything
 test_answering_a_hold_records_the_captains_words_and_clears_the_item
 test_a_note_of_just_a_dash_is_queued_and_never_hangs_the_server
-test_a_failed_log_write_is_reported_with_the_send
 test_an_unreadable_log_is_reported_not_shown_as_empty
 test_the_send_outcome_is_decided_by_the_exit_code_alone
 test_concurrent_polls_produce_one_scan
