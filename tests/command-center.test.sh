@@ -407,6 +407,30 @@ test_a_note_of_just_a_dash_is_queued_and_never_hangs_the_server() {
   pass "a note of exactly a dash is queued, and no child can hang the server"
 }
 
+# The log is the sole surviving copy of his steers and notes. A log that cannot
+# be READ is not a log with nothing in it, and must not read as one.
+test_an_unreadable_log_is_reported_not_shown_as_empty() {
+  local home port body
+  if [ "$(id -u)" = 0 ]; then
+    pass "running as root; the unreadable-log case cannot be staged"
+    return
+  fi
+  home="$TMP_ROOT/logread"
+  seed_home "$home"
+  start_server "$home" || fail "the server did not start"
+  port=$SERVER_PORT
+  post "$port" /api/note '{"text":"a note worth keeping"}' >/dev/null
+  assert_contains "$(curl -s -m 30 "http://127.0.0.1:$port/api/said")" \
+    'a note worth keeping' "the note never reached the readable record"
+  chmod 000 "$home/data/command-center/said.jsonl"
+  body=$(curl -s -m 30 "http://127.0.0.1:$port/api/said")
+  chmod 600 "$home/data/command-center/said.jsonl"
+  stop_server
+  assert_contains "$body" 'could not be read' \
+    "an unreadable record was served as an empty one"
+  pass "an unreadable record is reported rather than shown as empty"
+}
+
 # The log is the one store this server owns. When a write to it fails the page
 # must be told, or it reports success while his words are being dropped.
 test_a_failed_log_write_is_reported_with_the_send() {
@@ -548,5 +572,6 @@ test_server_refuses_bad_input_before_running_anything
 test_answering_a_hold_records_the_captains_words_and_clears_the_item
 test_a_note_of_just_a_dash_is_queued_and_never_hangs_the_server
 test_a_failed_log_write_is_reported_with_the_send
+test_an_unreadable_log_is_reported_not_shown_as_empty
 test_the_send_outcome_is_decided_by_the_exit_code_alone
 test_concurrent_polls_produce_one_scan

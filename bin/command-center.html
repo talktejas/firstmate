@@ -376,6 +376,13 @@ const SEND_VERDICT = {
     note: '<b>Delivery could not be confirmed.</b> It may already have reached the '
         + 'worker, so do not send it again until you know. The reason follows:',
   },
+  // Delivered, so a resend would be a second copy; but the record write failed,
+  // so the text kept here is the only copy of it left.
+  'sent-not-recorded': {
+    label: 'Delivered — not recorded; do not resend',
+    note: '<b>Delivered.</b> Your words could not be written to the record, so what '
+        + 'is kept here is the only copy left. Do not send it again. The reason follows:',
+  },
 };
 
 const $ = s => document.querySelector(s);
@@ -387,6 +394,7 @@ const state = {
   open:null, view:{homes:[],items:[]}, said:[], etag:null,
   sending:false, flash:null, error:null, seen:load('cc.seen',{}), draft:load('cc.draft',{}),
   note:load('cc.note',''), outcome:load('cc.outcome',{}), scanned:false, warning:null,
+  saidError:null,
 };
 
 // Browser storage, wrapped: a private window or cleared site data must degrade
@@ -403,6 +411,7 @@ function save(key, value){
 // since_kind says which clock a row actually has. A row with none is never given
 // a guessed position or a made-up age; it says so instead.
 const nowSecs = () => Math.floor(Date.now() / 1000);
+const nowIso = () => new Date().toISOString().replace(/\.\d+Z$/, 'Z');
 function ageLabel(it){
   if (!it.since_epoch) return 'no recorded time';
   const s = Math.max(0, nowSecs() - it.since_epoch);
@@ -575,6 +584,9 @@ function itemRow(it){
 // act that closed the decision, so nothing here is inferred.
 function wordOutcome(r){
   if (r.kind === 'draft') return 'Not sent. Kept here so it is not lost.';
+  if (r.kind === 'unlogged')
+    return 'Delivered, but it could not be written to the record — this browser is '
+      + 'the only copy: ' + esc(r.detail || '');
   switch (r.outcome){
     case 'sent': return r.kind === 'answer'
       ? 'Delivered through ' + esc(r.route) + ' — the decision closed'
@@ -590,18 +602,34 @@ function renderWords(){
   const drafts = Object.entries(state.draft)
     .filter(([, t]) => t && t.trim())
     .map(([key, text]) => ({ kind:'draft', at:null, text, key }));
-  const rows = drafts.concat(state.said)
+  // Answers that were delivered but never reached the log live only here.
+  const unlogged = Object.entries(state.outcome)
+    .filter(([, v]) => v.outcome === 'sent-not-recorded' && v.text)
+    .map(([key, v]) => ({ kind:'unlogged', at:v.at || null, text:v.text,
+                          key, detail:v.detail }));
+  const rows = drafts.concat(unlogged, state.said)
     .filter(r => !q || String(r.text || '').toLowerCase().includes(q));
   const head = `<div class="archive-note">Everything you have typed, wherever it went.
     <strong>Firstmate keeps an answer that closes a decision, and drops the rest</strong> —
     a steer goes with the task's inbox at cleanup, and a draft was never recorded at all —
     so this is the only place those survive.</div>`;
-  if (!rows.length){ $('#list').innerHTML = head + '<div class="empty">Nothing yet.</div>'; return; }
-  $('#list').innerHTML = head + rows.map(r => {
+  // Not readable and nothing there are different states and must read differently.
+  const note = state.saidError
+    ? `<div class="archive-note" style="background:var(--warn-soft)"><b>The record could
+       not be read.</b> ${esc(state.saidError)} Anything below is only what this browser
+       still holds.</div>` : '';
+  if (!rows.length){
+    $('#list').innerHTML = head + note + `<div class="empty">${
+      state.saidError ? 'The record could not be read.' : 'Nothing yet.'}</div>`;
+    return;
+  }
+  $('#list').innerHTML = head + note + rows.map(r => {
     const draft = r.kind === 'draft';
+    const unlogged = r.kind === 'unlogged';
     const item = (state.view.items || []).find(i => itemKey(i) === (r.item_key || r.key));
     const where = item ? esc(item.title)
       : r.kind === 'note' ? 'Note to firstmate — not about one item'
+      : unlogged ? 'Answer — the item it closed has left the list'
       : esc(r.title || r.item || '—');
     const out = wordOutcome(r);
     return `<button class="word" data-key="${esc(r.item_key || (draft ? r.key : '') || '')}">
@@ -609,9 +637,11 @@ function renderWords(){
         <span class="word-when">${esc(draft ? 'unsent' : (r.at || '').replace('T',' ').replace('Z',''))}</span>
         <span class="word-where">${where}</span>
         ${draft ? '<span class="flag f-stuck">unsent draft</span>'
+                : unlogged ? '<span class="flag f-stuck">not in the record</span>'
                 : r.kind === 'note' ? '<span class="kind k-decision">note</span>' : ''}
       </span>
-      <span class="word-text ${draft ? 'draftbox' : r.kind === 'note' ? 'notebox' : ''}">${esc(r.text)}</span>
+      <span class="word-text ${draft || unlogged ? 'draftbox'
+        : r.kind === 'note' ? 'notebox' : ''}">${esc(r.text)}</span>
       <span class="word-out">${out}</span>
     </button>`;
   }).join('');
@@ -719,7 +749,8 @@ function renderMain(){
   const verdict = SEND_VERDICT[(state.outcome[itemKey(it)] || {}).outcome];
   // Approved proposal section 7 proves delivery by the steering record existing;
   // until it does, this is the captain's own way out - he is the one who can look.
-  const anyway = verdict
+  // Only where delivery is genuinely unknown: a delivered send needs no way out.
+  const anyway = (state.outcome[itemKey(it)] || {}).outcome === 'unknown'
     ? '<button class="defer" id="sendanyway">Send anyway — this may be a second copy</button>'
     : '';
   const cell = (label, value, na) =>
@@ -814,6 +845,7 @@ async function poll(){
     if (!next.error && Array.isArray(next.items)){
       const live = new Map(next.items.map(i => [itemKey(i), i]));
       for (const [k, v] of Object.entries(state.outcome)){
+        if (v.outcome === 'sent-not-recorded') continue;   // a keepsake, not a verdict
         const it = live.get(k);
         // Gone from the list, or the steering record the send was unsure of has
         // since appeared: either way the verdict has nothing left to warn about.
@@ -835,7 +867,11 @@ async function poll(){
 async function loadSaid(){
   try {
     const res = await fetch('/api/said');
-    if (res.ok) state.said = (await res.json()).said || [];
+    if (res.ok){
+      const body = await res.json();
+      state.said = body.said || [];
+      state.saidError = body.error || null;
+    }
   } catch (e) { /* the list still works without it */ }
 }
 
@@ -877,9 +913,19 @@ async function sendAnswer(){
       esc(data.error || data.detail || 'the command failed')} — your words are still here.`;
     $('#send').disabled = false;
     $('#send').textContent = 'Send to firstmate';
+    renderWatcher();
     return;
   }
-  if (state.warning){ render(); return; }   // his words are now only here
+  if (state.warning){
+    // It WAS delivered, so the draft would be a false "unsent"; it is kept as
+    // what it is instead - the only surviving copy of a delivered answer.
+    state.outcome[itemKey(it)] = { outcome:'sent-not-recorded', detail: state.warning,
+                                   sent: (it.sent || []).length, text, at: nowIso() };
+    save('cc.outcome', state.outcome);
+    delete state.draft[itemKey(it)]; save('cc.draft', state.draft);
+    render();
+    return;
+  }
   delete state.draft[itemKey(it)]; save('cc.draft', state.draft);
   state.etag = null;
   await loadSaid(); await poll();
@@ -931,19 +977,21 @@ $('#note-dlg').addEventListener('close', async function(){
   } catch (err) {
     data = { error: String(err.message || err) };
   }
+  state.warning = data.warning || null;
   // The same rule the answer path follows: unknown delivery never reads as a
-  // failure, because retyping it is how the captain sends it twice.
-  btn.textContent = (ok && data.ok) ? '✓  Queued — and kept under My words'
+  // failure, and a record that was not written is never called kept.
+  btn.textContent = (ok && data.ok)
+    ? (state.warning ? '✓  Queued — but NOT kept under My words: ' + state.warning
+                     : '✓  Queued — and kept under My words')
     : data.outcome === 'unknown'
       ? '?  It may already be saved — check before sending it again. '
         + (data.detail || '')
       : '✕  Not queued: ' + (data.error || data.detail || 'the command failed');
-  state.warning = data.warning || null;
   if (ok && data.ok && !state.warning){
     $('#note-text').value = ''; state.note = ''; save('cc.note', state.note);
   }
   setTimeout(() => { btn.textContent = '✎  Tell firstmate something — not an answer'; },
-    data.outcome === 'unknown' ? 12000 : 3500);
+    (data.outcome === 'unknown' || state.warning) ? 12000 : 3500);
   await loadSaid(); render();
 });
 

@@ -213,6 +213,9 @@ def record_said(home, entry):
 
 
 def read_said(home, limit=500):
+    """Returns (rows, error). A log that is not there yet is honestly empty; one
+    that cannot be READ is a different state, and reporting it as empty would
+    tell the captain he has never typed anything."""
     path = said_log(home)
     rows = []
     try:
@@ -225,9 +228,11 @@ def read_said(home, limit=500):
                     rows.append(json.loads(line))
                 except json.JSONDecodeError:
                     continue
-    except OSError:
-        return []
-    return rows[-limit:][::-1]
+    except FileNotFoundError:
+        return [], None
+    except OSError as exc:
+        return [], f"the record could not be read: {exc}"
+    return rows[-limit:][::-1], None
 
 
 def send_answer(home_path, item, text):
@@ -429,7 +434,8 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if path == "/api/said":
-            self._json(200, {"said": read_said(self.records.home)})
+            rows, error = read_said(self.records.home)
+            self._json(200, {"said": rows, "error": error})
             return
 
         self._send(404, b"not found", "text/plain; charset=utf-8")
