@@ -260,6 +260,13 @@
 #     root still exists, so the account's healthy LaunchAgent worker and every
 #     live remote secondmate worker are out of scope. Best effort: a sweep
 #     failure never blocks this teardown.
+# Every cleanup step that runs AFTER the destructive half (endpoint kill,
+# worktree reset and return) names itself and what it leaves behind on stderr
+# before exiting non-zero. Those steps are past the point of no return, so a
+# silent exit strands a task whose real cleanup is finished: state/<id>.meta
+# survives, the task reads as in flight forever, and nothing on screen says
+# which step failed or what it left behind.
+# tests/fm-teardown.test.sh's test_teardown_names_a_failed_cleanup_step pins it.
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
