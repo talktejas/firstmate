@@ -15,7 +15,9 @@ Confirmed still present as of the installed 0.1.63 (the original report checked 
 `bin/fm-lavish-client-patch.sh` edits the installed `dist/chrome-client.js` in place.
 It releases the page's `EventSource` when the tab goes to the background (`document.visibilitychange`, `document.hidden`) and reopens it when the tab is shown again; a page opened straight into a background tab never takes a connection until it is first looked at.
 Since the captain looks at one page at a time, this removes the six-page ceiling entirely.
-Because the server only replays chat and presence to a reconnecting stream, a reopened page also resyncs the artifact frame, so a regeneration pushed while the tab was hidden is not missed.
+The server only replays chat and presence to a reconnecting stream, never a `reload`, so a page whose stream was closed while hidden also resyncs its artifact frame when shown again;
+a regeneration pushed while that tab was hidden is not missed.
+A page that started in a background tab is the exception: its first view only opens the stream, so a regeneration pushed before that first look still needs a manual reload.
 
 One tradeoff this patch does not solve: while every review page is hidden, the shared server sees no connections, so its idle timer runs.
 If the whole browser stays backgrounded or minimized for `LAVISH_AXI_IDLE_TIMEOUT_MS` (default 30m) with no agent polling, the server shuts down and the open pages go dead until it is relaunched.
@@ -35,6 +37,7 @@ Upgrading lavish-axi silently reverts the patch: an upgrade reinstalls `dist/chr
 Re-run the script after every `lavish-axi update`.
 
 Verification for this patch was static (syntax check, presence of the new code, three idempotency cases against throwaway copies, and an HTTP check against a disposable Lavish instance on a private port) rather than a live six-plus-tab browser proof.
+`tests/fm-lavish-client-patch.test.sh` owns that evidence and additionally runs the patched code against a fake `EventSource`/`document` harness to prove the stream closes on hide and reopens on show.
 This machine's only browsers are the captain's own, so proving the fix live needs opening more than six real tabs and no browser here can do that without it being his.
 The real proof will be the captain simply no longer seeing pages stall.
 
