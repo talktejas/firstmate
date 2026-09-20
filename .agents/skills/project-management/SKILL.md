@@ -72,6 +72,8 @@ Firstmate never writes that file itself, because `AGENTS.md` hard rule 1 forbids
 For a project firstmate creates, write and commit it as part of that project's initial local content, which the captain's creation request authorizes.
 For a project firstmate clones, record the branch as `base=` in the registry entry so dispatch is correct immediately, and land `.firstmate-base` through the project's own delivery path as its own small task.
 
+The resolved branch is the project's standing base, so never redirect one effort by editing it: `bin/fm-spawn.sh --base <branch>` names the base for a single spawn, which is how an effort accumulating on one integration branch leaves shared state untouched.
+
 ## Add or clone an existing project
 
 Confirm the source URL, local project name, delivery posture, autonomy posture, and development branch, stating the resolved default for each rather than asking the captain to invent one.

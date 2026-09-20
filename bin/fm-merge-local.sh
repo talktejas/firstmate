@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Perform the approved local merge for a local-only ship task: fast-forward the
-# project's default branch to the crewmate's fm/<id> branch.
+# branch the task was dispatched against - its own recorded base when it has
+# one, otherwise the project's development branch - to the crewmate's fm/<id>
+# branch.
 #
 # This is firstmate's merge gate-action (the captain's merge authority applied
 # locally instead of via a GitHub PR). It is the one sanctioned exception to hard
@@ -95,8 +97,22 @@ git -C "$PROJ" rev-parse --verify --quiet "refs/heads/$BRANCH" >/dev/null || { e
 
 # The captain's ruling is that the recorded development branch governs the merge
 # as well as the worktree, and a local-only project lands on the LOCAL branch.
-DEFAULT=$("$FM_ROOT/bin/fm-project-base.sh" "$PROJ" "$(basename "$PROJ")" 2>/dev/null || true)
-[ -n "$DEFAULT" ] || DEFAULT=$(default_branch) || { echo "error: cannot determine default branch for $PROJ; expected origin/HEAD, main, or master" >&2; exit 1; }
+# The task's own recorded base outranks the project's standing one: a task
+# dispatched with an explicit --base was created against that branch, and
+# landing it anywhere else would fast-forward the standing branch over every
+# commit the effort has accumulated - the one-merge-checked-as-a-whole rule the
+# per-task base exists to keep. A recorded branch that has since disappeared
+# falls back to the project's current declaration, exactly as cleanup does,
+# rather than stranding the work with no command that lands it.
+TASK_BASE=$(grep '^base=' "$META" | tail -n 1 | cut -d= -f2- || true)
+DEFAULT=
+if [ -n "$TASK_BASE" ] && git -C "$PROJ" rev-parse --verify --quiet "refs/heads/$TASK_BASE" >/dev/null; then
+  DEFAULT=$TASK_BASE
+fi
+if [ -z "$DEFAULT" ]; then
+  DEFAULT=$("$FM_ROOT/bin/fm-project-base.sh" "$PROJ" "$(basename "$PROJ")" 2>/dev/null || true)
+  [ -n "$DEFAULT" ] || DEFAULT=$(default_branch) || { echo "error: cannot determine default branch for $PROJ; expected origin/HEAD, main, or master" >&2; exit 1; }
+fi
 
 # The project's main checkout must be on its default branch and clean, so the
 # fast-forward lands predictably (firstmate never writes here otherwise).

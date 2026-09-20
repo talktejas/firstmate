@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Spawn a direct report: a crewmate in a treehouse or Orca worktree, or a
 # secondmate in its isolated firstmate home.
-# Usage: fm-spawn.sh <task-id> <project-dir> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>]
-#        fm-spawn.sh <task-id> <project-dir> --scout [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>]
+# Usage: fm-spawn.sh <task-id> <project-dir> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--base <branch>]
+#        fm-spawn.sh <task-id> <project-dir> --scout [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--base <branch>]
 #        fm-spawn.sh <task-id> [<firstmate-home>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] --secondmate
 #   --mode and --yolo are this task's delivery contract, REQUIRED for every ship
 #   spawn and refused on --scout and --secondmate spawns. Firstmate resolves both
@@ -73,6 +73,20 @@
 #   A backend spawn refusal (missing dependency, version gate, unauthenticated
 #   socket, or unsupported secondmate mode) is terminal for that selected backend;
 #   callers must surface it instead of silently retrying another backend.
+#   --base <branch> is the explicit base branch for this exact ship or scout
+#   spawn. It governs that spawn alone and is never written back to
+#   data/projects.md, so an effort that must accumulate on one integration
+#   branch never edits the shared registry and never depends on remembering to
+#   restore it. Precedence is --base, then the project's registry base= record,
+#   then the repository default branch, unchanged from before this flag. It
+#   resolves exactly as a registry base= does: origin/<branch> for a shared
+#   clone, the local branch in local-only mode or when no origin is configured.
+#   A base that does not resolve refuses the spawn naming the branch rather than
+#   quietly falling back to the registry value or the default, so a worker never
+#   launches on a base other than the one it was dispatched for. The resolved
+#   base is recorded as base= in state/<id>.meta; --relaunch reuses that record
+#   like every other identity axis and refuses --base alongside it. --secondmate
+#   has no task worktree and refuses the flag too.
 #   A herdr crewmate or scout is placed in the exact workspace of the firstmate
 #   or secondmate process launching it, resolved from that process's own herdr
 #   pane rather than from a workspace label (herdr enforces no label uniqueness,
@@ -521,6 +535,7 @@ HARNESS_ARG=
 MODEL=
 EFFORT=
 BACKEND_ARG=
+BASE_ARG=
 MODE=
 YOLO=
 TRACEPARENT_ARG=
@@ -528,6 +543,7 @@ HARNESS_SET=0
 MODEL_SET=0
 EFFORT_SET=0
 BACKEND_SET=0
+BASE_SET=0
 MODE_SET=0
 YOLO_SET=0
 TRACEPARENT_SET=0
@@ -558,6 +574,10 @@ for a in "$@"; do
     backend)
       BACKEND_ARG=$a
       BACKEND_SET=1
+      ;;
+    base)
+      BASE_ARG=$a
+      BASE_SET=1
       ;;
     mode)
       MODE=$a
@@ -609,6 +629,11 @@ for a in "$@"; do
     BACKEND_ARG=${a#--backend=}
     BACKEND_SET=1
     ;;
+  --base) want_value=base ;;
+  --base=*)
+    BASE_ARG=${a#--base=}
+    BASE_SET=1
+    ;;
   --mode) want_value=mode ;;
   --mode=*)
     MODE=${a#--mode=}
@@ -645,6 +670,10 @@ done
 }
 [ "$BACKEND_SET" -eq 0 ] || [ -n "$BACKEND_ARG" ] || {
   echo "error: --backend requires a non-empty value" >&2
+  exit 1
+}
+[ "$BASE_SET" -eq 0 ] || [ -n "$BASE_ARG" ] || {
+  echo "error: --base requires a non-empty value" >&2
   exit 1
 }
 [ "$MODE_SET" -eq 0 ] || [ -n "$MODE" ] || {
@@ -687,6 +716,10 @@ esac
 if [ "$RELAUNCH" -eq 1 ]; then
   [ "$BACKEND_SET" -eq 0 ] || {
     echo "error: --relaunch reuses the task's recorded backend; --backend cannot override it" >&2
+    exit 1
+  }
+  [ "$BASE_SET" -eq 0 ] || {
+    echo "error: --relaunch reuses the task's recorded base branch; --base cannot override it" >&2
     exit 1
   }
   [ "$KIND_SET" -eq 0 ] || {
@@ -743,6 +776,12 @@ else
       exit 1
     }
   fi
+  # A secondmate launches in its own firstmate home rather than a task worktree
+  # of some project, so it has no base branch to be dispatched against.
+  [ "$KIND" != secondmate ] || [ "$BASE_SET" -eq 0 ] || {
+    echo "error: --base applies only to ship and scout spawns; a secondmate launches in its own home, not a task worktree" >&2
+    exit 1
+  }
 fi
 
 spawn_remote_secondmate() {
@@ -1300,6 +1339,7 @@ if [ "${#POS[@]}" -gt 0 ] && [ "${POS[0]}" != "$idpart" ] && case "$idpart" in *
   [ -z "$MODEL" ] || shared_args+=(--model "$MODEL")
   [ -z "$EFFORT" ] || shared_args+=(--effort "$EFFORT")
   [ -z "$BACKEND_ARG" ] || shared_args+=(--backend "$BACKEND_ARG")
+  [ -z "$BASE_ARG" ] || shared_args+=(--base "$BASE_ARG")
   # One delivery contract applies to every pair in a batch, exactly like the shared
   # harness. Each pair still re-validates it against its own brief, so a batch
   # spanning several modes is two invocations rather than a silent mixed dispatch.
@@ -2804,8 +2844,10 @@ spawn_worktree_has_origin_config() { # <worktree>
   return 1
 }
 
-freshen_spawn_worktree_base() { # <worktree>
-  local worktree=$1 default target expected actual status
+# The base branch this spawn actually resolved, empty when no base applied.
+SPAWN_RESOLVED_BASE=
+freshen_spawn_worktree_base() {  # <worktree>
+  local worktree=$1 default base_source target expected actual status has_origin=1 posture
   status=$(git -C "$worktree" -c core.quotePath=false status --porcelain) || {
     echo "error: could not inspect pooled worktree '$worktree' before refreshing its base" >&2
     return 1
@@ -2819,44 +2861,67 @@ freshen_spawn_worktree_base() { # <worktree>
     return 1
   fi
   if ! spawn_worktree_has_origin_config "$worktree"; then
-    return 0
-  fi
-  if ! git -C "$worktree" fetch --quiet origin; then
-    echo "error: could not fetch origin for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
-    return 1
-  fi
-  if ! git -C "$worktree" remote set-head origin --auto >/dev/null 2>&1; then
-    echo "error: could not resolve origin's current default branch for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
-    return 1
+    # With no origin there is nothing to freshen against, so a spawn that was
+    # given no base keeps launching from the clean worktree's own HEAD. An
+    # explicit --base is the branch this exact task was dispatched for, so it
+    # still governs here and still refuses a branch this copy cannot reach.
+    [ -n "$BASE_ARG" ] || return 0
+    has_origin=0
+  else
+    if ! git -C "$worktree" fetch --quiet origin; then
+      echo "error: could not fetch origin for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
+      return 1
+    fi
+    if ! git -C "$worktree" remote set-head origin --auto >/dev/null 2>&1; then
+      echo "error: could not resolve origin's current default branch for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
+      return 1
+    fi
   fi
   # A freshly allocated pool slot lands on the repo's DEFAULT branch, which is
   # silently the wrong base for a project that develops elsewhere: a task once
   # audited a tree 1036 commits behind origin/develop and correctly reported
-  # that nothing in its brief existed. bin/fm-project-base.sh owns which branch
-  # the project declares; absent a declaration, the default stands.
-  default=$("$FM_ROOT/bin/fm-project-base.sh" "$worktree" "$PROJ_NAME" 2>/dev/null || true)
-  base_source=recorded
-  if [ -z "$default" ]; then
-    base_source=default
-    default=$(default_branch "$worktree") || {
-      echo "error: could not determine origin's default branch for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
-      return 1
-    }
+  # that nothing in its brief existed. An explicit --base names the branch THIS
+  # task was dispatched against and governs this spawn alone, which is what lets
+  # an effort accumulate on one integration branch without editing shared state
+  # and having to remember to put it back. Absent that, bin/fm-project-base.sh
+  # owns which branch the project declares; absent a declaration, the default
+  # stands.
+  if [ -n "$BASE_ARG" ]; then
+    default=$BASE_ARG
+    base_source=explicit
+  else
+    default=$("$FM_ROOT/bin/fm-project-base.sh" "$worktree" "$PROJ_NAME" 2>/dev/null || true)
+    base_source=recorded
+    if [ -z "$default" ]; then
+      base_source=default
+      default=$(default_branch "$worktree") || {
+        echo "error: could not determine origin's default branch for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
+        return 1
+      }
+    fi
   fi
   # origin/<branch> is the fetched truth for a shared clone. A local-only project
   # inverts that: it lands with bin/fm-merge-local.sh, which fast-forwards the
   # LOCAL branch and never pushes, so there origin/<branch> is the stale one.
-  if [ "$MODE" = local-only ]; then
+  # $MODE alone cannot decide that for an explicit --base: a scout is refused
+  # --mode by design, so it is always empty there and a scout dispatched against
+  # a local integration branch would resolve it as a stale origin ref. The
+  # project's registered posture answers for that spawn; without --base the
+  # existing resolution is left exactly as it was.
+  posture=$MODE
+  [ -z "$BASE_ARG" ] || [ -n "$posture" ] \
+    || posture=$("$FM_ROOT/bin/fm-project-mode.sh" --raw "$PROJ_NAME" 2>/dev/null | cut -d' ' -f1 || true)
+  if [ "$posture" = local-only ] || [ "$has_origin" = 0 ]; then
     target=$default
   else
     target="origin/$default"
     if ! git -C "$worktree" fetch --quiet origin "+refs/heads/$default:refs/remotes/origin/$default"; then
-      echo "error: could not fetch '$target' for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
+      echo "error: could not fetch $base_source base '$target' for pooled worktree '$worktree'; refusing to launch rather than falling back to another base" >&2
       return 1
     fi
   fi
   expected=$(git -C "$worktree" rev-parse --verify --quiet "$target^{commit}" 2>/dev/null) || {
-    echo "error: '$target' is not a commit for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
+    echo "error: $base_source base '$target' is not a commit for pooled worktree '$worktree'; refusing to launch rather than falling back to another base" >&2
     return 1
   }
   if ! git -C "$worktree" reset --hard "$target" >/dev/null; then
@@ -2867,6 +2932,15 @@ freshen_spawn_worktree_base() { # <worktree>
   if [ "$actual" != "$expected" ]; then
     echo "error: pooled worktree '$worktree' is at '${actual:-unknown}', not current $base_source base '$target' ('$expected'); refusing to launch" >&2
     return 1
+  fi
+  # Only a base this spawn was explicitly dispatched against is recorded below
+  # as base=, so the task record names the branch it was created against rather
+  # than a record that may have moved on since; a relaunch carries the line
+  # forward unchanged with the reused worktree. A spawn that named no base owns
+  # no base: its landing and cleanup keep resolving the project's standing
+  # declaration, which is free to change under an in-flight task.
+  if [ "$base_source" = explicit ]; then
+    SPAWN_RESOLVED_BASE=$default
   fi
 }
 
@@ -4227,6 +4301,10 @@ preserve_relaunch_meta() {
   echo "kind=$KIND"
   [ -z "$MODE" ] || echo "mode=$MODE"
   [ -z "$YOLO" ] || echo "yolo=$YOLO"
+  # A fresh ship or scout records the base it was created against; a relaunch
+  # has none to resolve and keeps the task's own recorded line through
+  # preserve_relaunch_meta, exactly like every other unowned field.
+  [ -z "$SPAWN_RESOLVED_BASE" ] || echo "base=$SPAWN_RESOLVED_BASE"
   echo "tasktmp=$TASK_TMP"
   echo "model=${MODEL:-default}"
   echo "effort=${EFFORT:-default}"

@@ -190,7 +190,9 @@ SH
 
 # Write a meta file for the task. Args: case_dir mode kind
 write_meta() {
-  local case_dir=$1 mode=$2 kind=$3
+  local case_dir=$1 mode=$2 kind=$3 base=${4:-}
+  local -a extra=()
+  [ -z "$base" ] || extra=("base=$base")
   fm_write_meta "$case_dir/state/task-x1.meta" \
     "window=firstmate:fm-task-x1" \
     "endpoint_task_id=task-x1" \
@@ -198,7 +200,8 @@ write_meta() {
     "project=$case_dir/project" \
     "kind=$kind" \
     "mode=$mode" \
-    "spawn_gen=teardown-test-task-x1"
+    "spawn_gen=teardown-test-task-x1" \
+    ${extra[@]+"${extra[@]}"}
 }
 
 # Commit something on the worktree's task branch. Args: case_dir [message]
@@ -814,6 +817,33 @@ test_local_only_merged_to_declared_branch_allows() {
   [ "$(git -C "$case_dir/project" rev-parse main)" = "$main_before" ] \
     || fail "merged-declared: the repository default branch was moved"
   pass "local-only worktree merged into the project's declared development branch is torn down"
+}
+
+# A task dispatched with an explicit --base records that branch as base= and
+# lands THERE (bin/fm-merge-local.sh), so its landed work must be measured
+# against that branch too. Measured against the project's standing base this
+# work is unmerged and cleanup refuses - the mirror of the landing fault.
+test_local_only_merged_to_task_base_allows() {
+  local case_dir rc wt_head main_before
+  case_dir=$(make_case merged-task-base)
+  write_meta "$case_dir" local-only ship integration/x
+  git -C "$case_dir/project" branch integration/x main
+  git -C "$case_dir/wt" reset -q --hard integration/x
+  wt_commit "$case_dir" "work on the task's own base branch"
+  wt_head=$(git -C "$case_dir/wt" rev-parse HEAD)
+  git -C "$case_dir/project" update-ref refs/heads/integration/x "$wt_head"
+  main_before=$(git -C "$case_dir/project" rev-parse main)
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "merged-task-base: teardown should succeed when work is merged into the task's recorded base"
+  ! grep -q REFUSED "$case_dir/stderr" || fail "merged-task-base: teardown printed a REFUSED line"
+  [ "$(git -C "$case_dir/project" rev-parse main)" = "$main_before" ] \
+    || fail "merged-task-base: the project's standing base branch was moved"
+  pass "local-only worktree merged into the task's own recorded base branch is torn down"
 }
 
 test_no_mistakes_origin_remote_allows() {
@@ -3734,6 +3764,7 @@ test_teardown_manual_backend_leaves_the_backlog_to_the_operator
 test_local_only_truly_unpushed_refuses
 test_local_only_merged_to_local_main_allows
 test_local_only_merged_to_declared_branch_allows
+test_local_only_merged_to_task_base_allows
 test_no_mistakes_origin_remote_allows
 test_no_mistakes_truly_unpushed_refuses
 test_local_only_force_overrides_unpushed
