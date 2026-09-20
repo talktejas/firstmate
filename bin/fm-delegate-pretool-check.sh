@@ -25,7 +25,11 @@
 # supervision territory, so it classifies with the home and not as a project.
 # A narrow set of project-runtime verbs denies without a path at all: container
 # tooling, database clients, and an http request aimed at a loopback address are
-# work on a project's own service whatever their arguments look like.
+# work on a project's own service whatever their arguments look like; the home's
+# own loopback services are the exception, listed once in HOME_SERVICE_PORTS.
+# A path under projects/ that does not exist yet or is still empty is the
+# onboarding surface, not a project: cloning and initializing a new project is
+# the primary's own job until a real project is actually there.
 # There is no release token: a bypass the primary can type is the primary
 # choosing to comply, which is the failure this guard replaces.
 # fm-*.sh scripts, no-mistakes, and the *-axi tools are the primary's own job
@@ -75,6 +79,12 @@ RUNTIME_WORDS=' docker docker-compose podman podman-compose psql mysql mariadb m
 # http clients, denied only when the request targets a loopback address, which
 # is a project's own running service.
 HTTP_WORDS=' curl wget http https httpie xh '
+
+# The home's own loopback services: the command center (docs/command-center.md)
+# and the lavish review server (docs/lavish-connection-limit.md). Requests to
+# these ports are the primary's own tooling, never a project's runtime. Every
+# other loopback port belongs to a project's service.
+HOME_SERVICE_PORTS=' 8765 4387 '
 
 TOOL=""
 TOOL_SET=0
@@ -235,6 +245,25 @@ else
   PROJECTS_ROOT=$FM_HOME/projects
 fi
 
+# classify_projects_child <path>: print the project directory under the
+# projects root that <path> falls into, or nothing when that directory does not
+# exist yet or is still empty. Onboarding a new project - cloning into it, then
+# initializing it - is the primary's own job, and the only honest way to tell
+# onboarding from project work is the state of the target: the moment a real
+# project is checked out there, the ordinary rule applies again.
+classify_projects_child() {
+  local p=$1 child
+  child=${p#"$PROJECTS_ROOT"/}
+  child=${child%%/*}
+  [ -n "$child" ] || { printf '%s\n' "$PROJECTS_ROOT"; return 0; }
+  child=$PROJECTS_ROOT/$child
+  [ -e "$child" ] || return 0
+  if [ -d "$child" ] && [ -z "$(ls -A "$child" 2>/dev/null)" ]; then
+    return 0
+  fi
+  printf '%s\n' "$child"
+}
+
 # classify_path <path>: print the project root when <path> resolves into a
 # project, print nothing when it belongs to the home or to no repo at all.
 # Nonexistent paths resolve through their nearest existing ancestor, so an
@@ -243,7 +272,8 @@ fi
 classify_path() {
   local p=$1 dir top common info
   case "$p" in
-    "$PROJECTS_ROOT"|"$PROJECTS_ROOT"/*) printf '%s\n' "$PROJECTS_ROOT"; return 0 ;;
+    "$PROJECTS_ROOT") printf '%s\n' "$PROJECTS_ROOT"; return 0 ;;
+    "$PROJECTS_ROOT"/*) classify_projects_child "$p"; return 0 ;;
   esac
   dir=$p
   while [ ! -d "$dir" ]; do
@@ -254,7 +284,8 @@ classify_path() {
   done
   dir=$(CDPATH='' cd -- "$dir" 2>/dev/null && pwd -P) || return 0
   case "$dir" in
-    "$PROJECTS_ROOT"|"$PROJECTS_ROOT"/*) printf '%s\n' "$PROJECTS_ROOT"; return 0 ;;
+    "$PROJECTS_ROOT") printf '%s\n' "$PROJECTS_ROOT"; return 0 ;;
+    "$PROJECTS_ROOT"/*) classify_projects_child "$dir"; return 0 ;;
   esac
   info=$(repo_info "$dir") || return 0
   top=${info%%$'\n'*}
@@ -349,7 +380,7 @@ trailing_escape() {
 # as prose inside a quoted argument is not an operator while every line and
 # offset outside the span still lines up with the original text.
 quoted_scan() {
-  local mode=$1 rest=$2 out='' pre q body chunk span closed escapes
+  local mode=$1 rest=$2 out='' pre q body chunk span closed escapes word
   while [ -n "$rest" ]; do
     pre=''
     while :; do
@@ -405,7 +436,15 @@ quoted_scan() {
     if [ "$mode" = mask ]; then
       out=$out${span//[!$'\n']/ }
     else
-      out=$out${body//[$'\n\r;|&']/ }
+      # The operand of a -c option is a COMMAND, so its separators keep their
+      # segmenting effect: an allow-listed lead word inside it must not release
+      # the project commands that follow it. Every other quoted span is data.
+      word=${pre%"${pre##*[![:space:]]}"}
+      word=${word##*[[:space:]]}
+      case "$word" in
+        -*c) out=$out$body ;;
+        *) out=$out${body//[$'\n\r;|&']/ } ;;
+      esac
     fi
   done
   printf '%s' "$out"
@@ -462,14 +501,34 @@ strip_heredocs() {
   printf '%s' "$out"
 }
 
+# join_continuations <text>: join a line to the next one when it ends in an
+# unescaped backslash. An escaped backslash is a literal argument, so the
+# newline after it genuinely ends the command and still separates segments.
+join_continuations() {
+  local rest=$1 out='' chunk
+  while :; do
+    case "$rest" in
+      *\\$'\n'*) ;;
+      *) out=$out$rest; break ;;
+    esac
+    chunk=${rest%%\\$'\n'*}
+    rest=${rest:$((${#chunk} + 2))}
+    if trailing_escape "$chunk"; then
+      out=$out$chunk\\$'\n'
+    else
+      out=$out$chunk' '
+    fi
+  done
+  printf '%s' "$out"
+}
+
 if [ "$KIND" = command ]; then
   # An unquoted newline separates commands; a newline inside a quoted argument,
   # inside a heredoc body, or after a backslash line continuation does not, so
   # the lines of a steer message and the tail of a continued dispatch line stay
   # with the command that owns them while a command on its own line is
   # classified on its own.
-  SEGSTR=$(quoted_scan strip "$(strip_heredocs "$CMD")")
-  SEGSTR=${SEGSTR//\\$'\n'/ }
+  SEGSTR=$(join_continuations "$(quoted_scan strip "$(strip_heredocs "$CMD")")")
   SEGSTR=${SEGSTR//&&/;}
   SEGSTR=${SEGSTR//\|\|/;}
   SEGSTR=${SEGSTR//\|/;}
@@ -514,7 +573,15 @@ if [ "$KIND" = command ]; then
       fi
       case "$RAW" in
         *://localhost*|*://127.*|*://0.0.0.0*|*://\[::1\]*|localhost:[0-9]*|127.0.0.1:[0-9]*)
-          SEG_LOOPBACK=1 ;;
+          PORT=${RAW#*://}
+          PORT=${PORT#*@}
+          PORT=${PORT%%/*}
+          PORT=${PORT##*:}
+          PORT=${PORT%%[!0-9]*}
+          case "$HOME_SERVICE_PORTS" in
+            *" $PORT "*) ;;
+            *) SEG_LOOPBACK=1 ;;
+          esac ;;
       esac
       if [ "$PATHS_SEEN" -lt 32 ]; then
         CAND=$(expand_token "$TOK") || CAND=""

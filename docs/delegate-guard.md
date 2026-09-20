@@ -27,6 +27,8 @@ Clones, the captain's own copies, and task worktrees are all such repositories; 
 A linked worktree of the home's own repo shares its git common dir and counts as the home.
 A firstmate home clone - a secondmate home, a pool or treehouse home - is a separate repo but carries the home contract (`AGENTS.md` plus `bin/fm-spawn.sh` and `bin/fm-brief.sh`), and supervising one is the primary's own job, so it counts as a home rather than a project; the check is the home's shape, never a path pattern.
 Nonexistent paths resolve through their nearest existing ancestor, so an existence probe on a project path is classified while pattern junk that resolves back to the cwd is not.
+A path under `projects/` whose project directory does not exist yet, or exists and is still empty, is the ONBOARDING surface rather than a project: cloning a new project into it and initializing it there is the primary's own job, which `AGENTS.md` hard rule 1 already names among its exceptions and `.claude/skills/project-management` walks through.
+The carve-out is scoped by the state of the target and nothing else - no command is trusted and no token releases it - so the moment a real project is checked out at that path the ordinary rule applies to it again.
 
 The decision then follows one rule, stated in the refusal itself:
 
@@ -36,6 +38,7 @@ The decision then follows one rule, stated in the refusal itself:
   Every fact a dispatch needs reaches the primary through its workers and through the always-allowed fleet tooling below.
 - **A narrow set of project-runtime verbs is denied with no path at all.**
   `docker`/`podman` and their compose forms, the database clients (`psql`, `mysql`, `mariadb`, `mongosh`, `redis-cli`), and an `curl`/`wget`/`http`/`xh` request aimed at a loopback address are work on a project's own containers, database, or running service - the "diagnosing a backend health failure" shape - and a project's runtime is a worker's territory whatever the arguments look like.
+  The home's own loopback services are the exception: the command center ([`command-center.md`](command-center.md)) and the lavish review server ([`lavish-connection-limit.md`](lavish-connection-limit.md)) are the primary's own tooling, and their ports are listed once in the script's `HOME_SERVICE_PORTS`. Every other loopback port is a project's service.
   The list is deliberately short: it covers the verbs that plainly mean project work rather than attempting to classify every command in the world.
 - **The primary's own job is always allowed**, whatever project paths it carries: every `fm-*.sh` script, `no-mistakes`, and the `gh-axi`/`tasks-axi`/`quota-axi`/`lavish-axi` tools, because dispatch and lifecycle commands take project directories as arguments by design.
   Reads and writes inside the home itself (`data/`, `state/`, `config/`, tracked files) never touch the guard.
@@ -44,6 +47,7 @@ Bash commands are split into shell segments; a segment is refused when it carrie
 The lead word therefore only ever widens the refusal to an allowance, never the reverse, so an unrecognized wrapper or verb fails toward the deny.
 Segmentation is quote-aware and heredoc-aware: a newline inside a quoted argument, inside a heredoc body, or after a backslash line continuation belongs to the command that owns it, so `bin/fm-send.sh task-1 "... /projects/x ..."`, `cat > data/task-1/brief.md <<'EOF'`, and a `\`-continued `bin/fm-spawn.sh` keep their fleet-dispatch release, while any other unquoted newline separates commands exactly like `;` does, so an allowed lead word on one line never releases a project command on the next.
 A `<<` written inside a quoted message is prose rather than a heredoc opener, and `<<<` is a herestring: neither hides the lines that follow from classification.
+Only an UNESCAPED trailing backslash continues a line, and the operand of a `-c` option is a command rather than data - its `;`, `|`, `&` and newlines keep segmenting - so `bash -c "<fleet script>; <project grep>"` refuses the grep while `bash -c "bin/fm-brief.sh task-1 <project>"` stays allowed.
 Deliberate obfuscation is out of scope under the same agent-mistake threat model the cd guard records; the script header owns the exact token mechanics.
 
 ## Scope
@@ -116,4 +120,5 @@ Under Grok this guard covers the shell surface only: `.grok/hooks/fm-primary-del
 Wiring them needs Grok's own matcher tokens for those tools, verified against a live Grok the way `docs/arm-pretool-check.md` records its own verification; grok is not installed on this host, so nothing about Grok's Claude-compatibility mapping is asserted here.
 Pi and omp remain uncovered for the reason recorded under "Harness wiring", and the Cursor and OpenCode entries cover their shell surface only.
 The classifier is a seatbelt against the observed mistake shapes, not a sandbox: variable indirection is not resolved, and deliberate obfuscation is out of scope under the recorded threat model.
+Path classification stops after 32 candidates in one call - a deliberate cost ceiling, since each candidate costs a git call - so a project path past the 32nd path-shaped token of a single command goes unclassified; no ordinary command reaches it, and it is the one fail-open the command text does not show.
 Path-free project work beyond the runtime verbs listed above - a project service reached through a remote hostname, a container name given to a runtime this list does not name, an ssh session into a project host - is not classified either.

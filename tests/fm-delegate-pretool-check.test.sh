@@ -131,6 +131,10 @@ test_wrappers_do_not_hide_the_lead_word() {
     --tool Bash --command "timeout 600 npm --prefix $PROJ test"
   expect_deny "bash -c wrapping a project grep" \
     --tool Bash --command "bash -c \"grep -rn seeded $PROJ/src\""
+  # A -c operand is a command, so its separators still segment: a fleet script
+  # at the front of it must not release what follows.
+  expect_deny "a bash -c compound does not release its trailing project command" \
+    --tool Bash --command "bash -c \"bin/fm-spawn.sh task-1 --mode no-mistakes; grep -rn seeded $PROJ/src\""
   pass "timeout and shell wrappers resolve to the real lead word in both directions"
 }
 
@@ -202,12 +206,34 @@ test_home_and_neutral_paths_stay_free() {
   pass "the home, state, and non-repo paths are never classified as project work"
 }
 
-test_projects_prefix_counts_without_git() {
-  # A clone dir that does not exist yet, or where git cannot answer, still
-  # classifies by the projects/ prefix.
-  expect_deny "listing under projects/" --tool Bash --command "ls projects/brand-new"
-  expect_deny "probing under projects/" --tool Bash --command "[ -e projects/brand-new/composer.json ]"
-  pass "anything under projects/ is a project even when git cannot resolve it"
+test_projects_onboarding_is_scoped_by_target_state() {
+  # Onboarding a project is the primary's own job, and the only honest way to
+  # tell it from project work is the state of the target.
+  local fresh="$PRIMARY/projects/brand-new" live="$PRIMARY/projects/live-proj"
+  rm -rf "$fresh" "$live"
+  expect_allow "clone into a projects path that does not exist yet" \
+    --tool Bash --command "git clone https://example.test/new.git projects/brand-new"
+  expect_allow "initialize a projects path that does not exist yet" \
+    --tool Bash --command "cd projects/brand-new && no-mistakes init"
+  mkdir -p "$fresh"
+  expect_allow "initialize an empty projects path" \
+    --tool Bash --command "cd projects/brand-new && no-mistakes init"
+  expect_allow "probe an empty projects path" \
+    --tool Bash --command "[ -e projects/brand-new/composer.json ]"
+
+  # The moment a real project is there, the ordinary rule applies again.
+  mkdir -p "$live/src"
+  printf 'seeded\n' > "$live/src/app.php"
+  expect_deny "cd into a populated projects path" \
+    --tool Bash --command "cd projects/live-proj"
+  expect_deny "clone over a populated projects path" \
+    --tool Bash --command "git clone https://example.test/new.git projects/live-proj"
+  expect_deny "read a file under a populated projects path" \
+    --tool Bash --command "cat projects/live-proj/src/app.php"
+  expect_deny "Read tool into a populated projects path" \
+    --tool Read --path "projects/live-proj/src/app.php"
+  rm -rf "$fresh" "$live"
+  pass "an absent or empty projects path is onboarding surface; a populated one is a project"
 }
 
 test_no_environment_assignment_releases_the_guard() {
@@ -241,9 +267,13 @@ test_project_runtime_verbs_are_refused_without_a_path() {
     "wget -qO- http://localhost:3000/" ; do
     expect_deny "project-runtime shape: $cmd" --tool Bash --command "$cmd"
   done
-  # The rule is the verb plus, for http, a loopback target: the primary's own
-  # remote work is untouched.
+  # The rule is the verb plus, for http, a loopback target that is not one of
+  # the home's own services: the primary's own tooling is untouched.
   expect_allow "a remote http request" --tool Bash --command "curl -s https://api.example.test/status"
+  expect_allow "the command center on the home's own port" \
+    --tool Bash --command "curl -s http://127.0.0.1:8765/state"
+  expect_allow "lavish on the home's own port" \
+    --tool Bash --command "curl -s http://localhost:4387/session/abc"
   expect_allow "gh-axi over https" --tool Bash --command "gh-axi pr view 12"
   expect_allow "docker named by a fleet script" \
     --tool Bash --command "bin/fm-crew-state.sh task-1 docker"
@@ -284,6 +314,9 @@ cat $PROJ/src/app.php"
   expect_allow "a backslash-continued fm-spawn keeps its release" \
     --tool Bash --command "bin/fm-spawn.sh task-1 \\
   $PROJ --mode no-mistakes"
+  expect_deny "an escaped backslash is a literal argument, not a continuation" \
+    --tool Bash --command "bin/fm-send.sh task-1 msg \\\\
+grep -rn seeded $PROJ/src"
   expect_deny "the same two lines without the continuation still deny line two" \
     --tool Bash --command "bin/fm-spawn.sh task-1
   $PROJ --mode no-mistakes"
@@ -602,7 +635,7 @@ test_redirection_targets_are_classified
 test_build_run_and_write_shapes_never_pass
 test_read_grep_glob_edit_write_tools_are_classified
 test_home_and_neutral_paths_stay_free
-test_projects_prefix_counts_without_git
+test_projects_onboarding_is_scoped_by_target_state
 test_no_environment_assignment_releases_the_guard
 test_project_runtime_verbs_are_refused_without_a_path
 test_multi_line_and_heredoc_dispatch_commands_keep_their_release
