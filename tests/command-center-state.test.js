@@ -7,7 +7,7 @@ const assert = require('assert');
 const path = require('path');
 const {
   pollFacts, tense, transportFailure, verdictFor, releaseVerdicts, itemKey,
-  shapeMessage, orderRows, replyTarget, foldSaid,
+  shapeMessage, orderRows, replyTarget, foldSaid, wordsAfter,
 } = require(path.join(__dirname, '..', 'bin', 'command-center-state.js'));
 
 // Quiet on success: tests/command-center.test.sh runs this and reports the
@@ -267,6 +267,20 @@ test('the outcome of a send supersedes its acceptance', () => {
     ['sent', 'sending', 'note']);
   assert.deepStrictEqual(foldSaid(undefined), [],
     'a record that could not be read must fold to nothing, not throw');
+});
+
+// --- what an arrived outcome does to his words ---------------------------------
+// The promise is that nothing he typed is cleared by a send that did not land,
+// and the click is accepted before the command runs, so only the outcome row
+// may empty the box.
+test('only a send that landed takes his words out of the box', () => {
+  assert.strictEqual(wordsAfter({ sid: 'a', outcome: 'sent' }), 'clear');
+  assert.strictEqual(wordsAfter({ sid: 'a', outcome: 'failed' }), 'restore');
+  assert.strictEqual(wordsAfter({ sid: 'a', outcome: 'unknown' }), 'restore');
+  assert.strictEqual(wordsAfter({ sid: 'a', outcome: 'sending' }), null,
+    'an accepted send must not be treated as a delivered one');
+  assert.strictEqual(wordsAfter({ outcome: 'sent' }), null,
+    'a row from no send of his must not empty a box');
 });
 
 process.exit(failures ? 1 : 0);

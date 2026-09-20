@@ -433,9 +433,13 @@ def deliver(home, said, run, route_hint="", invalidate=None):
     record_said(home, dict(said, sid=sid, at=utc_now(), outcome="sending"))
 
     def carry_out():
+        # The ONLY place a send's outcome now exists is the row below, so every
+        # way the command can fail has to reach it. A thread that died on a
+        # missing script or an unwritable temp dir would leave the record saying
+        # his words are going out for as long as the server runs.
         try:
             result = run()
-        except subprocess.SubprocessError as exc:
+        except Exception as exc:                               # noqa: BLE001
             result = ("unknown", route_hint, str(exc))
         outcome, route, detail = result[0], result[1], result[2]
         extra = {"mode": result[3]} if len(result) > 3 else {}
@@ -664,18 +668,22 @@ class Handler(BaseHTTPRequestHandler):
             if message is None:
                 self._json(404, {"ok": False, "error": "no such message"})
                 return
-            self.records.refresh(min_interval=0)
-            if self.records.etag is None:
-                # With no published scan the answer route cannot be ruled out,
-                # and falling through to the note route would tell him his steer
-                # was delivered while the worker stayed stopped.
-                self._json(503, {"ok": False,
-                                 "error": self.records.error
-                                 or "the records have not been read yet"})
-                return
-            item = (self.records.waiting_question(
-                message.get("task"), message.get("question_key") or "")
-                if message.get("question") else None)
+            item = None
+            if message.get("question"):
+                # Only a QUESTION has an answer route to rule out. With no
+                # published scan it cannot be ruled out, and falling through to
+                # the note route would tell him his steer was delivered while
+                # the worker stayed stopped. A message that is not a question is
+                # routed by the record alone, so no scan can change where it
+                # goes and a scan that failed must not stop it.
+                self.records.refresh(min_interval=0)
+                if self.records.etag is None:
+                    self._json(503, {"ok": False,
+                                     "error": self.records.error
+                                     or "the records have not been read yet"})
+                    return
+                item = self.records.waiting_question(
+                    message.get("task"), message.get("question_key") or "")
             home_path = self.records.home_path(item["home"]) if item else None
             if item and home_path:
                 said = {"kind": "answer", "home": item["home"], "item": item["id"],
@@ -693,8 +701,7 @@ class Handler(BaseHTTPRequestHandler):
                 invalidate = None
             sid = deliver(self.records.home, dict(said, msg=msg_id, text=text),
                           run, route_hint=hint, invalidate=invalidate)
-            self._json(202, {"ok": True, "sid": sid, "outcome": "sending",
-                             "source": said.get("source", "note")})
+            self._json(202, {"ok": True, "sid": sid, "outcome": "sending"})
             return
 
         if path == "/api/answer":

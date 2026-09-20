@@ -121,7 +121,9 @@ The reply box says which of the three rows above your reply is about to take, be
 Until the records have been read it says the route cannot be told yet rather than naming one, because the page never claims what the records do not support.
 
 The server decides the route from the recorded message and the current scan, never from the browser.
-A reply naming a message this home never recorded is refused, a task id is only ever matched against the home this page was started on, because two homes on one machine can hold the same one, and a reply is refused outright while no scan has been read, because a reply that cannot rule out the answer route must not quietly become a note.
+A reply naming a message this home never recorded is refused, and a task id is only ever matched against the home this page was started on, because two homes on one machine can hold the same one.
+A reply to a recorded question is refused outright while no scan has been read, because a reply that cannot rule out the answer route must not quietly become a note.
+A reply to a message that is not a question is not refused then: no scan can change where it goes, so a backlog that will not parse has nothing to say about it.
 A reply carries the same do-not-resend protection an answer does: on an unconfirmed delivery it keeps your words, stops offering Reply, and waits until you say to send it anyway.
 
 ## What it stores
@@ -136,9 +138,12 @@ It is advisory and never blocks a turn, and it is bounded: the cheap change chec
 Your words are written there before the click returns, so the click never waits on a shell command: you send, it is recorded, and you move straight to the next item while the delivery is carried out behind you.
 That is why one send writes two rows under the same `sid`: **sending** when your words were taken, and the outcome when the command answered.
 The page folds the pair and shows the outcome in place on the row you answered, so nothing is claimed about delivery until the command has said it.
+Until then the box says your words were written down and are going out, never that they arrived, and the button that sent them does not offer to send them again.
 
 The outcome is read from the exit code of the command that ran and nothing else: **sent**, **failed** (a captain hold refused the record and nothing left this machine — answering it again is safe, and `fm-captain-hold.sh` documents an exact retry as idempotent), or **unknown** (the command reported neither, so the page never guesses which: the page reads only a confirmed `fm-send.sh` exit as sent, and every other exit is unknown to it — including the one that says the answer was delivered but its decision close failed, which the page does not yet report as a state of its own; and `fm-inbox.sh` saves a note before it wakes firstmate, so its failure may mean only that the wake did not land).
-On **unknown** the page keeps your text, says plainly that delivery could not be confirmed, and does not offer Send again until the steering record appears — or until you say so yourself, knowing it may be a second copy. On any other non-success it keeps your text too, so nothing you typed is cleared by a send that did not land.
+On **unknown** the page keeps your text, says plainly that delivery could not be confirmed, and does not offer Send again until the steering record appears — or until you say so yourself, knowing it may be a second copy.
+On any other non-success it keeps your text too, so nothing you typed is cleared by a send that did not land.
+Your words stay in the box until the outcome row says the send landed; when it says failed or unknown they are put back where you typed them, the row you sent from is flagged `not sent`, and a note that did not land says so on its own button.
 
 An open item shows one line derived from this record: the last thing you sent about it and what became of it, and a message shows every reply you sent to it.
 Both logs are served whole, and if either is ever shortened the page says so and says how many rows are missing, because a reply missing from a thread reads as a message you never answered.

@@ -1306,6 +1306,81 @@ test_a_machine_status_note_never_reaches_his_screen() {
   pass "a machine status note never reaches his screen"
 }
 
+# The ONLY place a send's outcome now exists is the record, so every way the
+# command can fail has to reach it. A row stuck at "going out now" forever is a
+# send he is never told about.
+test_a_send_that_cannot_run_at_all_still_records_an_outcome() {
+  local home bin port f result
+  home="$TMP_ROOT/norunner"
+  seed_home "$home"
+  bin="$TMP_ROOT/norunner-bin"
+  mkdir -p "$bin"
+  for f in "$ROOT"/bin/*; do ln -s "$f" "$bin/$(basename "$f")"; done
+  # The script that owns the delivery is gone: subprocess.run raises, and that
+  # is not a SubprocessError.
+  rm -f "$bin/fm-captain-hold.sh"
+
+  port=$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1]);s.close()')
+  FM_ROOT_OVERRIDE="$ROOT" python3 "$bin/command-center.py" \
+    --port "$port" --home "$home" > "$home/server.log" 2>&1 &
+  SERVER_PID=$!
+  local ready=
+  for _ in $(seq 1 60); do
+    curl -sf -m 2 -o /dev/null "http://127.0.0.1:$port/" && { ready=1; break; }
+    kill -0 "$SERVER_PID" 2>/dev/null || break
+    sleep 1
+  done
+  [ -n "$ready" ] || fail "the server did not start"
+
+  result=$(post "$port" /api/answer \
+    '{"home":"main","id":"cc-live","source":"hold","key":"cc-live","text":"Go blue."}')
+  assert_contains "$(wait_outcome "$home" "$(jq -r .sid <<<"$result")")" '"outcome":"unknown"' \
+    "a send that could not run at all left the record saying it was going out"
+  stop_server
+  pass "a send that cannot run at all still records an outcome"
+}
+
+# A message the recorder never marked as a question has no answer route to rule
+# out, so a backlog that will not parse has nothing to say about where it goes.
+test_a_reply_that_is_not_a_question_is_sent_even_with_no_scan() {
+  local home shim realjq port id body
+  home="$TMP_ROOT/reply-noscan-note"
+  seed_home "$home"
+  id=$(say "$home" "The PR is up" "Ready when you are.") \
+    || fail "the recorder refused the message"
+  shim="$TMP_ROOT/reply-noscan-note-shim"
+  mkdir -p "$shim"
+  realjq=$(command -v jq) || fail "jq is required for this test"
+  cat > "$shim/jq" <<EOF
+#!/usr/bin/env bash
+case " \$* " in *'_row:"item"'*) exit 1 ;; esac
+exec "$realjq" "\$@"
+EOF
+  chmod +x "$shim/jq"
+
+  port=$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1]);s.close()')
+  PATH="$shim:$PATH" FM_ROOT_OVERRIDE="$ROOT" python3 "$SERVER" \
+    --port "$port" --home "$home" > "$home/server.log" 2>&1 &
+  SERVER_PID=$!
+  local ready=
+  for _ in $(seq 1 60); do
+    curl -s -m 2 -o /dev/null "http://127.0.0.1:$port/" && { ready=1; break; }
+    kill -0 "$SERVER_PID" 2>/dev/null || break
+    sleep 1
+  done
+  [ -n "$ready" ] || fail "the server did not start"
+
+  body=$(post "$port" /api/reply "$(jq -cn --arg m "$id" '{msg:$m,text:"Merge it."}')")
+  assert_contains "$body" '"ok":true' \
+    "a reply with no answer route to rule out was refused because a backlog would not parse"
+  assert_contains "$(wait_outcome "$home" "$(jq -r .sid <<<"$body")")" 'fm-inbox.sh note' \
+    "the reply never reached firstmate as a note"
+  stop_server
+  assert_contains "$(cat "$home"/state/inbox/*.note 2>/dev/null)" 'Merge it.' \
+    "his words never reached firstmate's own inbox"
+  pass "a reply that is not a question is sent even with no scan"
+}
+
 test_an_unreadable_message_log_is_reported_not_shown_as_empty() {
   local home port body
   if [ "$(id -u)" = 0 ]; then
@@ -1373,3 +1448,5 @@ test_the_click_returns_before_the_command_finishes
 test_a_failed_read_is_never_cached_as_the_state_of_the_log
 test_the_recorder_takes_a_body_that_looks_like_a_flag
 test_a_machine_status_note_never_reaches_his_screen
+test_a_send_that_cannot_run_at_all_still_records_an_outcome
+test_a_reply_that_is_not_a_question_is_sent_even_with_no_scan

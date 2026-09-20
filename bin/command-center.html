@@ -404,6 +404,9 @@ const state = {
   open:null, view:{homes:[],items:[]}, said:[], messages:[], msgError:null,
   msgDropped:0, saidDropped:0, msgEtag:null, saidEtag:null,
   applied:load('cc.applied',{}),
+  // A send in flight, by sid: what he typed and where he typed it. His words
+  // leave the box only when the outcome row says the send landed.
+  pending:load('cc.pending',{}), failed:load('cc.failed',{}),
   msgRead:false, etag:null,
   sending:false, flash:null, error:null, seen:load('cc.seen',{}), draft:load('cc.draft',{}),
   note:load('cc.note',''), outcome:load('cc.outcome',{}), scanned:false, saidError:null,
@@ -631,7 +634,8 @@ function itemRow(it){
   if (it.branch && state.group !== 'branch') bits.push(`<span class="mono">${esc(it.branch)}</span>`);
   else if (it.branch_state === 'detached' && state.group !== 'branch') bits.push('<span>detached</span>');
   let flag = '';
-  if (isStuck(it))        flag = '<span class="flag f-stuck">stuck</span>';
+  if (state.failed[itemKey(it)]) flag = '<span class="flag f-stuck">not sent</span>';
+  else if (isStuck(it))   flag = '<span class="flag f-stuck">stuck</span>';
   else if (isPending(it)) flag = '<span class="flag f-sent">sent</span>';
   else if (isDeferred(it)) flag = `<span class="flag f-sent">until ${esc(it.deferred_until)}</span>`;
   const old = it.since_epoch && (nowSecs() - it.since_epoch) > 86400;
@@ -815,7 +819,8 @@ function messageRow(m){
       data-key="${esc(msgKey(m))}" aria-current="${state.open === msgKey(m)}">
     <span class="item-top">
       <span class="item-title">${esc(m.title)}</span>
-      ${replied ? '<span class="flag f-sent">replied</span>' : ''}
+      ${state.failed[msgKey(m)] ? '<span class="flag f-stuck">not sent</span>'
+        : replied ? '<span class="flag f-sent">replied</span>' : ''}
       <span class="age" title="from the time firstmate sent it">${ageLabel(m)}</span>
     </span>
     <span class="item-sub" title="${esc([m.project || 'no project',
@@ -875,6 +880,7 @@ function renderMessagePane(m){
   // before he sends, because a reply delivered as the answer to a question he
   // was not looking at is the worst thing this page could do.
   const target = replyTarget(m, state.view.items);
+  const sending = isSending(key);
   const going = (m.question && !(state.scanned && state.confirmed))
     ? 'Where this goes cannot be told yet: the records have not been read. The server decides it from them when you send.'
     : target.kind === 'answer'
@@ -915,8 +921,9 @@ function renderMessagePane(m){
       <textarea id="reply" placeholder="Type here…">${esc(draft)}</textarea>
       <div class="reply-foot">
         <button class="send" id="sendreply" ${
-          draft.trim() && !state.sending && !verdict ? '' : 'disabled'}>${
+          draft.trim() && !state.sending && !verdict && !sending ? '' : 'disabled'}>${
           verdict ? esc(verdict.label)
+                  : sending ? 'Going out now'
                   : state.sending ? 'Sending…' : 'Reply to firstmate'}</button>
         ${verdict
           ? '<button class="defer" id="sendanyway">Send anyway — this may be a second copy</button>'
@@ -924,7 +931,9 @@ function renderMessagePane(m){
         ${draft.trim() ? '<span class="draft-flag">Draft kept</span>' : ''}
         <span class="send-note" id="sendnote">${verdict
           ? verdict.note + ' <span class="mono">' + esc(state.outcome[key].detail || '') + '</span>'
-          : going}</span>
+          : sending
+          ? 'Written down. Going out now — the outcome appears here when the command answers.'
+          : failedNote(key) || going}</span>
       </div>
     </div>
   </div>`;
@@ -932,7 +941,7 @@ function renderMessagePane(m){
   ta.addEventListener('input', () => {
     state.draft[key] = ta.value;
     save('cc.draft', state.draft);
-    $('#sendreply').disabled = !ta.value.trim() || state.sending || !!verdict;
+    $('#sendreply').disabled = !ta.value.trim() || state.sending || !!verdict || sending;
     renderList();
   });
 }
@@ -954,6 +963,7 @@ function renderMain(){
   const detail = esc(it.detail || '').split(/\n{2,}/)
     .map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`).join('');
   const draft = state.draft[itemKey(it)] || '';
+  const going = isSending(itemKey(it));
   const verdict = SEND_VERDICT[(state.outcome[itemKey(it)] || {}).outcome];
   // Approved proposal section 7 proves delivery by the steering record existing;
   // until it does, this is the captain's own way out - he is the one who can look.
@@ -996,15 +1006,19 @@ function renderMain(){
       <textarea id="reply" placeholder="Type here…">${esc(draft)}</textarea>
       <div class="reply-foot">
         <button class="send" id="send" ${
-          draft.trim() && !state.sending && !verdict ? '' : 'disabled'}>${
+          draft.trim() && !state.sending && !verdict && !going ? '' : 'disabled'}>${
           verdict ? esc(verdict.label)
+                  : going ? 'Going out now'
                   : state.sending ? 'Sending…' : 'Send to firstmate'}</button>
         <button class="defer" id="defer">Not now</button>
         ${anyway}
         ${draft.trim() ? '<span class="draft-flag">Draft kept</span>' : ''}
         <span class="send-note" id="sendnote">${verdict
           ? verdict.note + ' <span class="mono">' + esc(state.outcome[itemKey(it)].detail || '') + '</span>'
-          : 'Goes through ' + (it.source === 'hold' ? 'the decision record'
+          : going
+          ? 'Written down. Going out now — the outcome appears here when the command answers.'
+          : failedNote(itemKey(it))
+          || 'Goes through ' + (it.source === 'hold' ? 'the decision record'
                                                     : 'the worker’s steering inbox') + '.'}</span>
       </div>
     </div>
@@ -1014,12 +1028,18 @@ function renderMain(){
   ta.addEventListener('input', () => {
     state.draft[itemKey(it)] = ta.value;
     save('cc.draft', state.draft);
-    $('#send').disabled = !ta.value.trim() || state.sending || !!verdict;
+    $('#send').disabled = !ta.value.trim() || state.sending || !!verdict || going;
     renderList();
   });
 }
 
-function render(){ renderList(); renderMain(); }
+function render(){
+  renderList(); renderMain();
+  // The note box hangs off no item, so its button is the surface its outcome
+  // lands on. A transient message it is showing right now is left alone.
+  if (Date.now() > (state.noteFlash || 0))
+    $('#open-note').textContent = noteButtonLabel();
+}
 
 function open(key){
   state.open = key;
@@ -1135,6 +1155,26 @@ function applyOutcomes(){
     if (!r.sid || r.outcome === 'sending' || state.applied[r.sid]) continue;
     state.applied[r.sid] = true;
     changed = true;
+    const held = state.pending[r.sid];
+    if (held){
+      delete state.pending[r.sid];
+      // wordsAfter comes from bin/command-center-state.js.
+      if (wordsAfter(r) === 'clear'){
+        // It landed, and only now may his words leave the box.
+        if (held.key === 'note'){ state.note = ''; save('cc.note', state.note); }
+        else delete state.draft[held.key];
+        delete state.failed[held.key];
+      } else {
+        // It did not land. His words go back where he typed them and the row he
+        // sent from says so, rather than only the record he may never open.
+        if (held.key === 'note'){ state.note = held.text; save('cc.note', state.note); }
+        else state.draft[held.key] = held.text;
+        state.failed[held.key] = {outcome: r.outcome, detail: r.detail || ''};
+      }
+      save('cc.draft', state.draft);
+      save('cc.pending', state.pending);
+      save('cc.failed', state.failed);
+    }
     const key = r.msg ? 'msg/' + r.msg : (r.item_key || '');
     if (!key) continue;
     const verdict = verdictFor(r.source || 'status', r.outcome, r.detail,
@@ -1142,6 +1182,25 @@ function applyOutcomes(){
     if (verdict) state.outcome[key] = verdict;
   }
   if (changed){ save('cc.applied', state.applied); save('cc.outcome', state.outcome); }
+}
+
+// His words stay in the box until the outcome says they landed, so the button
+// they were sent from has to say they are already going out: otherwise a second
+// click on the same box is a second answer to the same decision.
+function isSending(key){
+  return Object.values(state.pending).some(p => p.key === key);
+}
+
+// One owner of "this send did not land", so the item pane, the reply pane and
+// the note box all say the same thing about it.
+function failedNote(key){
+  const f = state.failed[key];
+  if (!f) return '';
+  return f.outcome === 'unknown'
+    ? `<b>Delivery could not be confirmed.</b> ${esc(f.detail || '')} — it may already have
+       arrived, so check before sending it again. Your words are still here.`
+    : `<b style="color:var(--hot)">Not sent.</b> ${esc(f.detail || 'the command failed')}
+       — your words are still here.`;
 }
 
 async function post(url, body){
@@ -1159,7 +1218,7 @@ async function sendAnswer(){
   const it = (state.view.items || []).find(i => itemKey(i) === state.open);
   if (!it) return;
   const text = (state.draft[itemKey(it)] || '').trim();
-  if (!text || state.sending) return;
+  if (!text || state.sending || isSending(itemKey(it))) return;
   state.sending = true; renderMain();
   let ok = false, data = {};
   try {
@@ -1192,9 +1251,15 @@ async function sendAnswer(){
       esc(data.error || data.detail || 'the command failed')} — your words are still here.`;
     return;
   }
-  delete state.draft[itemKey(it)]; save('cc.draft', state.draft);
+  // Accepted, not delivered: his words stay in the box until the outcome row
+  // says the send landed, and the item he just answered is never the one this
+  // opens next - the view has not been rescanned, so it still lists it and a
+  // second click there would really send a second answer.
+  state.pending[data.sid] = {key: itemKey(it), text};
+  delete state.failed[itemKey(it)];
+  save('cc.pending', state.pending); save('cc.failed', state.failed);
   await loadSaid();
-  const next = ordered(visible())[0];
+  const next = ordered(visible()).find(r => itemKey(r) !== itemKey(it));
   state.open = next ? itemKey(next) : null;
   render();
 }
@@ -1204,7 +1269,7 @@ async function sendReply(){
   if (!m) return;
   const key = msgKey(m);
   const text = (state.draft[key] || '').trim();
-  if (!text || state.sending) return;
+  if (!text || state.sending || isSending(key)) return;
   state.sending = true; renderMain();
   let ok = false, data = {};
   try {
@@ -1218,15 +1283,18 @@ async function sendReply(){
   } finally {
     state.sending = false;
   }
-  await loadSaid();
   if (ok && data.ok){
-    delete state.draft[key]; save('cc.draft', state.draft);
+    state.pending[data.sid] = {key, text};
+    delete state.failed[key];
+    save('cc.pending', state.pending); save('cc.failed', state.failed);
+    await loadSaid();
     render();
     const sent = $('#sendnote');
     if (sent) sent.innerHTML = `Written down and going out now. The outcome appears under
       <b>What you said back</b> when the command answers.`;
     return;
   }
+  await loadSaid();
   // An unconfirmed reply forbids a resend for exactly the reason an
   // unconfirmed answer does, so it leaves the same standing verdict rather
   // than a line of text the next render wipes. His words stay in the box.
@@ -1273,6 +1341,16 @@ $('#q').addEventListener('input', e => { state.q = e.target.value; renderList();
 
 // The note box keeps what he typed the same way the answer box does: a note
 // that vanishes on a failed send is the loss this whole surface exists to end.
+// The note box hangs off no item, so its own button is where its outcome is
+// said: the record of a note that did not land is otherwise only in My words.
+function noteButtonLabel(){
+  const f = state.failed.note;
+  if (!f) return '✎  Tell firstmate something — not an answer';
+  return f.outcome === 'unknown'
+    ? '?  Your last note may already be saved — check before sending it again'
+    : '✕  Your last note was not queued: ' + (f.detail || 'the command failed');
+}
+
 $('#note-text').value = state.note;
 $('#note-text').addEventListener('input', e => {
   state.note = e.target.value; save('cc.note', state.note);
@@ -1292,21 +1370,25 @@ $('#note-dlg').addEventListener('close', async function(){
     // unknown, never failed.
     data = transportFailure('note', String(err.message || err));
   }
-  // The same rule the answer path follows: unknown delivery never reads as a
-  // failure, because retyping it is how the captain sends it twice. It warns
-  // rather than locking Send, because a note hangs off no item: there is no key
-  // to hold a verdict against and no steering record whose arrival could ever
-  // release one.
-  btn.textContent = (ok && data.ok) ? '✓  Queued for firstmate'
-    : data.outcome === 'unknown'
+  // Acceptance is not delivery: the server has his words, and the command has
+  // not answered yet. So this claims only what it knows, his text stays in the
+  // box, and the outcome lands on this same button when it arrives. Unknown
+  // delivery never reads as a failure, because retyping it is how the captain
+  // sends it twice.
+  if (ok && data.ok){
+    state.pending[data.sid] = {key: 'note', text};
+    delete state.failed.note;
+    save('cc.pending', state.pending); save('cc.failed', state.failed);
+    btn.textContent = '✎  Written down — going out now';
+  } else {
+    btn.textContent = data.outcome === 'unknown'
       ? '?  It may already be saved — check before sending it again. '
         + (data.detail || '')
       : '✕  Not queued: ' + (data.error || data.detail || 'the command failed');
-  if (ok && data.ok){
-    $('#note-text').value = ''; state.note = ''; save('cc.note', state.note);
   }
-  setTimeout(() => { btn.textContent = '✎  Tell firstmate something — not an answer'; },
-    data.outcome === 'unknown' ? 12000 : 3500);
+  const hold = data.outcome === 'unknown' ? 12000 : 3500;
+  state.noteFlash = Date.now() + hold;
+  setTimeout(() => { btn.textContent = noteButtonLabel(); }, hold);
   await loadSaid(); render();
 });
 

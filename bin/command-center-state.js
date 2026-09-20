@@ -144,6 +144,18 @@ function foldSaid(rows) {
   return kept;
 }
 
+// --- what an arrived outcome does to the words he typed -------------------------
+// The click is accepted before the command runs, so the record's outcome row is
+// what decides the fate of his draft. Only a send that LANDED may take his
+// words out of the box: on failed or unknown they go back where he typed them
+// and the row he sent from is flagged, because docs/command-center.md promises
+// nothing he typed is cleared by a send that did not land. `null` means the
+// outcome has not arrived yet and nothing may happen to them.
+function wordsAfter(row) {
+  if (!row || !row.sid || row.outcome === 'sending') return null;
+  return row.outcome === 'sent' ? 'clear' : 'restore';
+}
+
 // --- where a reply is about to go -----------------------------------------------
 // The same rule the server routes by (waiting_question in
 // bin/command-center.py), so the pane can tell him what his reply will do
@@ -172,4 +184,4 @@ function itemKey(it) {
 if (typeof module === 'object' && module.exports)
   module.exports = { pollFacts, tense, transportFailure, verdictFor,
                      releaseVerdicts, itemKey, shapeMessage, orderRows,
-                     replyTarget, foldSaid };
+                     replyTarget, foldSaid, wordsAfter };

@@ -76,7 +76,7 @@ if [ "${1-}" = unrecorded ]; then
   # failure is silence rather than a stall.
   bounded() {
     if command -v timeout >/dev/null 2>&1; then
-      timeout "${FM_CAPTAIN_CHECK_TIMEOUT:-20}" "$@"
+      timeout 20 "$@"
     else
       "$@"
     fi
