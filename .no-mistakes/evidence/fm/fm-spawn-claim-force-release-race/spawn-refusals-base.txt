@@ -1,0 +1,17 @@
+
+===== S1 force-released claim: spawn exit=0 =====
+warning: /tmp/fmdrive-base.bLUtO0/s1/home/data/drive-s1/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+spawned drive-s1 harness=codex kind=ship mode=no-mistakes yolo=off window=firstmate:fm-drive-s1 worktree=/tmp/fmdrive-base.bLUtO0/s1/slot
+[drive] OUTCOME: spawn LAUNCHED into the copy neighbour-s1 still names (record published)
+
+===== S2 record in another local home: spawn exit=0 =====
+warning: /tmp/fmdrive-base.bLUtO0/s2/home/data/drive-s2/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+spawned drive-s2 harness=codex kind=ship mode=no-mistakes yolo=off window=firstmate:fm-drive-s2 worktree=/tmp/fmdrive-base.bLUtO0/s2/slot
+[drive] OUTCOME: spawn LAUNCHED into the copy the parent home's record still names
+
+===== S3 unreadable registered home: spawn exit=0 =====
+warning: /tmp/fmdrive-base.bLUtO0/s3/home/data/drive-s3/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+spawned drive-s3 harness=codex kind=ship mode=no-mistakes yolo=off window=firstmate:fm-drive-s3 worktree=/tmp/fmdrive-base.bLUtO0/s3/slot
+--- treehouse log (tabs shown as | ) ---
+treehouse|get|--lease|--lease-holder|fm:drive-s3@/tmp/fmdrive-base.bLUtO0/s3/home/state
+[drive] OUTCOME: spawn LAUNCHED despite an unreadable registered home

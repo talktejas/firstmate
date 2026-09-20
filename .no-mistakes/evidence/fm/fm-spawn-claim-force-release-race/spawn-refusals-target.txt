@@ -1,0 +1,24 @@
+
+===== S1 force-released claim: spawn exit=1 =====
+warning: /tmp/fmdrive-target.EIRTIJ/s1/home/data/drive-s1/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+error: the pool offered '/tmp/fmdrive-target.EIRTIJ/s1/slot', which task neighbour-s1's own record still names as its working copy; refusing to launch task drive-s1 into it and reset another worker's work
+That copy is now held under 'fm:drive-s1@/tmp/fmdrive-target.EIRTIJ/s1/home/state' so it is not offered again; reconcile whichever record is wrong (bin/fm-crew-state.sh neighbour-s1), then release it with: (cd '/tmp/fmdrive-target.EIRTIJ/s1/project' && treehouse return --force --if-lease-holder 'fm:drive-s1@/tmp/fmdrive-target.EIRTIJ/s1/home/state' '/tmp/fmdrive-target.EIRTIJ/s1/slot')
+Re-running this spawn is safe: it is given a different copy.
+[drive] OUTCOME: spawn refused; no record published for drive-s1
+
+===== S2 record in another local home: spawn exit=1 =====
+warning: /tmp/fmdrive-target.EIRTIJ/s2/home/data/drive-s2/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+error: the pool offered '/tmp/fmdrive-target.EIRTIJ/s2/slot', which task neighbour-s2's own record in Firstmate home '/tmp/fmdrive-target.EIRTIJ/s2/parent-home' still names as its working copy; refusing to launch task drive-s2 into it and reset another worker's work
+That copy is now held under 'fm:drive-s2@/tmp/fmdrive-target.EIRTIJ/s2/home/state' so it is not offered again; reconcile whichever record is wrong (FM_HOME='/tmp/fmdrive-target.EIRTIJ/s2/parent-home' bin/fm-crew-state.sh neighbour-s2), then release it with: (cd '/tmp/fmdrive-target.EIRTIJ/s2/project' && treehouse return --force --if-lease-holder 'fm:drive-s2@/tmp/fmdrive-target.EIRTIJ/s2/home/state' '/tmp/fmdrive-target.EIRTIJ/s2/slot')
+Re-running this spawn is safe: it is given a different copy.
+[drive] OUTCOME: spawn refused; no record published for drive-s2
+
+===== S3 unreadable registered home: spawn exit=1 =====
+warning: /tmp/fmdrive-target.EIRTIJ/s3/home/data/drive-s3/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+error: refusing to launch task drive-s3 into the pool copy '/tmp/fmdrive-target.EIRTIJ/s3/slot': registered local Firstmate home is unavailable: /tmp/fmdrive-target.EIRTIJ/s3/home/gone, so the task records in Firstmate home '/tmp/fmdrive-target.EIRTIJ/s3/home/gone' and in the homes it registers could not all be read, and a task in one of them cannot be ruled out as the one holding this copy
+The pool claim on '/tmp/fmdrive-target.EIRTIJ/s3/slot' has been returned and no task metadata was published; nothing was changed.
+Repair /tmp/fmdrive-target.EIRTIJ/s3/home/data/secondmates.md (registered local Firstmate home is unavailable: /tmp/fmdrive-target.EIRTIJ/s3/home/gone), then re-run this spawn.
+--- treehouse log (tabs shown as | ) ---
+treehouse|get|--lease|--lease-holder|fm:drive-s3@/tmp/fmdrive-target.EIRTIJ/s3/home/state
+treehouse|return|--force|--if-lease-holder|fm:drive-s3@/tmp/fmdrive-target.EIRTIJ/s3/home/state|/tmp/fmdrive-target.EIRTIJ/s3/slot
+[drive] OUTCOME: spawn refused; no record published for drive-s3

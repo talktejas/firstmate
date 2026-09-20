@@ -1,0 +1,19 @@
+=== records before ===
+task-x1.meta
+task-x2.meta
+
+=== teardown task-x1 (the record the slot claim disowns) ===
+warning: task task-x1's recorded worktree /tmp/fmdrive-td-target.MhKJSA/deadlock/pool/slot-1/copy was reassigned to task task-x2 (home /tmp/fmdrive-td-target.MhKJSA/deadlock), which claimed that pool slot after this record was written; that slot is no longer task-x1's, so its processes, copy, and claim are left untouched and only task-x1's own cleanup runs.
+/tmp/fmdrive-td-target.MhKJSA/deadlock/project: already current
+teardown task-x1 complete (window firstmate:fm-task-x1; pool slot /tmp/fmdrive-td-target.MhKJSA/deadlock/pool/slot-1/copy left to task task-x2 (home /tmp/fmdrive-td-target.MhKJSA/deadlock), which it was reassigned to)
+Backlog: task-x1 just finished (this home keeps no markdown backlog at /tmp/fmdrive-td-target.MhKJSA/deadlock/data/backlog.md). Update /tmp/fmdrive-td-target.MhKJSA/deadlock/data/backlog.md - move task-x1 to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+[drive] exit=0
+[drive] records now: home-summary.json task-x2.meta terminal-outcomes 
+[drive] owner's uncommitted file still present: yes
+
+=== teardown task-x2 (the slot's real owner), after x1 retired ===
+/tmp/fmdrive-td-target.MhKJSA/deadlock/project: already current
+teardown task-x2 complete (window firstmate:fm-task-x2, worktree /tmp/fmdrive-td-target.MhKJSA/deadlock/pool/slot-1/copy)
+Backlog: task-x2 just finished (this home keeps no markdown backlog at /tmp/fmdrive-td-target.MhKJSA/deadlock/data/backlog.md). Update /tmp/fmdrive-td-target.MhKJSA/deadlock/data/backlog.md - move task-x2 to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+[drive] exit=0
+[drive] records now: [home-summary.json terminal-outcomes ]

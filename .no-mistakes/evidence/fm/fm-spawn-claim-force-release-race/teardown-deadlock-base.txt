@@ -1,0 +1,18 @@
+=== records before ===
+task-x1.meta
+task-x2.meta
+
+=== teardown task-x1 (the record the slot claim disowns) ===
+REFUSED: task task-x1's recorded worktree /tmp/fmdrive-td-base.Frtg39/deadlock/pool/slot-1/copy is also task task-x2's recorded worktree.
+Returning that pool slot would kill task-x2's processes and reset its copy, so nothing was changed - not even with --force.
+Reconcile whichever record is wrong (bin/fm-crew-state.sh task-x1; bin/fm-crew-state.sh task-x2), then re-run teardown.
+[drive] exit=1
+[drive] records now: task-x1.meta task-x2.meta 
+[drive] owner's uncommitted file still present: yes
+
+=== teardown task-x2 (the slot's real owner), after x1 retired ===
+REFUSED: task task-x2's recorded worktree /tmp/fmdrive-td-base.Frtg39/deadlock/pool/slot-1/copy is also task task-x1's recorded worktree.
+Returning that pool slot would kill task-x1's processes and reset its copy, so nothing was changed - not even with --force.
+Reconcile whichever record is wrong (bin/fm-crew-state.sh task-x2; bin/fm-crew-state.sh task-x1), then re-run teardown.
+[drive] exit=1
+[drive] records now: [task-x1.meta task-x2.meta ]
