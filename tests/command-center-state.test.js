@@ -7,7 +7,7 @@ const assert = require('assert');
 const path = require('path');
 const {
   pollFacts, tense, transportFailure, verdictFor, releaseVerdicts, itemKey,
-  shapeMessage, orderRows, replyTarget,
+  shapeMessage, orderRows, replyTarget, foldSaid,
 } = require(path.join(__dirname, '..', 'bin', 'command-center-state.js'));
 
 // Quiet on success: tests/command-center.test.sh runs this and reports the
@@ -251,6 +251,22 @@ test('a question is never answered against another home', () => {
   assert.strictEqual(
     replyTarget({ question: true, task: 't1' },
                 [Object.assign({}, hold, { home: 'mate' })]).kind, 'note');
+});
+
+// --- two rows, one send --------------------------------------------------------
+// The record carries his words the moment the click is accepted and again when
+// the command answers. The list must show the outcome, not the acceptance.
+test('the outcome of a send supersedes its acceptance', () => {
+  const rows = [
+    { sid: 'a', outcome: 'sent', text: 'go blue' },
+    { sid: 'a', outcome: 'sending', text: 'go blue' },
+    { sid: 'b', outcome: 'sending', text: 'merge it' },
+    { kind: 'note', text: 'an older row with no sid' },
+  ];
+  assert.deepStrictEqual(foldSaid(rows).map(r => r.outcome || r.kind),
+    ['sent', 'sending', 'note']);
+  assert.deepStrictEqual(foldSaid(undefined), [],
+    'a record that could not be read must fold to nothing, not throw');
 });
 
 process.exit(failures ? 1 : 0);

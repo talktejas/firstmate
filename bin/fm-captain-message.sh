@@ -69,7 +69,22 @@ command -v jq >/dev/null 2>&1 || fail "jq is required"
 if [ "${1-}" = unrecorded ]; then
   scan="$SCRIPT_DIR/command-center-scan.sh"
   [ -x "$scan" ] || exit 0
-  view=$(FM_HOME="$FM_HOME" "$scan" 2>/dev/null) || exit 0
+  # This runs at every turn end, so it is bounded and it is cheap when nothing
+  # moved: the fingerprint is a stat sweep, and the full scan runs only when it
+  # differs from the last one this check cleared. A slow or wedged scan must
+  # never hang a turn boundary, so both calls are under a timeout and every
+  # failure is silence rather than a stall.
+  bounded() {
+    if command -v timeout >/dev/null 2>&1; then
+      timeout "${FM_CAPTAIN_CHECK_TIMEOUT:-20}" "$@"
+    else
+      "$@"
+    fi
+  }
+  mark="$FM_HOME/state/.captain-message-check"
+  fp=$(FM_HOME="$FM_HOME" bounded "$scan" --fingerprint 2>/dev/null) || exit 0
+  [ "$fp" = "$(cat "$mark" 2>/dev/null || true)" ] && exit 0
+  view=$(FM_HOME="$FM_HOME" bounded "$scan" 2>/dev/null) || exit 0
   waiting=$(printf '%s' "$view" | jq -r '
     .items[] | select(.home == "main")
     | [.source, .id, (.key // "")] | @tsv' 2>/dev/null) || exit 0
@@ -88,7 +103,13 @@ if [ "${1-}" = unrecorded ]; then
   done <<EOF
 $waiting
 EOF
-  [ -n "$missing" ] || exit 0
+  # Cleared: remember the fingerprint so later turns cost one stat sweep. Still
+  # missing: the mark is deliberately NOT written, so it says so again every
+  # turn until the message is recorded.
+  if [ -z "$missing" ]; then
+    printf '%s\n' "$fp" > "$mark" 2>/dev/null || true
+    exit 0
+  fi
   rule='━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
   {
     printf '●%s\n' "$rule"
@@ -112,10 +133,11 @@ while [ $# -gt 0 ]; do
     --branch)   branch=${2-}; shift 2 ;;
     --question) question=1; shift ;;
     --question-key) question_key=${2-}; question=1; shift 2 ;;
-    -h|--help|help) usage; exit 0 ;;
+    -h|--help) usage; exit 0 ;;
     --) shift; break ;;
-    -)  break ;;
-    -*) fail "unknown option: $1" ;;
+    # Anything else begins the message. A body is often a bullet list, so an
+    # argument starting with a dash is his text, not a misspelled flag: a log
+    # whose whole purpose is that no message is lost may not refuse one.
     *)  break ;;
   esac
 done

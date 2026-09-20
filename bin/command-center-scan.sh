@@ -229,6 +229,39 @@ epoch_of() {  # <file>
   [ -e "$1" ] && stat -c '%Y' "$1" 2>/dev/null || printf ''
 }
 
+# WHAT HE READS IS NEVER MACHINE TEXT. A worker's status note is written for
+# firstmate, not for the captain: it carries finding ids, decision keys, run
+# ids and file paths, and showing it as an item renders bookkeeping as if
+# firstmate had said it. So a note that does not read as a sentence a person
+# would say out loud is dropped WHOLE - never rewritten - and the row is stated
+# plainly from what is actually known. A row that cannot be stated plainly at
+# all is dropped, because guessing at it is worse than not showing it.
+plain_sentence() {  # <text>
+  local text=$1
+  case "$text" in
+    ''|*=*|*/*|*'{'*|*'}'*|*'|'*|*'['*|*'<'*) return 1 ;;
+  esac
+  # Two hyphens inside one word is an id, a key or a run name, never a phrase.
+  [[ "$text" =~ [^[:space:]]*-[^[:space:]]*-[^[:space:]]* ]] && return 1
+  [ "$(printf '%s' "$text" | wc -w)" -ge 3 ] || return 1
+  return 0
+}
+
+plain_line() {  # <note> <verb> <project>
+  local note=$1 verb=$2 project=$3 said
+  if plain_sentence "$note"; then
+    printf '%s\n' "$note"
+    return 0
+  fi
+  said='stopped and needs a decision from you'
+  [ "$verb" = blocked ] && said='stopped and cannot go on'
+  if [ -n "$project" ]; then
+    printf 'A worker on %s %s.\n' "$project" "$said"
+  else
+    printf 'A worker %s.\n' "$said"
+  fi
+}
+
 # One item object. `source` says which record it came from, because the two are
 # answered through different commands and the server must not guess.
 emit_item() {  # <home-id> <state-dir> <id> <source> <key> <title> <detail> <repo> <kind>
@@ -301,7 +334,7 @@ scan_home() {  # <home-id> <home-name> <home-path>
   local hid=$1 hpath=$3 backlog
   local state=$hpath/state
   local id title repo kind since hold body
-  local task key verb note
+  local task key verb note project line
 
   backlog=$(backlog_path "$hpath") || backlog=
   if [ -n "$backlog" ] && [ -r "$backlog" ]; then
@@ -321,11 +354,13 @@ scan_home() {  # <home-id> <home-name> <home-path>
   [ -d "$state" ] || return 0
   while IFS=$'\t' read -r task key verb note; do
     [ -n "$task" ] || continue
+    project=$(meta_get "$state/$task.meta" project | sed 's#.*/##')
+    line=$(plain_line "$note" "$verb" "$project")
     # `blocked` and `needs-decision` both stop a worker, but they mean different
     # things to the person answering, so the verb travels with the item.
     STATUS_VERB=$verb
-    emit_item "$hid" "$state" "$task" status "$key" "$note" "$note" \
-      "$(meta_get "$state/$task.meta" project | sed 's#.*/##')" ""
+    emit_item "$hid" "$state" "$task" status "$key" "$line" "$line" \
+      "$project" ""
     unset STATUS_VERB
   done < <(scan_open_decisions "$state")
 }

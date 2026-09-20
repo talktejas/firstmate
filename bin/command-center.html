@@ -402,7 +402,8 @@ const esc = s => String(s == null ? '' : s)
 const state = {
   tab:'messages', group:'project', sfilter:'', q:'', homes:new Set(),
   open:null, view:{homes:[],items:[]}, said:[], messages:[], msgError:null,
-  msgDropped:0, saidDropped:0, msgEtag:null,
+  msgDropped:0, saidDropped:0, msgEtag:null, saidEtag:null,
+  applied:load('cc.applied',{}),
   msgRead:false, etag:null,
   sending:false, flash:null, error:null, seen:load('cc.seen',{}), draft:load('cc.draft',{}),
   note:load('cc.note',''), outcome:load('cc.outcome',{}), scanned:false, saidError:null,
@@ -655,6 +656,9 @@ function itemRow(it){
 function wordOutcome(r){
   if (r.kind === 'draft') return 'Not sent. Kept here so it is not lost.';
   switch (r.outcome){
+    // Written down and on its way. The command has not answered yet, so
+    // nothing is claimed about delivery until it does.
+    case 'sending': return 'Recorded here. Going out now — the outcome appears when the command answers';
     // Both routes close the decision they answer; a held WORK item is the one
     // case that is released instead, and the record says which act ran.
     case 'sent':
@@ -871,7 +875,9 @@ function renderMessagePane(m){
   // before he sends, because a reply delivered as the answer to a question he
   // was not looking at is the worst thing this page could do.
   const target = replyTarget(m, state.view.items);
-  const going = target.kind === 'answer'
+  const going = (m.question && !(state.scanned && state.confirmed))
+    ? 'Where this goes cannot be told yet: the records have not been read. The server decides it from them when you send.'
+    : target.kind === 'answer'
     ? `Answers <b>${esc(target.item.title)}</b> — the question this message asked, and
        nothing else.`
     : target.settled
@@ -891,7 +897,6 @@ function renderMessagePane(m){
     <div class="crumbs">
       <span class="kind k-decision">firstmate said</span>
       <span class="sep">·</span><span>${esc(localTime(m.at))}</span>
-      ${m.task ? `<span class="sep">·</span><span class="mono">${esc(m.task)}</span>` : ''}
     </div>
     <h2 class="subject">${esc(m.title)}</h2>
     <div class="where">
@@ -1104,14 +1109,39 @@ async function loadMessages(){
 
 async function loadSaid(){
   try {
-    const res = await fetch('/api/said');
-    if (res.ok){
-      const body = await res.json();
-      state.said = body.said || [];
-      state.saidError = body.error || null;
-      state.saidDropped = body.dropped || 0;
-    }
-  } catch (e) { /* the list still works without it */ }
+    const res = await fetch('/api/said', {
+      headers: state.saidEtag ? {'If-None-Match': state.saidEtag} : {} });
+    if (res.status === 304) return false;
+    if (!res.ok) return false;
+    state.saidEtag = res.headers.get('ETag');
+    const body = await res.json();
+    // foldSaid comes from bin/command-center-state.js: the outcome row
+    // supersedes the acceptance row written when he clicked.
+    state.said = foldSaid(body.said);
+    state.saidError = body.error || null;
+    state.saidDropped = body.dropped || 0;
+    applyOutcomes();
+    return true;
+  } catch (e) { return false; }   // the list still works without it
+}
+
+// The outcome of a send now arrives in the record rather than in the answer to
+// the click, so the do-not-resend verdict is set from the record. Each send is
+// judged once: after he has said to send it anyway, the same row must not lock
+// it again on the next poll.
+function applyOutcomes(){
+  let changed = false;
+  for (const r of state.said){
+    if (!r.sid || r.outcome === 'sending' || state.applied[r.sid]) continue;
+    state.applied[r.sid] = true;
+    changed = true;
+    const key = r.msg ? 'msg/' + r.msg : (r.item_key || '');
+    if (!key) continue;
+    const verdict = verdictFor(r.source || 'status', r.outcome, r.detail,
+                               r.sent_count || 0);
+    if (verdict) state.outcome[key] = verdict;
+  }
+  if (changed){ save('cc.applied', state.applied); save('cc.outcome', state.outcome); }
 }
 
 async function post(url, body){
@@ -1121,6 +1151,10 @@ async function post(url, body){
   return { ok: res.ok, data: await res.json().catch(() => ({})) };
 }
 
+// The click never waits on a shell command. The server writes his words to the
+// durable record and answers 202 before it runs anything, so this returns as
+// soon as they are safe, he moves straight to the next item, and the outcome
+// appears on the row he answered when the command answers (applyOutcomes).
 async function sendAnswer(){
   const it = (state.view.items || []).find(i => itemKey(i) === state.open);
   if (!it) return;
@@ -1132,19 +1166,16 @@ async function sendAnswer(){
     ({ ok, data } = await post('/api/answer',
       { home: it.home, id: it.id, source: it.source, key: it.key || '', text }));
   } catch (err) {
-    // The request never came back. On the SEND route the steer may already sit
-    // on the worker's inbox, so delivery is unknown and a second try is a second
-    // steer. A HOLD writes a local record with no delivery plane and
-    // fm-captain-hold.sh documents an exact retry as idempotent, so it is a
-    // plain failure: the hold route has NO locking outcome, in this failure or
-    // any other, because a lock there only blocks the retry that is the fix.
+    // The request never came back, so it is not known whether the server took
+    // his words. On the SEND route the steer may already sit on the worker's
+    // inbox, so delivery is unknown and a second try is a second steer. A HOLD
+    // writes a local record with no delivery plane and fm-captain-hold.sh
+    // documents an exact retry as idempotent, so it is a plain failure.
     data = transportFailure(it.source, String(err.message || err));
   } finally {
     state.sending = false;
   }
   if (!ok || !data.ok){
-    // Unknown delivery tells him the opposite of not-sent, so it never reads as
-    // a failure and never leaves Send offered.
     const verdict = verdictFor(it.source, data.outcome, data.detail,
                                (it.sent || []).length);
     if (verdict){
@@ -1156,16 +1187,13 @@ async function sendAnswer(){
     }
     await loadSaid();
     render();
-    // render() may have painted the blank pane, if the item left the list while
-    // the log was reloading; it has already set the button from state either way.
     const note = $('#sendnote');
     if (note) note.innerHTML = `<b style="color:var(--hot)">Not sent.</b> ${
       esc(data.error || data.detail || 'the command failed')} — your words are still here.`;
     return;
   }
   delete state.draft[itemKey(it)]; save('cc.draft', state.draft);
-  state.etag = null;
-  await loadSaid(); await poll();
+  await loadSaid();
   const next = ordered(visible())[0];
   state.open = next ? itemKey(next) : null;
   render();
@@ -1193,11 +1221,10 @@ async function sendReply(){
   await loadSaid();
   if (ok && data.ok){
     delete state.draft[key]; save('cc.draft', state.draft);
-    state.etag = null;
-    await poll();
     render();
     const sent = $('#sendnote');
-    if (sent) sent.innerHTML = 'Delivered through ' + esc(data.route) + '.';
+    if (sent) sent.innerHTML = `Written down and going out now. The outcome appears under
+      <b>What you said back</b> when the command answers.`;
     return;
   }
   // An unconfirmed reply forbids a resend for exactly the reason an
@@ -1290,6 +1317,10 @@ setInterval(poll, POLL_MS);
 // recorded message never changes, so rebuilding the pane would take his cursor
 // out of the reply he is typing for nothing.
 setInterval(async () => { if (await loadMessages()) renderList(); }, POLL_MS);
+// The outcome of a send is written to the record by the thread carrying the
+// delivery out, so the record is polled on the same cadence and behind the same
+// change check. An unchanged record costs a stat.
+setInterval(async () => { if (await loadSaid()) render(); }, POLL_MS);
 setInterval(renderList, 30000);   // keep the ages and stuck flags honest
 </script>
 </body>

@@ -58,6 +58,7 @@ import sys
 import tempfile
 import threading
 import time
+import uuid
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -416,6 +417,37 @@ def send_answer(home_path, item, text):
     return outcome, route, detail[:600], mode
 
 
+def deliver(home, said, run, route_hint="", invalidate=None):
+    """Record what he typed, then carry the delivery out behind the answer.
+
+    The click may not wait on a shell command: he types, it is recorded, and he
+    moves on. So the durable record is written FIRST with outcome `sending`,
+    and the same record is written again under the same `sid` when the command
+    answers - delivered, failed or unknown, read from the exit code exactly as
+    before. The page folds the two by `sid` and shows the outcome in place.
+
+    Returns the sid. The thread is not a daemon: a delivery already started must
+    finish even if the server is asked to stop.
+    """
+    sid = uuid.uuid4().hex[:12]
+    record_said(home, dict(said, sid=sid, at=utc_now(), outcome="sending"))
+
+    def carry_out():
+        try:
+            result = run()
+        except subprocess.SubprocessError as exc:
+            result = ("unknown", route_hint, str(exc))
+        outcome, route, detail = result[0], result[1], result[2]
+        extra = {"mode": result[3]} if len(result) > 3 else {}
+        record_said(home, dict(said, sid=sid, at=utc_now(), outcome=outcome,
+                               route=route, detail=detail, **extra))
+        if invalidate is not None and outcome != "failed":
+            invalidate()
+
+    threading.Thread(target=carry_out, name="cc-deliver").start()
+    return sid
+
+
 def send_note(home_path, text):
     # Approved proposal section 3: the captain's words are logged even when they
     # answer no item, so a note with no addressee is a channel this surface owes.
@@ -462,6 +494,25 @@ class Handler(BaseHTTPRequestHandler):
 
     def _json(self, code, obj):
         self._send(code, dump(obj))
+
+    def _log_response(self, name, path, read):
+        """Serve one log under a change check, but never cache a FAILED read.
+
+        A read error carries no rows, and its (mtime, size) is the same one a
+        successful read of the repaired file would have: caching it would answer
+        304 to every later poll and leave the page saying his record could not
+        be read long after it could.
+        """
+        etag = log_etag(path)
+        if etag and self.headers.get("If-None-Match") == etag:
+            self.send_response(304)
+            self.send_header("ETag", etag)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        rows, error, dropped = read(self.records.home)
+        self._send(200, dump({name: rows, "error": error, "dropped": dropped}),
+                   etag=None if error else etag)
 
     def _body(self):
         """Read the declared body first, on every path including a refusal.
@@ -558,21 +609,12 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if path == "/api/messages":
-            etag = log_etag(message_log(self.records.home))
-            if etag and self.headers.get("If-None-Match") == etag:
-                self.send_response(304)
-                self.send_header("ETag", etag)
-                self.send_header("Content-Length", "0")
-                self.end_headers()
-                return
-            rows, error, dropped = read_messages(self.records.home)
-            self._send(200, dump({"messages": rows, "error": error,
-                                  "dropped": dropped}), etag=etag)
+            self._log_response("messages", message_log(self.records.home),
+                               read_messages)
             return
 
         if path == "/api/said":
-            rows, error, dropped = read_said(self.records.home)
-            self._json(200, {"said": rows, "error": error, "dropped": dropped})
+            self._log_response("said", said_log(self.records.home), read_said)
             return
 
         self._send(404, b"not found", "text/plain; charset=utf-8")
@@ -597,18 +639,11 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/note":
             # Approved proposal section 3: a note attached to no item still goes
             # in the captain's log, so this endpoint is part of that promise.
-            try:
-                outcome, route, detail = send_note(self.records.home, text)
-            except subprocess.SubprocessError as exc:
-                outcome, route, detail = "unknown", "fm-inbox.sh note", str(exc)
-            ok = outcome == "sent"
-            record_said(self.records.home, {
-                "at": utc_now(), "kind": "note", "home": "main",
-                "text": text, "route": route, "outcome": outcome, "detail": detail,
-            })
-            self._json(200 if ok else 502,
-                       {"ok": ok, "outcome": outcome, "route": route,
-                        "detail": detail})
+            sid = deliver(self.records.home,
+                          {"kind": "note", "home": "main", "text": text},
+                          lambda: send_note(self.records.home, text),
+                          route_hint="fm-inbox.sh note")
+            self._json(202, {"ok": True, "sid": sid, "outcome": "sending"})
             return
 
         if path == "/api/reply":
@@ -643,27 +678,23 @@ class Handler(BaseHTTPRequestHandler):
                 if message.get("question") else None)
             home_path = self.records.home_path(item["home"]) if item else None
             if item and home_path:
-                outcome, route, detail, mode = send_answer(home_path, item, text)
                 said = {"kind": "answer", "home": item["home"], "item": item["id"],
                         "source": item["source"], "key": item.get("key"),
                         "item_key": item_key(item), "title": item.get("title"),
-                        "mode": mode}
-                if outcome != "failed":
-                    self.records.invalidate()
+                        "sent_count": len(item.get("sent") or [])}
+                run = lambda: send_answer(home_path, item, text)   # noqa: E731
+                hint = "fm-send.sh " + item["id"]
+                invalidate = self.records.invalidate
             else:
-                try:
-                    outcome, route, detail = send_note(self.records.home, text)
-                except subprocess.SubprocessError as exc:
-                    outcome, route, detail = "unknown", "fm-inbox.sh note", str(exc)
                 said = {"kind": "note", "home": "main",
                         "title": message.get("title")}
-            ok = outcome == "sent"
-            record_said(self.records.home, dict(
-                said, at=utc_now(), msg=msg_id, text=text,
-                route=route, outcome=outcome, detail=detail))
-            self._json(200 if ok else 502,
-                       {"ok": ok, "outcome": outcome, "route": route,
-                        "detail": detail, "source": said.get("source", "note")})
+                run = lambda: send_note(self.records.home, text)   # noqa: E731
+                hint = "fm-inbox.sh note"
+                invalidate = None
+            sid = deliver(self.records.home, dict(said, msg=msg_id, text=text),
+                          run, route_hint=hint, invalidate=invalidate)
+            self._json(202, {"ok": True, "sid": sid, "outcome": "sending",
+                             "source": said.get("source", "note")})
             return
 
         if path == "/api/answer":
@@ -687,20 +718,16 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(404, {"ok": False,
                                  "error": "that item is no longer waiting for you"})
                 return
-            outcome, route, detail, mode = send_answer(home_path, item, text)
-            ok = outcome == "sent"
-            record_said(self.records.home, {
-                "at": utc_now(), "kind": "answer", "home": home_id, "item": task_id,
-                "source": item["source"], "key": item.get("key"),
-                "item_key": item_key(item), "title": item.get("title"),
-                "text": text, "route": route, "outcome": outcome, "mode": mode,
-                "detail": detail,
-            })
-            if outcome != "failed":
-                self.records.invalidate()     # force a rescan on the next poll
-            self._json(200 if ok else 502,
-                       {"ok": ok, "outcome": outcome, "route": route,
-                        "detail": detail})
+            sid = deliver(
+                self.records.home,
+                {"kind": "answer", "home": home_id, "item": task_id,
+                 "source": item["source"], "key": item.get("key"),
+                 "item_key": item_key(item), "title": item.get("title"),
+                 "text": text, "sent_count": len(item.get("sent") or [])},
+                lambda: send_answer(home_path, item, text),
+                route_hint="fm-send.sh " + task_id,
+                invalidate=self.records.invalidate)
+            self._json(202, {"ok": True, "sid": sid, "outcome": "sending"})
             return
 
         self._json(404, {"ok": False, "error": "not found"})

@@ -50,6 +50,10 @@ That obligation is `AGENTS.md` section 9.
 - An **open status decision**: a worker that stopped on `needs-decision` or `blocked` and is waiting.
   These never appear as held tasks, which is why a surface built on holds alone cannot reach them.
 
+A stopped worker's own note is written for firstmate, not for you: it carries finding ids, decision keys and file paths.
+So a note that does not read as a sentence a person would say out loud is dropped whole, never rewritten, and the row is stated plainly from what is known: which project, and that a worker there stopped and needs a decision or cannot go on.
+A row that cannot be stated plainly at all is not shown, because guessing at it is worse than leaving it out.
+
 **My words** is everything you have typed here and where it went.
 
 Every row on every tab carries its project, its worktree and its branch.
@@ -114,6 +118,7 @@ Whether a message is a question is recorded when it is written, with `--question
 A task collects several messages over its life - the question, then the PR, then the result - so a reply routed by task id alone would be written as the answer to whatever decision that task happens to be stopped on, which is a wrong answer delivered to a worker.
 Only the decision the message itself named can be answered by a reply to it.
 The reply box says which of the three rows above your reply is about to take, before you send it.
+Until the records have been read it says the route cannot be told yet rather than naming one, because the page never claims what the records do not support.
 
 The server decides the route from the recorded message and the current scan, never from the browser.
 A reply naming a message this home never recorded is refused, a task id is only ever matched against the home this page was started on, because two homes on one machine can hold the same one, and a reply is refused outright while no scan has been read, because a reply that cannot rule out the answer route must not quietly become a note.
@@ -125,9 +130,14 @@ A reply carries the same do-not-resend protection an answer does: on an unconfir
 `bin/fm-captain-message.sh` is its only writer, and `--task` fills the project, worktree and branch from that task's own record so all three are one flag rather than three chances to leave one out.
 `--question` marks a message as the question waiting on you, and `--question-key` names the stopped worker's own decision it asks about.
 `bin/fm-captain-message.sh unrecorded` is the turn-end check: it names every decision this home is holding for you that no recorded question asks about, which is a question you were asked and cannot see.
-It is advisory and never blocks a turn.
+It is advisory and never blocks a turn, and it is bounded: the cheap change check runs first and the full scan only when a record moved, so a slow scan can never hang a turn boundary.
 
-`<home>/data/command-center/said.jsonl`, an append-only log of what you typed and where it went, with the outcome of the send, read from the exit code of the command that ran and nothing else: **sent**, **failed** (a captain hold refused the record and nothing left this machine — answering it again is safe, and `fm-captain-hold.sh` documents an exact retry as idempotent), or **unknown** (the command reported neither, so the page never guesses which: the page reads only a confirmed `fm-send.sh` exit as sent, and every other exit is unknown to it — including the one that says the answer was delivered but its decision close failed, which the page does not yet report as a state of its own; and `fm-inbox.sh` saves a note before it wakes firstmate, so its failure may mean only that the wake did not land).
+`<home>/data/command-center/said.jsonl`, an append-only log of what you typed and where it went.
+Your words are written there before the click returns, so the click never waits on a shell command: you send, it is recorded, and you move straight to the next item while the delivery is carried out behind you.
+That is why one send writes two rows under the same `sid`: **sending** when your words were taken, and the outcome when the command answered.
+The page folds the pair and shows the outcome in place on the row you answered, so nothing is claimed about delivery until the command has said it.
+
+The outcome is read from the exit code of the command that ran and nothing else: **sent**, **failed** (a captain hold refused the record and nothing left this machine — answering it again is safe, and `fm-captain-hold.sh` documents an exact retry as idempotent), or **unknown** (the command reported neither, so the page never guesses which: the page reads only a confirmed `fm-send.sh` exit as sent, and every other exit is unknown to it — including the one that says the answer was delivered but its decision close failed, which the page does not yet report as a state of its own; and `fm-inbox.sh` saves a note before it wakes firstmate, so its failure may mean only that the wake did not land).
 On **unknown** the page keeps your text, says plainly that delivery could not be confirmed, and does not offer Send again until the steering record appears — or until you say so yourself, knowing it may be a second copy. On any other non-success it keeps your text too, so nothing you typed is cleared by a send that did not land.
 
 An open item shows one line derived from this record: the last thing you sent about it and what became of it, and a message shows every reply you sent to it.

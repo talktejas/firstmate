@@ -125,6 +125,25 @@ function orderRows(rows, group, newestDefault) {
   return dated.concat(undated);
 }
 
+// --- two rows, one send ---------------------------------------------------------
+// The click may not wait on a shell command, so the server writes his words to
+// the durable record the moment it accepts them and writes the same record
+// again under the same `sid` when the command answers (deliver in
+// bin/command-center.py). The rows arrive newest first, so the first row for a
+// sid is the later one: the outcome supersedes the acceptance.
+function foldSaid(rows) {
+  const seen = new Set();
+  const kept = [];
+  for (const r of rows || []) {
+    if (r.sid) {
+      if (seen.has(r.sid)) continue;
+      seen.add(r.sid);
+    }
+    kept.push(r);
+  }
+  return kept;
+}
+
 // --- where a reply is about to go -----------------------------------------------
 // The same rule the server routes by (waiting_question in
 // bin/command-center.py), so the pane can tell him what his reply will do
@@ -153,4 +172,4 @@ function itemKey(it) {
 if (typeof module === 'object' && module.exports)
   module.exports = { pollFacts, tense, transportFailure, verdictFor,
                      releaseVerdicts, itemKey, shapeMessage, orderRows,
-                     replyTarget };
+                     replyTarget, foldSaid };
