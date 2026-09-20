@@ -1,0 +1,22 @@
+Mutation check of bin/command-center-state.js against tests/command-center-state.test.js
+(each mutation flips one decision rule; the test that must catch it is shown)
+
+== M1: a 304 records no read time
+not ok - a resolved 304 clears every reachability alarm
+== M2: tense never speaks in the past
+not ok - an unconfirmed view speaks in the past, from the last read
+not ok - a read time is never derived from unchanged content
+== M3: a dropped send reads as a failure
+not ok - a dropped send on the worker route is unknown, not failed
+== M4: hold route locks on unknown delivery
+not ok - the hold route never receives a locking outcome
+== M5: verdicts released against an unpublished view
+not ok - a verdict survives a view that proves nothing
+== M6: itemKey ignores the record key
+not ok - an item is identified by its record as well as its task
+== M7: an in-flight poll is an accepted answer that unconfirms the view
+not ok - an in-flight poll cannot unconfirm a confirmed view
+== M8: tense derives the read time from the view's `generated`
+not ok - a read time is never derived from unchanged content
+
+Unmutated: `node tests/command-center-state.test.js` -> 14 rules pass, exit 0.
