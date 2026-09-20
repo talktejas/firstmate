@@ -8,7 +8,7 @@ const path = require('path');
 const {
   pollFacts, tense, transportFailure, verdictFor, releaseVerdicts, itemKey,
   shapeMessage, orderRows, replyTarget, foldSaid, wordsAfter,
-  listSignature, mayRelease, logRead, sendState, sendKeys,
+  listSignature, mayRelease, logRead, sendState, sendKeys, spokenFor,
 } = require(path.join(__dirname, '..', 'bin', 'command-center-state.js'));
 
 // Quiet on success: tests/command-center.test.sh runs this and reports the
@@ -274,6 +274,38 @@ test('the outcome of a send supersedes its acceptance', () => {
 // The promise is that nothing he typed is cleared by a send that did not land,
 // and the click is accepted before the command runs, so only the outcome row
 // may empty the box.
+// THE WORST THING THIS PAGE COULD DO IS DELETE WHAT HE TYPED. The box keeps his
+// text after the click, so an outcome landing later may find something he has
+// typed since: a next thought, or a retyped resend. It may act only on the
+// words it is about.
+test('an outcome never touches words he typed after the send', () => {
+  const landed = { sid: 'a', outcome: 'sent' };
+  assert.strictEqual(wordsAfter(landed, 'go blue', 'go blue'), 'clear');
+  assert.strictEqual(wordsAfter(landed, 'go blue. Also, ship Friday.', 'go blue'),
+    'leave', 'a delivered send must not empty a box holding newer words');
+  assert.strictEqual(wordsAfter({ sid: 'a', outcome: 'failed' },
+                                'something else entirely', 'go blue'),
+    'leave', 'a failed send must not overwrite newer words with the old copy');
+  assert.strictEqual(wordsAfter({ sid: 'a', outcome: 'failed' },
+                                'go blue', 'go blue'), 'restore');
+  assert.strictEqual(wordsAfter({ sid: 'a', outcome: 'sending' },
+                                'go blue', 'go blue'), null);
+});
+
+// One send is never described two ways on one surface: the words of a send in
+// flight, or of one the page gave up on, are already spoken for by the record.
+test('the record speaks for the words it was sent', () => {
+  const pending = { a: { key: 'msg/m1', item: 'main/hold/t1/t1',
+                         text: 'go blue', released: true } };
+  assert.strictEqual(spokenFor(pending, 'msg/m1', 'go blue'), true);
+  assert.strictEqual(spokenFor(pending, 'main/hold/t1/t1', 'go blue'), true,
+    'the item it steered is the same send, not a second one');
+  assert.strictEqual(spokenFor(pending, 'msg/m1', 'a new thought'), false,
+    'words he typed since really are unsent and must say so');
+  assert.strictEqual(spokenFor({}, 'msg/m1', 'go blue'), false);
+  assert.strictEqual(spokenFor(undefined, 'msg/m1', 'go blue'), false);
+});
+
 test('only a send that landed takes his words out of the box', () => {
   assert.strictEqual(wordsAfter({ sid: 'a', outcome: 'sent' }), 'clear');
   assert.strictEqual(wordsAfter({ sid: 'a', outcome: 'failed' }), 'restore');

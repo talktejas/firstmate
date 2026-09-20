@@ -683,11 +683,12 @@ function wordOutcome(r){
 
 function renderWords(){
   const q = state.q.trim().toLowerCase();
-  // His words stay in the box while a send is in flight, so a draft whose send
-  // was accepted is NOT an unsent draft: the record's own row already says what
-  // became of it, and showing both would have the page claim two things at once.
+  // His words stay in the box while a send is in flight, and after one the page
+  // gave up on, so those words are NOT an unsent draft: the record's own row
+  // already says what became of them. spokenFor comes from
+  // bin/command-center-state.js and owns that, for this list and its count.
   const drafts = Object.entries(state.draft)
-    .filter(([key, t]) => t && t.trim() && !isSending(key))
+    .filter(([key, t]) => t && t.trim() && !spokenFor(state.pending, key, t))
     .map(([key, text]) => ({ kind:'draft', at:null, text, key }));
   const rows = drafts.concat(state.said)
     .filter(r => !q || String(r.text || '').toLowerCase().includes(q));
@@ -741,10 +742,11 @@ function renderList(){
   const items = state.view.items || [];
   $('#n-messages').textContent = state.messages.length;
   $('#n-waiting').textContent = items.filter(i => !isDeferred(i)).length;
-  // Exactly the rows My words shows: a draft whose send is already in flight is
-  // represented by the record's own row, not counted a second time here.
+  // Exactly the rows My words shows: a draft the record already speaks for is
+  // not counted a second time here.
   $('#n-words').textContent = state.said.length +
-    Object.entries(state.draft).filter(([k, t]) => t && t.trim() && !isSending(k)).length;
+    Object.entries(state.draft)
+      .filter(([k, t]) => t && t.trim() && !spokenFor(state.pending, k, t)).length;
   document.querySelectorAll('.tab').forEach(t =>
     t.setAttribute('aria-selected', String(t.dataset.tab === state.tab)));
   $('#clr').hidden = !state.q;
@@ -1206,21 +1208,28 @@ function applyOutcomes(){
     if (held){
       delete state.pending[r.sid];
       // wordsAfter and sendKeys come from bin/command-center-state.js: what an
-      // arrived outcome does to his words, and every surface it is said on.
+      // arrived outcome does to the words it is about, and every surface it is
+      // said on. `leave` is the box holding something he has typed since.
       const surfaces = sendKeys(held.key, held.item);
-      if (wordsAfter(r) === 'clear'){
-        // It landed, and only now may his words leave the box - and no surface
-        // may go on warning about a delivery the record has since confirmed.
-        if (held.key === 'note') noteText('');
-        else delete state.draft[held.key];
-        for (const k of surfaces) delete state.failed[k];
-      } else {
-        // It did not land. His words go back where he typed them and every row
-        // he could send it from again says so.
-        if (held.key === 'note') noteText(held.text);
-        else state.draft[held.key] = held.text;
-        for (const k of surfaces)
-          state.failed[k] = {outcome: r.outcome, detail: r.detail || ''};
+      const inBox = held.key === 'note' ? state.note : state.draft[held.key];
+      switch (wordsAfter(r, inBox, held.text)){
+        case 'clear':
+          // It landed, and only now may those words leave the box.
+          if (held.key === 'note') noteText('');
+          else delete state.draft[held.key];
+          break;
+        case 'restore':
+          // It did not land, so his words go back where he typed them.
+          if (held.key === 'note') noteText(held.text);
+          else state.draft[held.key] = held.text;
+          break;
+      }
+      // What became of the send is about the send, not about the box, so it is
+      // said on every surface either way - and no surface goes on warning
+      // about a delivery the record has since confirmed.
+      for (const k of surfaces){
+        if (r.outcome === 'sent') delete state.failed[k];
+        else state.failed[k] = {outcome: r.outcome, detail: r.detail || ''};
       }
       save('cc.draft', state.draft);
       save('cc.pending', state.pending);
@@ -1280,8 +1289,13 @@ function reconcilePending(read){
     if (!mayRelease(read, held, state.said.find(r => r.sid === sid),
                     Date.now(), SEND_WINDOW_MS)) continue;
     state.pending[sid] = Object.assign({}, held, {released: true});
-    if (held.key === 'note') noteText(held.text);
-    else state.draft[held.key] = held.text;
+    // His words are put back only into a box that no longer holds anything:
+    // whatever is in there now is his, and newer than what was sent.
+    const inBox = held.key === 'note' ? state.note : state.draft[held.key];
+    if (!inBox){
+      if (held.key === 'note') noteText(held.text);
+      else state.draft[held.key] = held.text;
+    }
     // A reply that took the answer route was a steer at an ITEM as well, and
     // the warning has to stand on both surfaces: otherwise the waiting list
     // offers Send with nothing said, and the same worker is steered twice.

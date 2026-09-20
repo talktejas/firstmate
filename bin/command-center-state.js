@@ -219,9 +219,26 @@ function listSignature(rows) {
 // and the row he sent from is flagged, because docs/command-center.md promises
 // nothing he typed is cleared by a send that did not land. `null` means the
 // outcome has not arrived yet and nothing may happen to them.
-function wordsAfter(row) {
+// It may only act on the words it is ABOUT. The box keeps his text after the
+// click, so by the time the command answers the box may hold something he has
+// typed since - a next thought, or a retyped resend. Removing or overwriting
+// that is the loss this whole surface exists to end, so unless the box still
+// holds exactly what was sent, his words are left alone.
+function wordsAfter(row, inBox, sent) {
   if (!row || !row.sid || row.outcome === 'sending') return null;
+  if (inBox !== sent) return 'leave';
   return row.outcome === 'sent' ? 'clear' : 'restore';
+}
+
+// --- whose words are in the box? ------------------------------------------------
+// A draft the record already speaks for: the words of a send in flight, or of
+// one the page gave up on. Only while the box still holds THOSE words - once he
+// has typed something else, what is in the box really is unsent and says so.
+// Without this the same send reads two ways at once on My words: the record's
+// row saying it may already have arrived, and a draft row saying "not sent".
+function spokenFor(pending, key, text) {
+  return Object.values(pending || {})
+    .some(p => (p.key === key || p.item === key) && p.text === text);
 }
 
 // --- where a reply is about to go -----------------------------------------------
@@ -254,4 +271,4 @@ if (typeof module === 'object' && module.exports)
                      releaseVerdicts, itemKey, shapeMessage, orderRows,
                      replyTarget, foldSaid, wordsAfter,
                      listSignature, mayRelease, logRead,
-                     sendState, sendKeys };
+                     sendState, sendKeys, spokenFor };
