@@ -1202,6 +1202,65 @@ fm_firstmate_root_home() {
   printf '%s\n' "$home"
 }
 
+# Every state directory on this machine whose task records can name the same
+# Treehouse pool slot: the local root home and each locally registered
+# secondmate home below it, plus the caller's own state directory. A pool slot
+# is shared per project across all of them, so any question of the form "does
+# another live record name this copy?" - bin/fm-teardown.sh's exclusivity scan
+# and bin/fm-spawn.sh's refusal to launch into a copy a record still names - has
+# to be asked against this set rather than one home's own records. Answers into
+# TREEHOUSE_OWNER_STATES; refuses rather than answering partially, because a
+# registry this walk cannot read is a home whose records it cannot see.
+collect_local_firstmate_states() {  # <record-state-dir>
+  local record_state=$1 root home reg line child known existing i=0
+  local -a homes
+  TREEHOUSE_OWNER_STATES=("$record_state")
+  root=$(fm_firstmate_root_home "$FM_HOME") || {
+    echo "REFUSED: cannot resolve the root Firstmate home; nothing was changed" >&2
+    return 1
+  }
+  homes=("$root")
+  while [ "$i" -lt "${#homes[@]}" ]; do
+    home=${homes[$i]}
+    i=$((i + 1))
+    known=0
+    for existing in "${TREEHOUSE_OWNER_STATES[@]}"; do
+      [ "$existing" != "$home/state" ] || known=1
+    done
+    [ "$known" = 1 ] || TREEHOUSE_OWNER_STATES+=("$home/state")
+    reg="$home/data/secondmates.md"
+    [ ! -e "$reg" ] && [ ! -L "$reg" ] && continue
+    [ -f "$reg" ] && [ ! -L "$reg" ] || {
+      echo "REFUSED: local Firstmate registry is unsafe at $reg; nothing was changed" >&2
+      return 1
+    }
+    if ! command -v secondmate_registry_parse_line >/dev/null 2>&1; then
+      # shellcheck source=bin/fm-secondmate-registry-lib.sh
+      . "$FM_WAKE_LIB_DIR/fm-secondmate-registry-lib.sh"
+    fi
+    while IFS= read -r line || [ -n "$line" ]; do
+      case "$line" in
+        "- "*)
+          secondmate_registry_parse_line "$line" || {
+            echo "REFUSED: malformed local Firstmate registry entry in $reg; nothing was changed" >&2
+            return 1
+          }
+          [ "$SECONDMATE_REGISTRY_REMOTE" -eq 0 ] || continue
+          child=$(CDPATH='' cd -- "$SECONDMATE_REGISTRY_HOME" 2>/dev/null && pwd -P) || {
+            echo "REFUSED: registered local Firstmate home is unavailable: $SECONDMATE_REGISTRY_HOME; nothing was changed" >&2
+            return 1
+          }
+          known=0
+          for existing in "${homes[@]}"; do
+            [ "$existing" != "$child" ] || known=1
+          done
+          [ "$known" = 1 ] || homes+=("$child")
+          ;;
+      esac
+    done < "$reg"
+  done
+}
+
 # The one lock serializing Treehouse slot allocation and return for a project.
 #
 # It is anchored in the local root home's state directory so that every home on

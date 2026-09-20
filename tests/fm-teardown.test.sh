@@ -742,9 +742,10 @@ test_collision_with_claim_naming_the_other_task_retires_this_record() {
 
 # The other direction of the same collision: the claim names THIS record, so the
 # other record is the stale one. Refusing is still right - the copy is this
-# task's and returning it would kill whatever the other record points at - but
-# the refusal must name the supported path out rather than stranding the pair.
-test_collision_with_claim_naming_this_task_refuses_and_names_the_way_out() {
+# task's and returning it would kill whatever the other record points at - and
+# the pair is no longer stranded, because the other record's own teardown is the
+# one the claim disowns and retires (the case above).
+test_collision_with_claim_naming_this_task_still_refuses() {
   local case_dir rc
   make_pool_slot_case slot-collision-owner
   case_dir=$POOL_CASE_DIR
@@ -759,10 +760,11 @@ test_collision_with_claim_naming_this_task_refuses_and_names_the_way_out() {
 
   expect_code 1 "$rc" "slot-collision: the slot's owner should still refuse while a second record names its copy"
   grep -q REFUSED "$case_dir/stderr" || fail "slot-collision: no REFUSED line in stderr"
-  grep -q "bin/fm-teardown.sh task-x2" "$case_dir/stderr" \
-    || fail "slot-collision: the refusal did not name the stale record's own teardown as the way out"
+  grep -q "Reconcile whichever record is wrong" "$case_dir/stderr" \
+    || fail "slot-collision: the refusal did not say how to reconcile the colliding records"
   [ -e "$case_dir/state/task-x1.meta" ] || fail "slot-collision: a refused teardown removed the record"
-  pass "the slot's owner refuses a colliding record and names that record's own teardown as the way out"
+  [ -e "$case_dir/state/task-x2.meta" ] || fail "slot-collision: a refused teardown removed the other record"
+  pass "the slot's owner still refuses while a second record names its copy"
 }
 
 test_local_only_fork_remote_allows() {
@@ -3944,4 +3946,4 @@ test_persistent_scan_refuses_after_bounded_retries
 test_process_exit_during_identity_lookup_does_not_refuse
 test_run_abort_precedes_process_reap_precedes_worktree_removal
 test_collision_with_claim_naming_the_other_task_retires_this_record
-test_collision_with_claim_naming_this_task_refuses_and_names_the_way_out
+test_collision_with_claim_naming_this_task_still_refuses

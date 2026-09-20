@@ -213,11 +213,12 @@
 #   the end of that wait, naming the leased copy and the last path seen.
 #   An aborted spawn returns the lease before any record can name it; otherwise
 #   the published record owns it and bin/fm-teardown.sh's return releases it.
-#   A leased copy that any other live task record in this home still names is
-#   refused by name rather than launched into, whether or not that record holds
-#   a lease of its own: the pool offering the copy is itself proof that no claim
-#   protects it any more, which is what a force-released lease or a cleanup that
-#   returned the slot and died before removing its record leaves behind.
+#   A leased copy that any other live task record in this home or any locally
+#   registered Firstmate home still names is refused by name rather than
+#   launched into, whether or not that record holds a lease of its own: the pool
+#   offering the copy is itself proof that no claim protects it any more, which
+#   is what a force-released lease or a cleanup that returned the slot and died
+#   before removing its record leaves behind.
 #   That placement is proven only at launch. Every ship or scout pane therefore
 #   also receives `export FM_TASK_ID=<task-id>` before the launch command, on
 #   the same channel as GOTMPDIR, and bin/fm-test-run.sh refuses to execute the
@@ -3771,7 +3772,7 @@ elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
   validate_spawn_worktree "treehouse get --lease" "$T"
 
   # Second line of defence, for any copy the pool offered that a live task
-  # record in this home still names. The pool having offered it is itself the
+  # record on this machine still names. The pool having offered it is itself the
   # evidence that no claim is protecting it any more, whatever the record says:
   # a task spawned before leases existed never had one, every recovery command
   # this script prints can force-release a live one, and a cleanup that returns
@@ -3786,19 +3787,31 @@ elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
   # deadlock on it forever. Holding it quarantines that one slot instead - the
   # next spawn is given a different copy and proceeds - and the label below is
   # what releases it once the records are reconciled.
+  # A pool slot is shared per project across every Firstmate home on this
+  # machine, so the record that names this copy need not live in the spawning
+  # home: teardown asks the same question of the same set of state directories
+  # (bin/fm-wake-lib.sh's collect_local_firstmate_states), and a scan of one
+  # home's own records would leave the cross-home spawn as an open door to the
+  # very reset this refusal exists to stop. An enumeration that cannot be
+  # completed refuses too: a home whose registry cannot be read is a home whose
+  # records cannot be seen, and the lease is given back on the way out because
+  # nothing here established that the copy is anyone's.
   spawn_wt_claim=$(real_path_or_raw "$WT")
-  for spawn_other_meta in "$STATE"/*.meta; do
-    [ -f "$spawn_other_meta" ] && [ ! -L "$spawn_other_meta" ] || continue
-    spawn_other_id=$(basename "$spawn_other_meta" .meta)
-    [ "$spawn_other_id" != "$ID" ] || continue
-    spawn_other_wt=$(fm_meta_get "$spawn_other_meta" worktree)
-    [ -n "$spawn_other_wt" ] || continue
-    [ "$(real_path_or_raw "$spawn_other_wt")" = "$spawn_wt_claim" ] || continue
-    SPAWN_TREEHOUSE_LEASE_PENDING=0
-    echo "error: the pool offered '$WT', which task $spawn_other_id's own record still names as its working copy; refusing to launch task $ID into it and reset another worker's work" >&2
-    echo "That copy is now held under '$SPAWN_TREEHOUSE_LEASE_HOLDER' so it is not offered again; reconcile whichever record is wrong (bin/fm-crew-state.sh $spawn_other_id), then release it with: (cd '$PROJ_ABS' && treehouse return --force --if-lease-holder '$SPAWN_TREEHOUSE_LEASE_HOLDER' '$WT')" >&2
-    echo "Re-running this spawn is safe: it is given a different copy." >&2
-    exit 1
+  collect_local_firstmate_states "$STATE" || exit 1
+  for spawn_state_dir in "${TREEHOUSE_OWNER_STATES[@]}"; do
+    for spawn_other_meta in "$spawn_state_dir"/*.meta; do
+      [ -f "$spawn_other_meta" ] && [ ! -L "$spawn_other_meta" ] || continue
+      spawn_other_id=$(basename "$spawn_other_meta" .meta)
+      [ "$spawn_other_id" != "$ID" ] || [ "$spawn_state_dir" != "$STATE" ] || continue
+      spawn_other_wt=$(fm_meta_get "$spawn_other_meta" worktree)
+      [ -n "$spawn_other_wt" ] || continue
+      [ "$(real_path_or_raw "$spawn_other_wt")" = "$spawn_wt_claim" ] || continue
+      SPAWN_TREEHOUSE_LEASE_PENDING=0
+      echo "error: the pool offered '$WT', which task $spawn_other_id's own record still names as its working copy; refusing to launch task $ID into it and reset another worker's work" >&2
+      echo "That copy is now held under '$SPAWN_TREEHOUSE_LEASE_HOLDER' so it is not offered again; reconcile whichever record is wrong (bin/fm-crew-state.sh $spawn_other_id), then release it with: (cd '$PROJ_ABS' && treehouse return --force --if-lease-holder '$SPAWN_TREEHOUSE_LEASE_HOLDER' '$WT')" >&2
+      echo "Re-running this spawn is safe: it is given a different copy." >&2
+      exit 1
+    done
   done
 
   # Move the pane into the leased copy and prove it arrived, the same way the

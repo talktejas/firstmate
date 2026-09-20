@@ -177,6 +177,38 @@ test_a_record_whose_claim_was_released_still_blocks_a_spawn() {
   pass "a record whose claim was released still blocks a spawn into its copy"
 }
 
+# A pool slot is shared per project across every Firstmate home on this machine,
+# so the record still naming the offered copy need not live in the home doing
+# the spawning: the parent home's task holds the copy, a force-released claim
+# hands it to a spawn in a registered secondmate home, and a scan of that home's
+# own records would see nothing and launch into another worker's copy. The scan
+# covers the locally registered homes, the same set teardown's exclusivity check
+# walks (bin/fm-wake-lib.sh's collect_local_firstmate_states).
+test_a_record_in_another_local_home_blocks_a_spawn() {
+  local id parent out status log
+  id=lease-cross-home-w6
+  make_lease_case lease-cross-home "$id"
+  parent="$TMP_ROOT/lease-cross-home/parent-home"
+  mkdir -p "$parent/state" "$parent/data"
+  printf 'schema=fm-secondmate-parent.v1\nroute=local\nparent_home=%s\n' "$parent" \
+    > "$LEASE_HOME/.fm-secondmate-parent"
+  printf -- '- mate - fixture (home: %s; scope: fixture; projects: sample; added 2026-09-20)\n' \
+    "$LEASE_HOME" > "$parent/data/secondmates.md"
+  fm_write_meta "$parent/state/other-task-w6.meta" \
+    "worktree=$LEASE_WT" "project=$LEASE_PROJ" "kind=ship" "backend=tmux"
+
+  out=$(run_lease_spawn "$id" "$LEASE_WT")
+  status=$?
+  [ "$status" -ne 0 ] || fail "spawn launched into a copy a record in another local home still names"$'\n'"$out"
+  assert_contains "$out" "task other-task-w6's own record still names as its working copy" \
+    "the refusal did not name the task holding the copy"
+  [ ! -e "$LEASE_HOME/state/$id.meta" ] || fail "refused spawn published task metadata"
+  log=$(cat "$LEASE_LOG")
+  assert_not_contains "$log" "return" \
+    "the refusal returned the claim, so the next spawn would be offered the same copy again"
+  pass "a record in another locally registered home blocks a spawn into its copy"
+}
+
 # The guarantee the whole fix rests on, checked against the real pool rather
 # than assumed: a leased slot is not handed to a later `treehouse get`, with no
 # process running inside it.
@@ -221,6 +253,7 @@ test_stalled_allocation_refuses_and_frees_the_project_lock
 test_aborted_spawn_returns_its_claim
 test_copy_another_task_record_claims_is_refused_by_name
 test_a_record_whose_claim_was_released_still_blocks_a_spawn
+test_a_record_in_another_local_home_blocks_a_spawn
 test_real_pool_does_not_hand_out_a_leased_slot
 
 echo "# all fm-spawn-worktree-lease tests passed"
