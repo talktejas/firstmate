@@ -627,7 +627,7 @@ function renderList(){
   $('#list').innerHTML = html;
 }
 
-function trackHtml(m){
+function trackHtml(m, it){
   const step = (cls, ic, label, when) =>
     `<span class="step ${cls}"><span class="ic">${ic}</span>${esc(label)}${
       when ? `<span class="when">${esc(when)}</span>` : ''}</span>`;
@@ -638,13 +638,14 @@ function trackHtml(m){
         : stuck     ? step('bad', '!', 'Not picked up', '')
                     : step('wait', '○', 'Not picked up yet', '');
   // Approved proposal section 7: the step and its evidence. Picked up is the
-  // handled/ move; acted on is a decision the status log records as closed.
-  html += m.closed_key ? step('done', '✓', 'Acted on', '') : step('wait', '○', 'Acted on', '');
+  // handled/ move; acted on is this item's own decision closing in the status log.
+  html += it.decision_closed ? step('done', '✓', 'Acted on', '')
+                             : step('wait', '○', 'Acted on', '');
   return `<div class="track">${html}</div><div class="proof">record ${esc(m.seq)}.msg ${
     m.handled ? '→ handled/' + esc(m.seq) + '.msg — the worker acknowledged it'
               : '· still in the inbox, not in handled/'} · ${
-    m.closed_key ? 'closed [key=' + esc(m.closed_key) + '] in the status log'
-                 : 'no decision recorded as closed by it'}</div>`;
+    it.decision_closed ? 'the status log records [key=' + esc(it.key) + '] closed'
+                       : 'no decision recorded as closed yet'}</div>`;
 }
 
 function threadHtml(it){
@@ -655,7 +656,7 @@ function threadHtml(it){
     const mins = Math.round(waited / 60);
     return `<div class="msg you">
         <div class="msg-who">You<span class="t">${esc((m.at || '').replace('T',' ').replace('Z',''))}</span></div>
-        <div class="msg-text">${esc(m.text)}</div>${trackHtml(m)}
+        <div class="msg-text">${esc(m.text)}</div>${trackHtml(m, it)}
       </div>` + (stuck ? `<div class="stuck-bar">
         <b>This has not been picked up for ${mins} minutes.</b>
         <div class="sub">Firstmate rings an unread message every ${GRACE_SECS} seconds and
@@ -792,6 +793,15 @@ async function sendAnswer(){
     state.sending = false;
   }
   if (!ok || !data.ok){
+    // Three outcomes, three labels: delivered-but-unclosed is not "not sent",
+    // and firstmate reconciles the open record - resending would deliver twice.
+    if (data.delivered){
+      $('#sendnote').innerHTML = `<b>Delivered.</b> Only the record-keeping did not
+        complete — firstmate reconciles the open record; do not send it again.
+        <span class="mono">${esc(data.detail || '')}</span>`;
+      $('#send').textContent = 'Delivered — nothing to resend';
+      return;
+    }
     $('#sendnote').innerHTML = `<b style="color:var(--hot)">Not sent.</b> ${
       esc(data.error || data.detail || 'the command failed')} — your words are still here.`;
     $('#send').disabled = false;

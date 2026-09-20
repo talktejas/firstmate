@@ -36,8 +36,9 @@
 #     project, worktree, branch, branch_state (branch|detached|not-started),
 #     listen (busy|idle|unknown|dead|none), listen_source,
 #     since_epoch, since_kind (created|status-mtime|none),
+#     decision_closed  true only when the status log records this item's key closed,
 #     sent[]   the captain's steering records still in flight:
-#              seq, at, delivered, handled, closed_key, text
+#              seq, at, delivered, handled, text
 #   generated, schema
 set -eu
 
@@ -198,33 +199,8 @@ branch_of() {  # <worktree>  -> "<branch-state>\t<branch>" (newline-terminated)
 # into handled/ (bin/fm-task-inbox-lib.sh owns that acknowledgement contract).
 # Nothing between the two is reported, because nothing between the two is
 # observable.
-# Acted on is a DIFFERENT fact from picked up, and firstmate records it in a
-# different place: bin/fm-send.sh closes an answered decision by appending
-#   resolved [key=<k>]: answered: <excerpt of the captain's answer>
-# to the task's status log. That close note quotes his own words, so it is what
-# ties one steering record to the decision it actually settled. An ordinary
-# steer closes nothing and matches nothing, which is the honest answer.
-closing_key() {  # <status-file> <answer-text>  -> key, or empty
-  [ -f "$1" ] && [ -r "$1" ] || return 0
-  printf '%s' "$2" | tr '\n\r\t' '   ' | LC_ALL=C tr -d '\000-\037\177' \
-    | awk -v statusfile="$1" '
-      NR == 1 { answer = $0 }
-      END {
-        if (answer == "") exit
-        while ((getline line < statusfile) > 0) {
-          if (line !~ /^resolved \[key=[^]]+\]: answered: /) continue
-          key = line; sub(/^resolved \[key=/, "", key); sub(/\].*$/, "", key)
-          note = line; sub(/^resolved \[key=[^]]+\]: answered: /, "", note)
-          if (note != "" && substr(answer, 1, length(note)) == note) {
-            print key
-            exit
-          }
-        }
-      }'
-}
-
 sent_records() {  # <state-dir> <id>  -> JSON array
-  local dir=$1/$2.inbox status=$1/$2.status f seq at text closed handled
+  local dir=$1/$2.inbox f seq at text handled
   [ -d "$dir" ] || { printf '[]'; return 0; }
   {
     for f in "$dir"/*.msg "$dir"/handled/*.msg; do
@@ -232,14 +208,22 @@ sent_records() {  # <state-dir> <id>  -> JSON array
       seq=$(basename "$f" .msg)
       at=$(sed -n 's/^at=//p' "$f" | head -1)
       text=$(sed -n '/^--$/,$p' "$f" | tail -n +2)
-      closed=$(closing_key "$status" "$text")
       case "$f" in */handled/*) handled=true ;; *) handled=false ;; esac
-      jq -cn --arg s "$seq" --arg a "$at" --arg t "$text" --arg c "$closed" \
-        --argjson h "$handled" \
-        '{seq:$s,at:$a,delivered:true,handled:$h,
-          closed_key:(if $c == "" then null else $c end),text:$t}'
+      jq -cn --arg s "$seq" --arg a "$at" --arg t "$text" --argjson h "$handled" \
+        '{seq:$s,at:$a,delivered:true,handled:$h,text:$t}'
     done
   } | jq -cs 'sort_by(.seq)'
+}
+
+# Approved proposal section 7: acted on is the DECISION closing, which firstmate
+# records where pickup is not recorded - a `resolved [key=<k>]:` line in the
+# task's status log, written by bin/fm-send.sh. It belongs to the decision this
+# item IS, not to any one steering record, so it is reported per item.
+decision_closed() {  # <status-file> <key>
+  [ -n "$2" ] && [ -f "$1" ] && [ -r "$1" ] || return 1
+  awk -v k="[key=$2]:" '
+    /^resolved / { if (index($0, k)) { found = 1; exit } }
+    END { exit(found ? 0 : 1) }' "$1"
 }
 
 epoch_of() {  # <file>
@@ -251,6 +235,7 @@ epoch_of() {  # <file>
 emit_item() {  # <home-id> <state-dir> <id> <source> <key> <title> <detail> <repo> <kind>
   local home=$1 state=$2 id=$3 source=$4 key=$5 title=$6 detail=$7 repo=$8 kind=$9
   local meta=$state/$id.meta project worktree listen bstate branch since since_kind sent
+  local closed
   project=$(meta_get "$meta" project)
   worktree=$(meta_get "$meta" worktree)
   [ -n "$kind" ] || kind=$(meta_get "$meta" kind)
@@ -278,6 +263,7 @@ emit_item() {  # <home-id> <state-dir> <id> <source> <key> <title> <detail> <rep
   fi
   [ -n "$since" ] || since_kind=none
   sent=$(sent_records "$state" "$id")
+  if decision_closed "$state/$id.status" "$key"; then closed=true; else closed=false; fi
   jq -cn \
     --arg home "$home" --arg id "$id" --arg source "$source" --arg key "$key" \
     --arg title "$title" --arg detail "$detail" --arg repo "$repo" --arg kind "$kind" \
@@ -286,14 +272,14 @@ emit_item() {  # <home-id> <state-dir> <id> <source> <key> <title> <detail> <rep
     --arg listen "${listen%% *}" --arg lsource "${listen#* }" \
     --arg since "$since" --arg sincekind "$since_kind" \
     --arg until "${HOLD_UNTIL-}" --arg verb "${STATUS_VERB-}" \
-    --argjson sent "$sent" \
+    --argjson sent "$sent" --argjson closed "$closed" \
     '{home:$home,id:$id,source:$source,key:$key,title:$title,detail:$detail,
       repo:$repo,kind:$kind,project:$project,
       worktree:(if $worktree == "" then null else $worktree end),
       branch:(if $branch == "" then null else $branch end),
       branch_state:$bstate,listen:$listen,listen_source:$lsource,
       since_epoch:(if $since == "" then null else ($since|tonumber) end),
-      since_kind:$sincekind,
+      since_kind:$sincekind,decision_closed:$closed,
       deferred_until:(if $until == "" then null else $until end),
       status_verb:(if $verb == "" then null else $verb end),
       sent:$sent}'
