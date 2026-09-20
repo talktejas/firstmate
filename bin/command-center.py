@@ -241,10 +241,12 @@ def send_answer(home_path, item, text):
     Returns (outcome, route, detail), read from the exit code and nothing else.
     The output carries the captain's own answer back (fm-send.sh echoes its argv
     on the remote leg), so reading prose here would let his words decide whether
-    his send was delivered.
+    his send was delivered. A killed child is the same question by another name,
+    so each route answers it here too rather than anywhere else.
     """
     env = dict(os.environ, FM_HOME=home_path)
     if item["source"] == "hold":
+        route = f"fm-captain-hold.sh answer {item['id']}"
         fd, tmp = tempfile.mkstemp(prefix="cc-decision-", text=True)
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
@@ -255,23 +257,29 @@ def send_answer(home_path, item, text):
                 capture_output=True, text=True, timeout=SEND_TIMEOUT,
                 env=env, stdin=subprocess.DEVNULL, check=False,
             )
+        except subprocess.SubprocessError as exc:
+            return "failed", route, str(exc)
         finally:
             os.unlink(tmp)
-        route = f"fm-captain-hold.sh answer {item['id']}"
         # A hold is a LOCAL record write with no delivery plane, and
         # bin/fm-captain-hold.sh documents an exact retry as idempotent, so a
-        # refusal here is a plain failure he may simply send again.
+        # refusal or a killed child is a plain failure he may simply send again.
         outcome = "sent" if proc.returncode == 0 else "failed"
     else:
+        route = f"fm-send.sh {item['id']}"
         args = [os.path.join(BIN, "fm-send.sh"), item["id"]]
         if item.get("key"):
             args += ["--resolve-key", item["key"]]
         args.append(text)
-        proc = subprocess.run(
-            args, capture_output=True, text=True, timeout=SEND_TIMEOUT,
-            env=env, stdin=subprocess.DEVNULL, check=False,
-        )
-        route = f"fm-send.sh {item['id']}"
+        try:
+            proc = subprocess.run(
+                args, capture_output=True, text=True, timeout=SEND_TIMEOUT,
+                env=env, stdin=subprocess.DEVNULL, check=False,
+            )
+        except subprocess.SubprocessError as exc:
+            # Killed mid-flight: the steer may already sit on the worker's
+            # inbox, and saying "not sent" is what invites a second delivery.
+            return "unknown", route, str(exc)
         # fm-send.sh distinguishes only confirmed (0) from unconfirmed (3); its
         # remaining nonzero exits conflate a refusal with a delivery it could
         # not read back, so delivery is genuinely unknown and unknown is what a
@@ -472,13 +480,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(404, {"ok": False,
                                  "error": "that item is no longer waiting for you"})
                 return
-            try:
-                outcome, route, detail = send_answer(home_path, item, text)
-            except subprocess.SubprocessError as exc:
-                # The child was killed mid-flight, so the steer may already sit
-                # on the worker's inbox: unknown is not failed, and saying
-                # "not sent" here is what invites a second delivery.
-                outcome, route, detail = "unknown", "fm-send.sh", str(exc)
+            outcome, route, detail = send_answer(home_path, item, text)
             ok = outcome == "sent"
             warn = record_said(self.records.home, {
                 "at": utc_now(), "kind": "answer", "home": home_id, "item": task_id,

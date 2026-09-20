@@ -367,8 +367,9 @@ const LISTEN = {
 };
 const HOME_COLOURS = ['#1f5fd0','#177245','#6b34b8','#b45309','#b3261e'];
 
-// A send that did not plainly succeed leaves a standing verdict on the item, not
-// a line of text the next poll's re-render wipes. Both of these forbid a resend.
+// An unconfirmed delivery leaves a standing verdict on the item, not a line of
+// text the next poll's re-render wipes, because it forbids a resend. A plain
+// failure leaves none: nothing was delivered, so sending again is the fix.
 const SEND_VERDICT = {
   unknown: {
     label: 'Delivery unknown — do not resend',
@@ -467,10 +468,11 @@ function visible(){
 }
 
 // --- grouping ----------------------------------------------------------------
-// "Latest first" and "Oldest first" drop the grouping entirely and order by the
-// best time each row actually has. A row with no honest time is never given a
-// position among the dated ones: it sits in its own tail and says why.
-// 'none' is approved proposal section 6's flat entry: unsorted, not Latest first.
+// These three drop the grouping. "Latest first" and "Oldest first" order by the
+// best time each row actually has, and a row with no honest time is never given
+// a position among the dated ones: it sits in its own tail and says why.
+// 'none' is approved proposal section 6's flat entry and is genuinely unsorted -
+// the order bin/command-center-scan.sh read the records in, nothing more.
 const FLAT = new Set(['none','latest','oldest']);
 function groupOf(it){
   const p = projectOf(it);
@@ -486,6 +488,7 @@ function groupOf(it){
 }
 
 function ordered(rows){
+  if (state.group === 'none') return rows;   // as scanned: the flat list claims no order
   const dated   = rows.filter(r => r.since_epoch);
   const undated = rows.filter(r => !r.since_epoch);
   // Latest first, or oldest first - which is also the default, longest waiting.
@@ -640,6 +643,8 @@ function renderList(){
   }
   if (FLAT.has(state.group)){
     const undatedCount = rows.filter(r => !r.since_epoch).length;
+    // The flat list makes no ordering claim, so it owes no note about the rows
+    // that could not be ordered; the two sorted views do.
     const note = (undatedCount && state.group !== 'none')
       ? `<div class="hits">${undatedCount} row${undatedCount === 1 ? '' : 's'} carry no
          recorded time and cannot be ordered — they follow at the end.</div>` : '';
@@ -858,8 +863,8 @@ async function sendAnswer(){
     state.sending = false;
   }
   if (!ok || !data.ok){
-    // Four outcomes, four labels. Delivered-but-unclosed and unknown tell him
-    // opposite things from not-sent, so neither may be reported as a failure.
+    // Unknown delivery tells him the opposite of not-sent, so it never reads as
+    // a failure and never leaves Send offered.
     if (SEND_VERDICT[data.outcome]){
       state.outcome[itemKey(it)] = { outcome: data.outcome, detail: data.detail || '',
                                      sent: (it.sent || []).length };

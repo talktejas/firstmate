@@ -419,6 +419,13 @@ for item, rc, err in cases:
     subprocess.run = lambda *a, rc=rc, err=err, **k: subprocess.CompletedProcess(
         a[0] if a else [], rc, "", err)
     print(cc.send_answer(os.environ["FM_CC_HOME"], item, "answer text")[0])
+# A killed child asks the same question, so each route answers it its own way.
+def killed(*a, **k):
+    raise subprocess.TimeoutExpired(a[0] if a else [], 120)
+for item in (status_item, hold_item):
+    subprocess.run = killed
+    outcome, route, _ = cc.send_answer(os.environ["FM_CC_HOME"], item, "answer text")
+    print(outcome, route)
 subprocess.run = real
 PYEOF
 )
@@ -429,8 +436,10 @@ unknown
 unknown
 sent
 failed
-failed" "$out" \
-    "the outcome was not read from the exit code of the route that actually ran"
+failed
+unknown fm-send.sh t-1
+failed fm-captain-hold.sh answer t-1" "$out" \
+    "the outcome or route was not taken from the route that actually ran"
   pass "each route's outcome is decided by its own exit code alone"
 }
 
