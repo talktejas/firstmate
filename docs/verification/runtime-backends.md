@@ -1524,6 +1524,7 @@ The daemon injection transport into a live composer keeps its coverage in `tests
 ## Treehouse worktree pool
 
 The pool claim `bin/fm-spawn.sh` takes on a task worktree was verified on 2026-09-17 with treehouse v2.1.0 on Linux (WSL2).
+`bin/fm-install-treehouse.sh` pins that same v2.1.0 for CI, so the real-Herdr lane runs against the flag surface recorded here; 2.0.1 ships `get --lease --lease-holder` but no `return --if-lease-holder`, which is below the floor `bin/fm-bootstrap.sh` gates on.
 A task whose agent is not currently running leaves no process inside its copy, and a lease is what keeps that idle-looking copy from being handed to the next spawn and reset.
 
 ```sh
