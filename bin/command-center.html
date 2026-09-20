@@ -343,6 +343,7 @@
   </form>
 </dialog>
 
+<script src="command-center-state.js"></script>
 <script>
 "use strict";
 // The page is a view. Every fact it shows comes from /api/items, which is
@@ -441,10 +442,9 @@ const isPending = it => sentUnhandled(it).length > 0 && !isStuck(it);
 const isDeferred = it => Boolean(it.deferred_until) &&
   /^\d{4}-\d{2}-\d{2}$/.test(it.deferred_until) &&
   Date.parse(it.deferred_until + 'T00:00:00Z') / 1000 > nowSecs();
-// Matches item_key() in bin/command-center.py. A task can be captain-held AND
-// stopped on its own status record at once; the two are answered by different
-// commands, so home+id alone would merge them into one row and one draft.
-const itemKey = it => [it.home, it.source, it.id, it.key || ''].join('/');
+// A task can be captain-held AND stopped on its own status record at once; the
+// two are answered by different commands, so home+id alone would merge them into
+// one row and one draft. itemKey comes from bin/command-center-state.js.
 const isUnread = it => !state.seen[itemKey(it)];
 const projectOf = it => it.project || 'No project';
 const homeOf = id => state.view.homes.find(h => h.id === id) || {id, name:id};
@@ -530,14 +530,8 @@ function renderWatcher(){
   // but everything on it still answers. The last two leave the view stale, so
   // facts derived from it are history rather than claims about now.
   const offline = state.connected === false;
-  // One question decides the tense: did the last poll confirm the view on
-  // screen? Any state that leaves it unconfirmed - these three or a later one -
-  // inherits the historical labelling without being listed here.
-  const past = !state.confirmed;
-  // Measured against the last successful READ, which is its own recorded fact.
-  // The view's own `generated` is when the records last CHANGED: a dead watcher
-  // freezes it, so reading it as a read time turns that death into reassurance.
-  const readAt = past && state.readAt ? state.readAt : nowSecs();
+  // Tense and read time both come from bin/command-center-state.js.
+  const { past, readAt } = tense(state, nowSecs());
   const asOf = past
     ? ` As at the last read${state.readAt
         ? ', ' + esc(new Date(state.readAt * 1000).toLocaleString()) : ''}.`
@@ -857,17 +851,15 @@ function open(key){
 // A read that resolved well answers every reachability question at once, so
 // they are all cleared here rather than at each branch's discretion - the
 // per-branch enumeration is what kept leaving one alarm standing.
-function serverAnswered(){
-  if (state.connected === false){
-    state.connected = true; state.offline = null;
-    $('#live').innerHTML = '<span class="beat"></span>Live';
-  }
-}
-
-function readSucceeded(){
-  state.confirmed = true;
-  state.readAt = nowSecs();
-  state.unread = null; state.error = null;
+// The rules live in bin/command-center-state.js; this applies what they decide
+// and moves the one piece of them that is a pixel rather than a fact.
+function commit(answer){
+  const before = state.connected;
+  Object.assign(state, pollFacts(answer, nowSecs()));
+  if (state.connected !== before)
+    $('#live').innerHTML = state.connected
+      ? '<span class="beat"></span>Live'
+      : '<span class="lamp dead"></span>Not connected';
 }
 
 async function poll(){
@@ -877,24 +869,16 @@ async function poll(){
   try {
     const res = await fetch('/api/items', {
       headers: state.etag ? {'If-None-Match': state.etag} : {} });
-    // The fetch resolved, so the server IS reachable whatever it answered, and
-    // that is recorded before any early return below can leave a cannot-reach
-    // claim standing over a server that is demonstrably answering.
-    serverAnswered();
     if (res.status === 503){
-      // Reachable, but no scan has ever published: there is no list and the
-      // server refuses sends too, so this is not a successful read.
-      state.unread = (await res.json().catch(() => ({}))).error
-        || 'the records have not been read yet';
-      state.error = null;
-      state.confirmed = false;
+      commit({ kind:'unread',
+               detail: (await res.json().catch(() => ({}))).error
+                 || 'the records have not been read yet' });
       render();
       return;
     }
     if (!res.ok && res.status !== 304) throw new Error('HTTP ' + res.status);
     if (res.status === 304){
-      // The server confirmed the view already on screen, unchanged: a read.
-      readSucceeded();
+      commit({ kind:'unchanged' });
       renderWatcher();
       return;
     }
@@ -902,36 +886,16 @@ async function poll(){
     const next = await res.json();
     const before = new Set((state.view.items || []).map(itemKey));
     const arrived = (next.items || []).map(itemKey).filter(k => !before.has(k));
-    if (next.error){
-      // The read resolved; it is the CONTENT that is stale, and `confirmed`
-      // carries that on its own - so this read still has a time.
-      state.error = next.error; state.confirmed = false; state.unread = null;
-      state.readAt = nowSecs();
-    } else {
-      readSucceeded();
-    }
+    commit({ kind:'body', error: next.error || null });
     state.view = next;
     state.scanned = true;
-    // A verdict forbids a resend, so it is dropped only against a scan that
-    // actually succeeded - an errored or not-yet-scanned view knows no items.
-    if (!next.error && Array.isArray(next.items)){
-      const live = new Map(next.items.map(i => [itemKey(i), i]));
-      for (const [k, v] of Object.entries(state.outcome)){
-        const it = live.get(k);
-        // Gone from the list, or the steering record the send was unsure of has
-        // since appeared: either way the verdict has nothing left to warn about.
-        if (!it || (it.sent || []).length > v.sent) delete state.outcome[k];
-      }
-      save('cc.outcome', state.outcome);
-    }
+    state.outcome = releaseVerdicts(state.outcome, next);
+    save('cc.outcome', state.outcome);
     if (before.size && arrived.length === 1) state.flash = arrived[0];
     render();
     if (state.flash) setTimeout(() => { state.flash = null; renderList(); }, 2000);
   } catch (err) {
-    state.offline = String(err.message || err);
-    state.connected = false;
-    state.confirmed = false;
-    $('#live').innerHTML = '<span class="lamp dead"></span>Not connected';
+    commit({ kind:'unreachable', detail: String(err.message || err) });
     renderWatcher();
   }
 }
@@ -971,18 +935,17 @@ async function sendAnswer(){
     // fm-captain-hold.sh documents an exact retry as idempotent, so it is a
     // plain failure: the hold route has NO locking outcome, in this failure or
     // any other, because a lock there only blocks the retry that is the fix.
-    data = it.source === 'hold'
-      ? { error: String(err.message || err) }
-      : { outcome: 'unknown', detail: String(err.message || err) };
+    data = transportFailure(it.source, String(err.message || err));
   } finally {
     state.sending = false;
   }
   if (!ok || !data.ok){
     // Unknown delivery tells him the opposite of not-sent, so it never reads as
     // a failure and never leaves Send offered.
-    if (SEND_VERDICT[data.outcome]){
-      state.outcome[itemKey(it)] = { outcome: data.outcome, detail: data.detail || '',
-                                     sent: (it.sent || []).length };
+    const verdict = verdictFor(it.source, data.outcome, data.detail,
+                               (it.sent || []).length);
+    if (verdict){
+      state.outcome[itemKey(it)] = verdict;
       save('cc.outcome', state.outcome);
       await loadSaid();
       render();
@@ -990,10 +953,11 @@ async function sendAnswer(){
     }
     await loadSaid();
     render();
-    $('#sendnote').innerHTML = `<b style="color:var(--hot)">Not sent.</b> ${
+    // render() may have painted the blank pane, if the item left the list while
+    // the log was reloading; it has already set the button from state either way.
+    const note = $('#sendnote');
+    if (note) note.innerHTML = `<b style="color:var(--hot)">Not sent.</b> ${
       esc(data.error || data.detail || 'the command failed')} — your words are still here.`;
-    $('#send').disabled = false;
-    $('#send').textContent = 'Send to firstmate';
     return;
   }
   delete state.draft[itemKey(it)]; save('cc.draft', state.draft);
@@ -1049,7 +1013,7 @@ $('#note-dlg').addEventListener('close', async function(){
     // have started the note and been restarted before it could answer. A second
     // note is a second note - queue_note mints a fresh id - so delivery here is
     // unknown, never failed.
-    data = { outcome: 'unknown', detail: String(err.message || err) };
+    data = transportFailure('note', String(err.message || err));
   }
   // The same rule the answer path follows: unknown delivery never reads as a
   // failure, because retyping it is how the captain sends it twice. It warns

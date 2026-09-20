@@ -737,6 +737,17 @@ True" "$out" \
   pass "one change produces one scan however many tabs poll"
 }
 
+# The page's decision rules live in bin/command-center-state.js because they are
+# what got the rules wrong twice; these execute that file itself.
+test_the_pages_decision_rules_hold() {
+  local out rc=0
+  command -v node >/dev/null 2>&1 || fail "node is required to run the page's rule tests"
+  out=$(node "$(dirname "${BASH_SOURCE[0]}")/command-center-state.test.js" 2>&1) || rc=$?
+  [ "$rc" -eq 0 ] || fail "the page's decision rules regressed:
+$out"
+  pass "the page's $out decision rules hold"
+}
+
 trap stop_server EXIT
 
 test_only_live_captain_holds_are_carded
@@ -761,3 +772,4 @@ test_a_note_of_just_a_dash_is_queued_and_never_hangs_the_server
 test_an_unreadable_log_is_reported_not_shown_as_empty
 test_the_send_outcome_is_decided_by_the_exit_code_alone
 test_concurrent_polls_produce_one_scan
+test_the_pages_decision_rules_hold

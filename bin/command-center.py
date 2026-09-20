@@ -53,6 +53,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 BIN = os.path.dirname(os.path.abspath(__file__))
 PAGE = os.path.join(BIN, "command-center.html")
+# The page's decision rules, in their own file so tests can execute them.
+RULES = os.path.join(BIN, "command-center-state.js")
 SCAN = os.path.join(BIN, "command-center-scan.sh")
 
 # tasks-axi's own limit on a recorded decision (bin/fm-captain-hold.sh).
@@ -417,15 +419,17 @@ class Handler(BaseHTTPRequestHandler):
         if not self._local_request():
             self._send(403, b"not your server", "text/plain; charset=utf-8")
             return
-        if path == "/":
+        if path in ("/", "/command-center-state.js"):
+            src = PAGE if path == "/" else RULES
+            ctype = ("text/html" if path == "/" else "text/javascript")
             try:
-                with open(PAGE, "rb") as fh:
+                with open(src, "rb") as fh:
                     body = fh.read()
             except OSError as exc:
-                self._send(500, f"cannot read {PAGE}: {exc}".encode(),
+                self._send(500, f"cannot read {src}: {exc}".encode(),
                            "text/plain; charset=utf-8")
                 return
-            self._send(200, body, "text/html; charset=utf-8")
+            self._send(200, body, ctype + "; charset=utf-8")
             return
 
         if path == "/api/items":
@@ -583,9 +587,10 @@ def main(argv=None):
         return 1
     if args.install_unit:
         return install_unit(home, args.port)
-    if not os.path.exists(PAGE):
-        print(f"command-center: the page is missing: {PAGE}", file=sys.stderr)
-        return 1
+    for needed in (PAGE, RULES):
+        if not os.path.exists(needed):
+            print(f"command-center: a page file is missing: {needed}", file=sys.stderr)
+            return 1
 
     Handler.records = Records(home)
     # Loopback only. This runs firstmate's scripts as the captain and has no
