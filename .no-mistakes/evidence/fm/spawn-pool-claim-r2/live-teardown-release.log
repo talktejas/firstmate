@@ -1,0 +1,22 @@
+===== spawn a task, then tear it down the ordinary way =====
+warning: /tmp/fm-live-teardown.mOD9UT/home/data/teardown-task/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+🌳 Setting up worktree...
+🌳 Leased worktree at /tmp/fm-live-teardown.mOD9UT/project/.treehouse/project-4d75d0/1/project. Run 'treehouse return /tmp/fm-live-teardown.mOD9UT/project/.treehouse/project-4d75d0/1/project' to release it.
+spawned teardown-task harness=codex kind=ship mode=no-mistakes yolo=off window=firstmate:fm-teardown-task worktree=/tmp/fm-live-teardown.mOD9UT/project/.treehouse/project-4d75d0/1/project
+--- pool before teardown ---
+[{"name":"1","path":"/tmp/fm-live-teardown.mOD9UT/project/.treehouse/project-4d75d0/1/project","status":"leased","lease_id":"74ad4e726da8a7eb9b4da18ed297635a","lease_holder":"fm:teardown-task@/tmp/fm-live-teardown.mOD9UT/home/state","leased_at":"2026-09-20T15:35:01.753052644+07:00","processes":[]}]
+--- fm-teardown.sh teardown-task --force ---
+A new version of treehouse is available: v2.1.0 → v2.3.0
+Run "treehouse update" to update
+
+🌳 Worktree returned to pool.
+/tmp/fm-live-teardown.mOD9UT/project: skipped: no origin remote
+teardown teardown-task complete (window firstmate:fm-teardown-task, worktree /tmp/fm-live-teardown.mOD9UT/project/.treehouse/project-4d75d0/1/project)
+Backlog: teardown-task just finished (this home keeps no markdown backlog at /tmp/fm-live-teardown.mOD9UT/home/data/backlog.md). Update /tmp/fm-live-teardown.mOD9UT/home/data/backlog.md - move teardown-task to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+[teardown exit=0]
+--- pool after teardown ---
+[{"name":"1","path":"/tmp/fm-live-teardown.mOD9UT/project/.treehouse/project-4d75d0/1/project","status":"available","lease_id":"","lease_holder":"","leased_at":null,"processes":[]}]
+--- record after teardown ---
+  (record gone)
+RESULT: PASS - ordinary teardown released the claim
+BASE=/tmp/fm-live-teardown.mOD9UT

@@ -1,0 +1,18 @@
+# Does the new "gives the project lock back" assertion actually prove the fix?
+# Removed the SPAWN_TREEHOUSE_PROJECT_LOCK_HELD release block from
+# spawn_abort_cleanup (bin/fm-spawn.sh), then re-ran the suite:
+
+$ bash tests/fm-spawn-worktree-lease.test.sh
+ok - a spawn claims its pool slot with a lease labelled by the owning task record
+not ok - the timed-out spawn kept the shared Treehouse project lock: /tmp/fm-spawn-worktree-lease.22eH1o/lease-stall/home/state/.treehouse-project-0344b0ac25fc62acbde0981e929ec702417229a7.lock
+
+# Source restored (git status clean); with the release block present:
+$ bash tests/fm-spawn-worktree-lease.test.sh
+ok - a spawn claims its pool slot with a lease labelled by the owning task record
+ok - a stalled allocation refuses within its bound and gives the project lock back
+ok - an aborted spawn returns its claim, matched on the holder that took it
+ok - a copy another task record claims is refused by name, and stays claimed
+ok - a record holding its own claim does not block a spawn the pool allocated
+ok - the real pool does not hand out a leased slot that has no process inside it
+ok - a claim is released only by the holder that took it, and the slot returns to the pool
+# all fm-spawn-worktree-lease tests passed

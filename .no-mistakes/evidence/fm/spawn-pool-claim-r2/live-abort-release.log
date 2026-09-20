@@ -1,0 +1,28 @@
+===== A: the pane never enters the leased copy - the claim must go back =====
+warning: /tmp/fm-live-abort.itzniA/home/data/abort-task/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+🌳 Setting up worktree...
+🌳 Leased worktree at /tmp/fm-live-abort.itzniA/project/.treehouse/project-880a17/1/project. Run 'treehouse return /tmp/fm-live-abort.itzniA/project/.treehouse/project-880a17/1/project' to release it.
+error: window firstmate:fm-abort-task did not enter its leased worktree '/tmp/fm-live-abort.itzniA/project/.treehouse/project-880a17/1/project' within 60s (last seen 'none'; spawning project '/tmp/fm-live-abort.itzniA/project'); inspect window firstmate:fm-abort-task
+[exit=1]
+--- record ---
+  (no record published)
+--- pool after the aborted spawn ---
+[{"name":"1","path":"/tmp/fm-live-abort.itzniA/project/.treehouse/project-880a17/1/project","status":"available","lease_id":"","lease_holder":"","leased_at":null,"processes":[]}]
+RESULT: PASS - the aborted spawn gave its claim back
+
+===== B: launch delivery fails AFTER the record is published =====
+warning: /tmp/fm-live-abort.itzniA/home/data/late-fail-task/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+A new version of treehouse is available: v2.1.0 → v2.3.0
+Run "treehouse update" to update
+
+🌳 Setting up worktree...
+🌳 Leased worktree at /tmp/fm-live-abort.itzniA/project/.treehouse/project-880a17/1/project. Run 'treehouse return /tmp/fm-live-abort.itzniA/project/.treehouse/project-880a17/1/project' to release it.
+warning: the record removed by failed-dispatch cleanup was what named task late-fail-task's pool claim on /tmp/fm-live-abort.itzniA/project/.treehouse/project-880a17/1/project; a worker may already be live in that copy, so inspect it first, then release the claim with: (cd '/tmp/fm-live-abort.itzniA/project' && treehouse return --force --if-lease-holder 'fm:late-fail-task@/tmp/fm-live-abort.itzniA/home/state' '/tmp/fm-live-abort.itzniA/project/.treehouse/project-880a17/1/project')
+warning: leaving task late-fail-task's slot claim on /tmp/fm-live-abort.itzniA/project/.treehouse/project-880a17/1/project in place; the Treehouse project lock is no longer held, so the next spawn's claim replaces it
+[exit=1]
+--- record ---
+  (record rolled back)
+--- pool ---
+[{"name":"1","path":"/tmp/fm-live-abort.itzniA/project/.treehouse/project-880a17/1/project","status":"leased","lease_id":"39245b184bb91a6641e8e5fc1f34e01a","lease_holder":"fm:late-fail-task@/tmp/fm-live-abort.itzniA/home/state","leased_at":"2026-09-20T15:35:41.69131381+07:00","processes":[]}]
+BASE=/tmp/fm-live-abort.itzniA
+[{"name":"1","path":"/tmp/fm-live-abort.itzniA/project/.treehouse/project-880a17/1/project","status":"available","lease_id":"","lease_holder":"","leased_at":null,"processes":[]}]
