@@ -338,7 +338,9 @@ trailing_escape() {
 # double-quoted span as data. Quote state carries across newlines, because a
 # quoted argument - a steer message, a brief line - is routinely multi-line. An
 # escaped quote neither opens nor closes a span, so the apostrophe idiom
-# 'don'\''t' pairs the way the shell pairs it. A span that never closes is not
+# 'don'\''t' and an ANSI-C $'it\'s' argument both pair the way the shell pairs
+# them - a backslash is syntax inside "..." and $'...', literal inside '...'.
+# A span that never closes is not
 # a span at all: its text is kept verbatim, so an unbalanced command falls back
 # to ordinary separator and operator handling and fails toward the deny.
 # Mode "strip" drops the quote characters and neutralizes separators inside the
@@ -347,7 +349,7 @@ trailing_escape() {
 # as prose inside a quoted argument is not an operator while every line and
 # offset outside the span still lines up with the original text.
 quoted_scan() {
-  local mode=$1 rest=$2 out='' pre q body chunk span closed
+  local mode=$1 rest=$2 out='' pre q body chunk span closed escapes
   while [ -n "$rest" ]; do
     pre=''
     while :; do
@@ -369,6 +371,14 @@ quoted_scan() {
     [ -n "$rest" ] || break
     q=${rest%"${rest#?}"}
     rest=${rest#?}
+    escapes=0
+    if [ "$q" = '"' ]; then
+      escapes=1
+    else
+      case "$pre" in
+        *\$) escapes=1 ;;
+      esac
+    fi
     body=''
     closed=0
     while :; do
@@ -377,7 +387,7 @@ quoted_scan() {
         *) break ;;
       esac
       chunk=${rest%%"$q"*}
-      if [ "$q" = '"' ] && trailing_escape "$chunk"; then
+      if [ "$escapes" -eq 1 ] && trailing_escape "$chunk"; then
         body=$body$chunk$q
         rest=${rest:$((${#chunk} + 1))}
         continue

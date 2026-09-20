@@ -313,6 +313,11 @@ grep -rn seeded $PROJ/src"
   expect_deny "an escaped double quote does not fold in the next line" \
     --tool Bash --command "bin/fm-send.sh task-1 \"quote is \\\" and <<EOF\"
 grep -rn seeded $PROJ/src"
+  expect_allow "an ANSI-C steer message with an escaped apostrophe" \
+    --tool Bash --command "bin/fm-send.sh task-1 \$'it\\'s urgent'"
+  expect_deny "an ANSI-C escaped apostrophe does not fold in the next line" \
+    --tool Bash --command "bin/fm-send.sh task-1 \$'it\\'s urgent'
+grep -rn seeded $PROJ/src"
   # An unbalanced quote is not a span: the rest of the command is still read.
   expect_deny "an unterminated quote does not swallow the next line" \
     --tool Bash --command "bin/fm-send.sh task-1 \"unbalanced message
