@@ -855,10 +855,9 @@ function open(key){
 
 // --- talking to the server ---------------------------------------------------
 async function poll(){
-  // Cleared at the top and set only where a good view actually lands, so a poll
-  // that returns early anywhere below leaves the view on screen marked as
-  // unconfirmed rather than having to remember to say so.
-  state.confirmed = false;
+  // A poll being IN FLIGHT says nothing about the view on screen: the last poll
+  // confirmed it, and only a RESOLVED outcome may take that back. So the verdict
+  // is committed when the answer arrives, never optimistically on the way out.
   try {
     const res = await fetch('/api/items', {
       headers: state.etag ? {'If-None-Match': state.etag} : {} });
@@ -875,14 +874,20 @@ async function poll(){
       state.unread = (await res.json().catch(() => ({}))).error
         || 'the records have not been read yet';
       state.error = null;
+      state.confirmed = false;
       render();
       return;
     }
     if (!res.ok && res.status !== 304) throw new Error('HTTP ' + res.status);
-    if (state.unread || state.error){
-      state.unread = null; state.error = null; renderWatcher();
+    if (res.status === 304){
+      // The server has confirmed the view already on screen, unchanged.
+      state.confirmed = true;
+      if (state.unread || state.error){
+        state.unread = null; state.error = null; renderWatcher();
+      }
+      return;
     }
-    if (res.status === 304){ state.confirmed = true; return; }
+    state.unread = null;
     state.etag = res.headers.get('ETag');
     const next = await res.json();
     const before = new Set((state.view.items || []).map(itemKey));
@@ -909,6 +914,7 @@ async function poll(){
   } catch (err) {
     state.offline = String(err.message || err);
     state.connected = false;
+    state.confirmed = false;
     $('#live').innerHTML = '<span class="lamp dead"></span>Not connected';
     renderWatcher();
   }

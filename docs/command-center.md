@@ -66,7 +66,7 @@ Nothing serves that environment to the browser, so setting either variable chang
 Above the list, every notice that applies is shown as its own band, because two independent facts never share one slot and none of them pushes another off the screen: whatever has gone wrong between the page and the records, a backlog whose holds are hidden, the homes firstmate is not watching, and the homes it is — each named, each with its own last beat from `state/.last-watcher-beat`.
 If a home has gone quiet, an answer you send there is still recorded but nothing will ring it, and the page says so rather than looking normal.
 Three things can go wrong between the page and the records, and each says what you can do about it. **It cannot reach the server** — nothing can be sent until it is back. **The server answers but no scan has ever succeeded** — there is no list, and the server refuses sends until there is one. **A scan failed over a list an earlier one read** — the list may be incomplete, and everything on it can still be answered.
-In the last two the health bands stay on screen but stop speaking in the present: they say what was true at the last successful read, and when that read was.
+In all three the health bands stay on screen but stop speaking in the present: they say what was true at the last successful read, and when that read was. A poll merely being in flight changes nothing — the bands keep saying what the last answer established until a new one arrives.
 
 ## Where your answer goes
 
