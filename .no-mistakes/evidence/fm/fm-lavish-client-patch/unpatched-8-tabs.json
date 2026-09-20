@@ -1,0 +1,69 @@
+{
+  "tabs": [
+    {
+      "url": "http://127.0.0.1:14387/session/2f35c28380e50c19",
+      "readyState": "complete",
+      "visibility": "hidden",
+      "title": "Connection limit check · Lavish",
+      "loadedChrome": true,
+      "bodyLen": 16901
+    },
+    {
+      "url": "http://127.0.0.1:14387/session/6cb035d8886a654f",
+      "readyState": "complete",
+      "visibility": "hidden",
+      "title": "Connection limit check · Lavish",
+      "loadedChrome": true,
+      "bodyLen": 16905
+    },
+    {
+      "url": "http://127.0.0.1:14387/session/f1a8f12991779b35",
+      "readyState": "complete",
+      "visibility": "hidden",
+      "title": "Connection limit check · Lavish",
+      "loadedChrome": true,
+      "bodyLen": 16905
+    },
+    {
+      "url": "http://127.0.0.1:14387/session/f96d2252d03b2936",
+      "readyState": "complete",
+      "visibility": "hidden",
+      "title": "Connection limit check · Lavish",
+      "loadedChrome": true,
+      "bodyLen": 16905
+    },
+    {
+      "url": "http://127.0.0.1:14387/session/8b9c5e55cc92b5de",
+      "readyState": "complete",
+      "visibility": "hidden",
+      "title": "Connection limit check · Lavish",
+      "loadedChrome": true,
+      "bodyLen": 16905
+    },
+    {
+      "url": "http://127.0.0.1:14387/session/7455fe93ad92cc65",
+      "readyState": "complete",
+      "visibility": "hidden",
+      "title": "Connection limit check · Lavish",
+      "loadedChrome": true,
+      "bodyLen": 16895
+    },
+    {
+      "url": "http://127.0.0.1:14387/session/e463ea12eae0e4be",
+      "readyState": "complete",
+      "visibility": "hidden",
+      "title": "",
+      "loadedChrome": false,
+      "bodyLen": 0
+    },
+    {
+      "url": "http://127.0.0.1:14387/session/9d5fb524154a7017",
+      "readyState": "complete",
+      "visibility": "visible",
+      "title": "",
+      "loadedChrome": false,
+      "bodyLen": 0
+    }
+  ],
+  "browserConnectionsToServer": 6
+}
