@@ -376,11 +376,13 @@ test_answering_a_hold_records_the_captains_words_and_clears_the_item() {
 # A firstmate script that reads stdin must not be able to block the server on
 # whatever terminal it was started in. "-" is fm-inbox.sh's read-from-stdin
 # argument, so this server is started with a stdin that stays open and silent.
-test_a_script_that_reads_stdin_cannot_hang_the_server() {
-  local home port code
+test_a_note_of_just_a_dash_is_queued_and_never_hangs_the_server() {
+  local home port body
   home="$TMP_ROOT/stdin"
   seed_home "$home"
   port=$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1]);s.close()')
+  # stdin is held open and silent, the way a foreground terminal is: a child
+  # that reads it must not be able to block the server.
   sleep 45 | FM_ROOT_OVERRIDE="$ROOT" python3 "$SERVER" --port "$port" --home "$home" \
     > "$home/server.log" 2>&1 &
   SERVER_PID=$!
@@ -391,15 +393,36 @@ test_a_script_that_reads_stdin_cannot_hang_the_server() {
     sleep 1
   done
   [ -n "$ready" ] || fail "the server did not start"
-  code=$(curl -s -m 15 -o /dev/null -w '%{http_code}' -X POST \
-    -H 'Content-Type: application/json' -d '{"text":"-"}' \
-    "http://127.0.0.1:$port/api/note")
+  # "-" is fm-inbox.sh's own read-from-stdin selector. As the captain's note it
+  # is just a note, and it must reach the inbox like any other.
+  body=$(curl -s -m 15 -X POST -H 'Content-Type: application/json' \
+    -d '{"text":"-"}' "http://127.0.0.1:$port/api/note")
   stop_server
-  case "$code" in
-    200|502) ;;
-    *) fail "the note endpoint never answered (got '$code'): a child read the server's stdin" ;;
-  esac
-  pass "a note that would read stdin is answered instead of hanging the server"
+  [ -n "$body" ] || fail "the note endpoint never answered: a child read the server's stdin"
+  assert_contains "$body" '"outcome":"sent"' \
+    "a note of exactly a dash was not reported as queued"
+  assert_equals "-" \
+    "$(cat "$home"/state/inbox/*.note 2>/dev/null | sed -n '/^--$/,$p' | tail -n +2)" \
+    "a note of exactly a dash never reached the inbox"
+  pass "a note of exactly a dash is queued, and no child can hang the server"
+}
+
+# The log is the one store this server owns. When a write to it fails the page
+# must be told, or it reports success while his words are being dropped.
+test_a_failed_log_write_is_reported_with_the_send() {
+  local home port body
+  home="$TMP_ROOT/logfail"
+  seed_home "$home"
+  mkdir -p "$home/data"
+  : > "$home/data/command-center"        # a file where the log directory must go
+  start_server "$home" || fail "the server did not start"
+  port=$SERVER_PORT
+  body=$(post "$port" /api/note '{"text":"a note worth keeping"}')
+  stop_server
+  assert_contains "$body" '"outcome":"sent"' "the note was not queued"
+  assert_contains "$body" 'could not be written' \
+    "a failed write to the captain's own log was not reported with the send"
+  pass "a failed write to the log is reported alongside the send"
 }
 
 # fm-send.sh's exit 3 means the text WAS delivered and only the read-back stayed
@@ -523,6 +546,7 @@ test_fingerprint_changes_only_when_a_record_moves
 test_server_serves_the_page_and_the_records
 test_server_refuses_bad_input_before_running_anything
 test_answering_a_hold_records_the_captains_words_and_clears_the_item
-test_a_script_that_reads_stdin_cannot_hang_the_server
+test_a_note_of_just_a_dash_is_queued_and_never_hangs_the_server
+test_a_failed_log_write_is_reported_with_the_send
 test_the_send_outcome_is_decided_by_the_exit_code_alone
 test_concurrent_polls_produce_one_scan

@@ -386,7 +386,7 @@ const state = {
   tab:'waiting', group:'project', sfilter:'', q:'', homes:new Set(),
   open:null, view:{homes:[],items:[]}, said:[], etag:null,
   sending:false, flash:null, error:null, seen:load('cc.seen',{}), draft:load('cc.draft',{}),
-  note:load('cc.note',''), outcome:load('cc.outcome',{}), scanned:false,
+  note:load('cc.note',''), outcome:load('cc.outcome',{}), scanned:false, warning:null,
 };
 
 // Browser storage, wrapped: a private window or cleared site data must degrade
@@ -513,6 +513,15 @@ function renderWatcher(){
     el.innerHTML = `<span class="lamp dead"></span><span><b>Cannot read the records.</b> ${esc(state.error)}</span>`;
     return;
   }
+  // The log is the one store this server owns; a failed write to it is the one
+  // loss this page exists to prevent, so it is never left to a flash of text.
+  if (state.warning){
+    el.className = 'watcher'; el.style.background = 'var(--warn-soft)';
+    el.innerHTML = `<span class="lamp unknown"></span><span><b>Sent, but your words
+      did not reach the record.</b> ${esc(state.warning)} They are still in this
+      browser; copy them somewhere before clearing site data.</span>`;
+    return;
+  }
   const stale = (state.view.homes || []).filter(h =>
     !h.watcher_beat_epoch || nowSecs() - h.watcher_beat_epoch > 300);
   el.style.background = '';
@@ -564,22 +573,12 @@ function itemRow(it){
 // Approved proposal sections 3 and 4: the archive and My words are where a
 // closure can honestly be shown - the server wrote this line as part of the very
 // act that closed the decision, so nothing here is inferred.
-// The delivered-not-closed arm below is history, not a live outcome: no send
-// produces it now, but said.jsonl is append-only and older lines carry it.
 function wordOutcome(r){
   if (r.kind === 'draft') return 'Not sent. Kept here so it is not lost.';
-  // said.jsonl is append-only, so lines written before the outcome vocabulary
-  // existed carry `delivered` and `closed` instead, and must still read as
-  // exactly what they were - neither more nor less delivered, nor more closed.
-  const outcome = r.outcome
-    || (r.delivered ? (r.closed === false ? 'delivered-not-closed' : 'sent') : 'failed');
-  switch (outcome){
+  switch (r.outcome){
     case 'sent': return r.kind === 'answer'
       ? 'Delivered through ' + esc(r.route) + ' — the decision closed'
       : 'Delivered through ' + esc(r.route);
-    case 'delivered-not-closed':
-      return 'Delivered through ' + esc(r.route)
-        + ' — the decision record did not close: ' + esc(r.detail || '');
     case 'unknown':
       return 'Delivery unknown — it may already have arrived: ' + esc(r.detail || '');
     default: return 'Not delivered: ' + esc(r.detail || '');
@@ -862,6 +861,7 @@ async function sendAnswer(){
   } finally {
     state.sending = false;
   }
+  state.warning = data.warning || null;
   if (!ok || !data.ok){
     // Unknown delivery tells him the opposite of not-sent, so it never reads as
     // a failure and never leaves Send offered.
@@ -879,6 +879,7 @@ async function sendAnswer(){
     $('#send').textContent = 'Send to firstmate';
     return;
   }
+  if (state.warning){ render(); return; }   // his words are now only here
   delete state.draft[itemKey(it)]; save('cc.draft', state.draft);
   state.etag = null;
   await loadSaid(); await poll();
@@ -937,12 +938,13 @@ $('#note-dlg').addEventListener('close', async function(){
       ? '?  It may already be saved — check before sending it again. '
         + (data.detail || '')
       : '✕  Not queued: ' + (data.error || data.detail || 'the command failed');
-  if (ok && data.ok){
+  state.warning = data.warning || null;
+  if (ok && data.ok && !state.warning){
     $('#note-text').value = ''; state.note = ''; save('cc.note', state.note);
   }
   setTimeout(() => { btn.textContent = '✎  Tell firstmate something — not an answer'; },
     data.outcome === 'unknown' ? 12000 : 3500);
-  await loadSaid(); renderList();
+  await loadSaid(); render();
 });
 
 loadSaid().then(poll);

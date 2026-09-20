@@ -209,7 +209,7 @@ def record_said(home, entry):
             fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
         return None
     except OSError as exc:
-        return f"answer sent, but it could not be written to {path}: {exc}"
+        return f"it could not be written to {path}: {exc}"
 
 
 def read_said(home, limit=500):
@@ -293,10 +293,13 @@ def send_note(home_path, text):
     # Approved proposal section 3: the captain's words are logged even when they
     # answer no item, so a note with no addressee is a channel this surface owes.
     proc = subprocess.run(
-        [os.path.join(BIN, "fm-inbox.sh"), "note", text],
-        capture_output=True, text=True, timeout=SEND_TIMEOUT,
-        env=dict(os.environ, FM_HOME=home_path),
-        stdin=subprocess.DEVNULL, check=False,
+        # The body goes over stdin, not argv: a note of exactly "-" is
+        # fm-inbox.sh's own read-from-stdin selector, and as an argument it
+        # would take that branch and queue nothing. The pipe closes after the
+        # write, so a child that reads stdin still cannot hang the server.
+        [os.path.join(BIN, "fm-inbox.sh"), "note", "-"],
+        input=text, capture_output=True, text=True, timeout=SEND_TIMEOUT,
+        env=dict(os.environ, FM_HOME=home_path), check=False,
     )
     detail = (proc.stdout + proc.stderr).strip()[:600]
     # fm-inbox.sh publishes the note record BEFORE it wakes firstmate and exits
