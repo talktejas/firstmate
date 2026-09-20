@@ -303,6 +303,20 @@ grep -rn seeded $PROJ/src"
     --tool Bash --command "bin/fm-send.sh task-1 \"some brief
 text << EOF more\"
 grep -rn seeded $PROJ/src"
+  # The apostrophe idiom pairs quotes the way the shell does, so the message is
+  # one argument and the line after it is its own command.
+  expect_allow "an apostrophe-escaped steer message" \
+    --tool Bash --command "bin/fm-send.sh task-1 'don'\\''t read the project'"
+  expect_deny "an apostrophe-escaped message does not fold in the next line" \
+    --tool Bash --command "bin/fm-send.sh task-1 'don'\\''t read the project'
+grep -rn seeded $PROJ/src"
+  expect_deny "an escaped double quote does not fold in the next line" \
+    --tool Bash --command "bin/fm-send.sh task-1 \"quote is \\\" and <<EOF\"
+grep -rn seeded $PROJ/src"
+  # An unbalanced quote is not a span: the rest of the command is still read.
+  expect_deny "an unterminated quote does not swallow the next line" \
+    --tool Bash --command "bin/fm-send.sh task-1 \"unbalanced message
+grep -rn seeded $PROJ/src"
   # A herestring is not a heredoc opener: the lines after it must still be read.
   expect_deny "a herestring does not swallow the next line" \
     --tool Bash --command "jq -r .a <<< \"\$payload\"

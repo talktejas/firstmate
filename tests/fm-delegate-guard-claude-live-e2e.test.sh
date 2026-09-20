@@ -27,7 +27,8 @@ CREW="$TMP_ROOT/crew"
 SENTINEL="DELEGATE_LIVE_SENTINEL_7431"
 
 mkdir -p "$HOME_DIR/bin" "$HOME_DIR/state" "$HOME_DIR/projects" "$HOME_DIR/.claude" "$PROJ/src"
-cp "$ROOT/bin/fm-delegate-pretool-check.sh" "$ROOT/bin/fm-primary-scope-lib.sh" "$HOME_DIR/bin/"
+cp "$ROOT/bin/fm-delegate-pretool-check.sh" "$ROOT/bin/fm-primary-scope-lib.sh" \
+  "$ROOT/bin/fm-hook-host-lib.sh" "$HOME_DIR/bin/"
 printf '# fixture\n' > "$HOME_DIR/AGENTS.md"
 printf '<?php // %s\n' "$SENTINEL" > "$PROJ/src/config.php"
 git -C "$PROJ" init -q

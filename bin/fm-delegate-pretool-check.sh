@@ -323,30 +323,75 @@ note_root() {
   esac
 }
 
+# trailing_escape <text>: true when <text> ends in an odd number of
+# backslashes, so the character that follows it is escaped rather than syntax.
+trailing_escape() {
+  local t=$1 n=0
+  while [ "${t%\\}" != "$t" ]; do
+    t=${t%\\}
+    n=$((n + 1))
+  done
+  [ $((n % 2)) -eq 1 ]
+}
+
 # quoted_scan <mode> <text>: walk <text> once, treating a single- or
 # double-quoted span as data. Quote state carries across newlines, because a
-# quoted argument - a steer message, a brief line - is routinely multi-line.
+# quoted argument - a steer message, a brief line - is routinely multi-line. An
+# escaped quote neither opens nor closes a span, so the apostrophe idiom
+# 'don'\''t' pairs the way the shell pairs it. A span that never closes is not
+# a span at all: its text is kept verbatim, so an unbalanced command falls back
+# to ordinary separator and operator handling and fails toward the deny.
 # Mode "strip" drops the quote characters and neutralizes separators inside the
 # span so its words stay in their own segment. Mode "mask" blanks the span,
 # quotes included, keeping its length and its newlines, so an operator written
 # as prose inside a quoted argument is not an operator while every line and
 # offset outside the span still lines up with the original text.
 quoted_scan() {
-  local mode=$1 rest=$2 out='' pre q body span
-  while :; do
-    case "$rest" in
-      *[\'\"]*) ;;
-      *) out=$out$rest; break ;;
-    esac
-    pre=${rest%%[\'\"]*}
+  local mode=$1 rest=$2 out='' pre q body chunk span closed
+  while [ -n "$rest" ]; do
+    pre=''
+    while :; do
+      case "$rest" in
+        *[\'\"]*) ;;
+        *) pre=$pre$rest; rest=''; break ;;
+      esac
+      chunk=${rest%%[\'\"]*}
+      if trailing_escape "$chunk"; then
+        pre=$pre$chunk${rest:${#chunk}:1}
+        rest=${rest:$((${#chunk} + 1))}
+        continue
+      fi
+      pre=$pre$chunk
+      rest=${rest#"$chunk"}
+      break
+    done
     out=$out$pre
-    rest=${rest#"$pre"}
+    [ -n "$rest" ] || break
     q=${rest%"${rest#?}"}
     rest=${rest#?}
-    case "$rest" in
-      *"$q"*) body=${rest%%"$q"*}; rest=${rest#"$body$q"}; span=$q$body$q ;;
-      *) body=$rest; rest=''; span=$q$body ;;
-    esac
+    body=''
+    closed=0
+    while :; do
+      case "$rest" in
+        *"$q"*) ;;
+        *) break ;;
+      esac
+      chunk=${rest%%"$q"*}
+      if [ "$q" = '"' ] && trailing_escape "$chunk"; then
+        body=$body$chunk$q
+        rest=${rest:$((${#chunk} + 1))}
+        continue
+      fi
+      body=$body$chunk
+      rest=${rest#"$chunk$q"}
+      closed=1
+      break
+    done
+    if [ "$closed" -eq 0 ]; then
+      out=$out$q$body$rest
+      break
+    fi
+    span=$q$body$q
     if [ "$mode" = mask ]; then
       out=$out${span//[!$'\n']/ }
     else
