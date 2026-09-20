@@ -191,15 +191,6 @@ budget_reset() {
 
 fm_supervision_status "$STATE" "$GRACE"
 
-# AGENTS.md section 9: a captain-facing message firstmate never recorded is one
-# he cannot get back, so the turn boundary is where the absence is noticed. It
-# runs after this guard's own predicate, it is bounded and cheap when no record
-# moved, and it is advisory and fail-open - it prints and never changes this
-# guard's exit contract (bin/fm-captain-message.sh, docs/command-center.md).
-if [ -x "$SCRIPT_DIR/fm-captain-message.sh" ]; then
-  "$SCRIPT_DIR/fm-captain-message.sh" unrecorded || true
-fi
-
 if [ "$FM_SUP_NEEDED" = false ]; then
   [ -e "$FAILURE_NOTICE" ] || budget_reset
   exit 0

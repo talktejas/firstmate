@@ -15,7 +15,6 @@
 # Usage:
 #   fm-captain-message.sh --title <title> [options] <text>...
 #   fm-captain-message.sh --title <title> [options] -        (body from stdin)
-#   fm-captain-message.sh unrecorded
 #
 #   --title <t>     the short line the captain sees in the list. required.
 #   --task <id>     a task in this home; fills project, worktree and branch from
@@ -38,10 +37,6 @@
 # than three chances to leave one out. A field nothing knows is recorded as null
 # and shown as unknown; it is never guessed.
 #
-# `unrecorded` is the turn-end check: it names every decision this home is
-# holding for the captain that no recorded question asks about, because such a
-# decision is one he was asked about and cannot see. Advisory and fail-open.
-#
 # Environment:
 #   FM_HOME   operational home whose data/ is written (default: the code root).
 #
@@ -62,66 +57,6 @@ fail() {
 }
 
 command -v jq >/dev/null 2>&1 || fail "jq is required"
-
-# The turn-end check. What is waiting on the captain is the command center's
-# scan to answer, not this script's, so it asks that one rather than parsing
-# the backlog a second time.
-if [ "${1-}" = unrecorded ]; then
-  scan="$SCRIPT_DIR/command-center-scan.sh"
-  [ -x "$scan" ] || exit 0
-  # This runs at every turn end, so it is bounded and it is cheap when nothing
-  # moved: the fingerprint is a stat sweep, and the full scan runs only when it
-  # differs from the last one this check cleared. A slow or wedged scan must
-  # never hang a turn boundary, so both calls are under a timeout and every
-  # failure is silence rather than a stall.
-  bounded() {
-    if command -v timeout >/dev/null 2>&1; then
-      timeout 20 "$@"
-    else
-      "$@"
-    fi
-  }
-  mark="$FM_HOME/state/.captain-message-check"
-  fp=$(FM_HOME="$FM_HOME" bounded "$scan" --fingerprint 2>/dev/null) || exit 0
-  [ "$fp" = "$(cat "$mark" 2>/dev/null || true)" ] && exit 0
-  view=$(FM_HOME="$FM_HOME" bounded "$scan" 2>/dev/null) || exit 0
-  waiting=$(printf '%s' "$view" | jq -r '
-    .items[] | select(.home == "main")
-    | [.source, .id, (.key // "")] | @tsv' 2>/dev/null) || exit 0
-  asked=$(jq -r 'select(.question == true)
-    | [(.task // ""), (.question_key // "")] | @tsv' "$LOG" 2>/dev/null || true)
-  missing=''
-  while IFS=$'\t' read -r source id key; do
-    [ -n "$id" ] || continue
-    case "$source" in
-      hold)   want=$(printf '%s\t' "$id") ;;
-      status) want=$(printf '%s\t%s' "$id" "$key") ;;
-      *)      continue ;;
-    esac
-    printf '%s\n' "$asked" | grep -Fxq "$want" && continue
-    missing="$missing$id "
-  done <<EOF
-$waiting
-EOF
-  # Cleared: remember the fingerprint so later turns cost one stat sweep. Still
-  # missing: the mark is deliberately NOT written, so it says so again every
-  # turn until the message is recorded.
-  if [ -z "$missing" ]; then
-    printf '%s\n' "$fp" > "$mark" 2>/dev/null || true
-    exit 0
-  fi
-  rule='━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
-  {
-    printf '●%s\n' "$rule"
-    printf '●  THE CAPTAIN WAS ASKED SOMETHING HE CANNOT SEE\n'
-    printf '●  Waiting on him with no recorded message: %s\n' "$missing"
-    printf '●  Record what you actually said to him, with the same words:\n'
-    printf '●      bin/fm-captain-message.sh --title <title> --task <id> --question <text>\n'
-    printf '●  Until then the command center cannot show him the question (AGENTS.md section 9).\n'
-    printf '●%s\n' "$rule"
-  } >&2
-  exit 1
-fi
 
 title='' task='' project='' worktree='' branch='' question=0 question_key=''
 while [ $# -gt 0 ]; do

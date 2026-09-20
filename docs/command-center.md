@@ -130,8 +130,6 @@ A reply carries the same do-not-resend protection an answer does: on an unconfir
 `<home>/data/captain-messages.jsonl`, an append-only log of what firstmate said to you: when, the title, the text, and the project, worktree, branch and task it named, each recorded as unknown rather than guessed when nothing knows it.
 `bin/fm-captain-message.sh` is its only writer, and `--task` fills the project, worktree and branch from that task's own record so all three are one flag rather than three chances to leave one out.
 `--question` marks a message as the question waiting on you, and `--question-key` names the stopped worker's own decision it asks about.
-`bin/fm-captain-message.sh unrecorded` is the turn-end check: it names every decision this home is holding for you that no recorded question asks about, which is a question you were asked and cannot see.
-It is advisory and never blocks a turn, and it is bounded: the cheap change check runs first and the full scan only when a record moved, so a slow scan can never hang a turn boundary.
 
 `<home>/data/command-center/said.jsonl`, an append-only log of what you typed and where it went.
 Your words are written there before the click returns, so the click never waits on a shell command: you send, it is recorded, and you move straight to the next item while the delivery is carried out behind you.

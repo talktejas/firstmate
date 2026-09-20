@@ -1161,26 +1161,6 @@ test_a_line_that_cannot_be_parsed_is_counted_as_dropped() {
   pass "a line that cannot be parsed is counted as dropped"
 }
 
-# The turn-end check: a decision waiting on him that no recorded question asks
-# about is a question he was asked and cannot see.
-test_the_turn_end_check_names_a_question_he_cannot_see() {
-  local home out status
-  home="$TMP_ROOT/unrecorded"
-  seed_home "$home"
-  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$RECORD" unrecorded 2>&1); status=$?
-  assert_equals 1 "$status" \
-    "a captain hold with no recorded message passed the turn-end check"
-  assert_contains "$out" 'cc-live' \
-    "the check did not name the decision he cannot see"
-
-  say "$home" "Blue or green?" "The colour call is yours." --task cc-live --question >/dev/null
-  say "$home" "Hosting region" "Where should it live?" --task cc-deferred --question >/dev/null
-  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$RECORD" unrecorded 2>&1); status=$?
-  assert_equals 0 "$status" \
-    "the check still complained about a decision whose question was recorded: $out"
-  pass "the turn-end check names a question he cannot see, and stays quiet once it is recorded"
-}
-
 # HIS WORDS COME BACK AT ONCE. He reported the click freezing while the command
 # ran. The answer must arrive before the command finishes, with his words
 # already durable, and the outcome must land on the record afterwards.
@@ -1438,7 +1418,6 @@ test_a_reply_is_refused_while_no_scan_has_been_read
 test_an_unchanged_message_log_answers_the_poll_without_resending_it
 test_his_own_words_are_served_whole_and_never_shortened_quietly
 test_a_line_that_cannot_be_parsed_is_counted_as_dropped
-test_the_turn_end_check_names_a_question_he_cannot_see
 test_the_click_returns_before_the_command_finishes
 test_a_failed_read_is_never_cached_as_the_state_of_the_log
 test_the_recorder_takes_a_body_that_looks_like_a_flag

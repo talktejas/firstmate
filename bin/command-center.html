@@ -736,8 +736,10 @@ function renderList(){
   const items = state.view.items || [];
   $('#n-messages').textContent = state.messages.length;
   $('#n-waiting').textContent = items.filter(i => !isDeferred(i)).length;
+  // Exactly the rows My words shows: a draft whose send is already in flight is
+  // represented by the record's own row, not counted a second time here.
   $('#n-words').textContent = state.said.length +
-    Object.values(state.draft).filter(t => t && t.trim()).length;
+    Object.entries(state.draft).filter(([k, t]) => t && t.trim() && !isSending(k)).length;
   document.querySelectorAll('.tab').forEach(t =>
     t.setAttribute('aria-selected', String(t.dataset.tab === state.tab)));
   $('#clr').hidden = !state.q;
@@ -1146,6 +1148,14 @@ async function loadSaid(){
     if (!res.ok) return {read: false, changed: false};
     state.saidEtag = res.headers.get('ETag');
     const body = await res.json();
+    if (body.error){
+      // The server answered, and what it answered is that it could not read the
+      // record: no rows, and no news about the send it was asked about. Holding
+      // that as the record would release a send whose outcome is on disk.
+      const was = state.saidError;
+      state.saidError = body.error;
+      return {read: false, changed: was !== body.error};
+    }
     // foldSaid comes from bin/command-center-state.js: the outcome row
     // supersedes the acceptance row written when he clicked.
     const rows = foldSaid(body.said);
@@ -1154,7 +1164,7 @@ async function loadSaid(){
     // would be rebuilt every three seconds and take his cursor out of a reply.
     const before = listSignature(state.said) + '/' + state.saidError + '/' + state.saidDropped;
     state.said = rows;
-    state.saidError = body.error || null;
+    state.saidError = null;
     state.saidDropped = body.dropped || 0;
     applyOutcomes();
     return {read: true,
