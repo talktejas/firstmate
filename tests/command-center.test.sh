@@ -385,7 +385,7 @@ test_a_script_that_reads_stdin_cannot_hang_the_server() {
 # fm-send.sh's exit 3 means the text WAS delivered and only the read-back stayed
 # unconfirmed; its own message forbids a blind resend. Reporting that as a
 # failure is how the captain sends the same steer twice.
-test_an_unconfirmed_send_is_reported_as_unknown_not_failed() {
+test_the_send_outcome_is_decided_by_the_exit_code_alone() {
   local home out
   home="$TMP_ROOT/unconfirmed"
   seed_home "$home"
@@ -395,15 +395,13 @@ spec = importlib.util.spec_from_file_location("cc", sys.argv[1])
 cc = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(cc)
 item = {"source": "status", "id": "t-1", "key": "k"}
-# fm-send.sh's own words on each plane: confirmed, typed-plane unconfirmed
-# (exit 3), remote transport lost twice (exit 1), and a real failure.
-cases = [
-    (0, ""),
-    (3, "fm-send: text delivered to t-1 but submission is unconfirmed (verdict=pending)"),
-    (1, "error: steer to remote secondmate box is unconfirmed (transport lost twice; "
-        "remote completion unknown). Only the correlation-reusing resend below is idempotent:"),
-    (1, "error: no such task"),
-]
+# fm-send.sh echoes its own argv back on the remote leg, so this output can
+# carry the captain's answer verbatim. The same prose under a different exit
+# code must never move the verdict, in either direction.
+quotes_him = ("error: steer to remote secondmate box is unconfirmed (transport lost "
+              "twice). Resend: FM_HOME=/h fm-send.sh t-1 'the build status is "
+              "unconfirmed (see CI)'")
+cases = [(0, quotes_him), (0, ""), (3, ""), (1, quotes_him), (1, "error: no such task")]
 real = subprocess.run
 for rc, err in cases:
     subprocess.run = lambda *a, rc=rc, err=err, **k: subprocess.CompletedProcess(
@@ -413,11 +411,12 @@ subprocess.run = real
 PYEOF
 )
   assert_equals "sent
+sent
 unknown
 unknown
-failed" "$out" \
-    "an unconfirmed send was not reported as unknown delivery"
-  pass "an unconfirmed send reports unknown delivery, never a failure"
+unknown" "$out" \
+    "the delivery verdict was decided by prose that can carry the captain's own words"
+  pass "the send outcome is decided by the exit code alone"
 }
 
 # The module header promises the expensive scan runs once per actual change
@@ -471,5 +470,5 @@ test_server_serves_the_page_and_the_records
 test_server_refuses_bad_input_before_running_anything
 test_answering_a_hold_records_the_captains_words_and_clears_the_item
 test_a_script_that_reads_stdin_cannot_hang_the_server
-test_an_unconfirmed_send_is_reported_as_unknown_not_failed
+test_the_send_outcome_is_decided_by_the_exit_code_alone
 test_concurrent_polls_produce_one_scan

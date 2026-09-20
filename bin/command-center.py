@@ -60,6 +60,7 @@ MAX_TEXT = 8192
 ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 SCAN_TIMEOUT = 240
 SEND_TIMEOUT = 120
+SCAN_WAIT = 30
 
 
 def dump(obj):
@@ -109,13 +110,17 @@ class Records:
         )
 
     def refresh(self, min_interval=1.0):
-        if time.monotonic() - self.checked < min_interval:
+        if self.etag is not None and time.monotonic() - self.checked < min_interval:
             return
-        if not self.scan.acquire(blocking=min_interval <= 0):
+        if self.scan.acquire(blocking=False):
+            try:
+                self._refresh_locked(min_interval)
+            finally:
+                self.scan.release()
             return
-        try:
-            self._refresh_locked(min_interval)
-        finally:
+        # Someone is already scanning these very records: wait for THEIR result
+        # rather than starting a second scan beside it or repeating it after.
+        if self.scan.acquire(timeout=SCAN_WAIT):
             self.scan.release()
 
     def _refresh_locked(self, min_interval):
@@ -262,18 +267,13 @@ def send_answer(home_path, item, text):
         )
         route = f"fm-send.sh {item['id']}"
     detail = (proc.stdout + proc.stderr).strip()
-    if proc.returncode == 0:
-        outcome = "sent"
-    elif proc.returncode == 3 or "is unconfirmed (" in detail:
-        # fm-send.sh's own unconfirmed vocabulary, on the typed plane (exit 3)
-        # and on the remote leg (transport lost twice, exit 1): the text was
-        # delivered and only the read-back stayed unconfirmed, so it forbids a
-        # blind resend. That is delivery unknown, never a failure.
-        outcome = "unknown"
-    elif "do not resend the answer" in detail:
-        outcome = "delivered-not-closed"
-    else:
-        outcome = "failed"
+    # The exit code, and nothing else. This output carries the captain's own
+    # answer back (fm-send.sh echoes its argv on the remote leg), so reading
+    # prose here would let his words decide whether his send was delivered.
+    # fm-send.sh distinguishes only confirmed (0) from unconfirmed (3); every
+    # other nonzero leaves delivery genuinely unknown, and unknown is what a
+    # surface that never guesses has to say.
+    outcome = {0: "sent", 3: "unknown"}.get(proc.returncode, "unknown")
     return outcome, route, detail[:600]
 
 
@@ -389,7 +389,13 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/items":
             self.records.refresh()
             etag, body = self.records.snapshot()
-            etag = etag or "none"
+            if etag is None:
+                # Never serve the unscanned placeholder: an empty list reads as
+                # "nothing is waiting on you", which is the one claim this page
+                # exists to stop making without evidence.
+                self._json(503, {"error": self.records.error
+                                 or "the records have not been read yet"})
+                return
             if self.headers.get("If-None-Match") == etag and not self.records.error:
                 self.send_response(304)
                 self.send_header("ETag", etag)
@@ -452,6 +458,10 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(400, {"ok": False, "error": "unknown item"})
                 return
             self.records.refresh(min_interval=0)
+            if self.records.etag is None:
+                self._json(503, {"ok": False,
+                                 "error": "the records have not been read yet"})
+                return
             item = self.records.item(home_id, task_id, source, key)
             home_path = self.records.home_path(home_id)
             if item is None or home_path is None:

@@ -390,7 +390,7 @@ const state = {
   tab:'waiting', group:'project', sfilter:'', q:'', homes:new Set(),
   open:null, view:{homes:[],items:[]}, said:[], etag:null,
   sending:false, flash:null, error:null, seen:load('cc.seen',{}), draft:load('cc.draft',{}),
-  note:load('cc.note',''), outcome:load('cc.outcome',{}),
+  note:load('cc.note',''), outcome:load('cc.outcome',{}), scanned:false,
 };
 
 // Browser storage, wrapped: a private window or cleared site data must degrade
@@ -525,7 +525,13 @@ function renderWatcher(){
       nothing will ring it until firstmate is back.</span>`;
     return;
   }
-  const newest = Math.max(...(state.view.homes || []).map(h => h.watcher_beat_epoch || 0));
+  if (!(state.view.homes || []).length){
+    el.style.background = 'var(--warn-soft)';
+    el.innerHTML = `<span class="lamp unknown"></span><span><b>No homes read yet.</b>
+      Nothing here is a statement about firstmate's health.</span>`;
+    return;
+  }
+  const newest = Math.max(...state.view.homes.map(h => h.watcher_beat_epoch || 0));
   const ago = nowSecs() - newest;
   el.innerHTML = `<span class="beat"></span><span><b>Firstmate is up.</b>
     Last heard from ${ago < 60 ? ago + ' seconds' : Math.round(ago/60) + ' minutes'} ago.</span>`;
@@ -631,6 +637,7 @@ function renderList(){
   if (!rows.length){
     $('#list').innerHTML = head + `<div class="empty">${
       state.q || state.sfilter ? 'Nothing matches.'
+        : !state.scanned ? 'The records have not been read yet.'
         : 'Nothing is waiting on you.<br>Firstmate is getting on with it.'}</div>`;
     return;
   }
@@ -779,13 +786,20 @@ async function poll(){
   try {
     const res = await fetch('/api/items', {
       headers: state.etag ? {'If-None-Match': state.etag} : {} });
+    if (res.status === 503){
+      // The server has not read the records yet. Reachable, and not a
+      // disconnection: say so rather than showing a list nobody has read.
+      state.error = (await res.json().catch(() => ({}))).error
+        || 'the records have not been read yet';
+      render();
+      return;
+    }
     if (!res.ok && res.status !== 304) throw new Error('HTTP ' + res.status);
     if (state.connected === false){
       state.connected = true;
-      state.error = null;
       $('#live').innerHTML = '<span class="beat"></span>Live';
-      renderWatcher();
     }
+    if (state.error){ state.error = null; renderWatcher(); }
     if (res.status === 304) return;
     state.etag = res.headers.get('ETag');
     const next = await res.json();
@@ -793,6 +807,7 @@ async function poll(){
     const arrived = (next.items || []).map(itemKey).filter(k => !before.has(k));
     state.error = next.error || null;
     state.view = next;
+    state.scanned = true;
     // A verdict forbids a resend, so it is dropped only against a scan that
     // actually succeeded - an errored or not-yet-scanned view knows no items.
     if (!next.error && Array.isArray(next.items)){
