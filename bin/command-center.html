@@ -567,11 +567,13 @@ function itemRow(it){
 function wordOutcome(r){
   if (r.kind === 'draft') return 'Not sent. Kept here so it is not lost.';
   switch (r.outcome){
-    // The same rule the delivery track follows: a steer that closes no decision
-    // key is a steer, and only a captain hold's answer closes the decision.
-    case 'sent': return r.kind === 'answer' && r.source === 'hold'
-      ? 'Delivered through ' + esc(r.route) + ' — the decision closed'
-      : 'Delivered through ' + esc(r.route);
+    // Both routes close the decision they answer; a held WORK item is the one
+    // case that is released instead, and the record says which act ran.
+    case 'sent':
+      if (r.kind !== 'answer') return 'Delivered through ' + esc(r.route);
+      return 'Delivered through ' + esc(r.route) + (r.mode === 'release'
+        ? ' — the hold lifted, so the work resumes'
+        : ' — the decision closed');
     case 'unknown':
       return 'Delivery unknown — it may already have arrived: ' + esc(r.detail || '');
     default: return 'Not delivered: ' + esc(r.detail || '');

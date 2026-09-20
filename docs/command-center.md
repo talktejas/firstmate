@@ -51,10 +51,10 @@ The page never shows a state the records cannot support.
 |---|---|
 | Delivered | the steering record exists under `state/<id>.inbox/` |
 | Picked up | the worker moved that record into `handled/`, which is the acknowledgement itself |
-| Acted on | a captain hold's answer, which closes the decision in the same act — reported under **My words** |
+| Acted on | the answer itself, which settles the decision in the same act — reported under **My words** |
 
 Nothing is reported between delivered and picked up, because nothing between them is observable.
-An item is in the waiting list only while its decision is still open, so the live track carries the first two facts only; the closure appears under **My words**, written by the act that closed it. An ordinary steer closes nothing, and is never reported as closing anything.
+An item is in the waiting list only while its decision is still open, so the live track carries the first two facts only; the settlement appears under **My words**, written by the act that settled it.
 The doorbell ring that `fm-send.sh` types into a pane is best effort and is never treated as proof that anything was read.
 
 The lamp beside each row is `bin/fm-busy-lib.sh`'s classification of whether anyone is listening: **working**, **waiting**, **cannot tell**, **not running**, or **no worker** for a question firstmate itself owns.
@@ -70,11 +70,14 @@ If it has gone quiet, an answer you send is still recorded but nothing will ring
 
 | You answered | It runs |
 |---|---|
-| a captain hold | `bin/fm-captain-hold.sh answer`, which records your exact words and closes the call in the same act |
+| a question held for you (`kind: captain`) | `bin/fm-captain-hold.sh answer`, which records your exact words and closes the call in the same act |
+| work held pending your answer (any other kind) | `bin/fm-captain-hold.sh answer --release`, which records your words and lifts the hold so the work resumes — it is never marked done |
 | a stopped worker | `bin/fm-send.sh --resolve-key`, which puts your words in the worker's steering inbox and closes the decision |
 | a note that answers nothing | `bin/fm-inbox.sh note`, queued for firstmate's next turn |
 
 The server reuses those commands rather than writing records itself, so every guard they carry still applies.
+Every answer settles the decision it was sent about; the only difference between the two held rows is whether settling it closes the task or lets the work go on.
+A held row that records no kind at all cannot be told apart, so the command center refuses the send and says so rather than risk marking unstarted work complete — answer that one with `fm-captain-hold.sh`, which can see the task itself.
 
 ## What it stores
 

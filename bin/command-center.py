@@ -242,7 +242,8 @@ def send_answer(home_path, item, text):
     never guesses. Both record the captain's words durably as part of the same
     act that closes the decision.
 
-    Returns (outcome, route, detail), read from the exit code and nothing else.
+    Returns (outcome, route, detail, mode), the outcome read from the exit code
+    and nothing else.
     The output carries the captain's own answer back (fm-send.sh echoes its argv
     on the remote leg), so reading prose here would let his words decide whether
     his send was delivered. A killed child is the same question by another name,
@@ -250,19 +251,34 @@ def send_answer(home_path, item, text):
     """
     env = dict(os.environ, FM_HOME=home_path)
     if item["source"] == "hold":
-        route = f"fm-captain-hold.sh answer {item['id']}"
+        # bin/fm-captain-hold.sh mints a question of its own with `--kind
+        # captain`; a WORK item it holds keeps its own kind. Answering the
+        # question closes it, but answering the gate must LIFT the hold so the
+        # work resumes - closing it would mark unstarted work complete.
+        kind = item.get("kind") or ""
+        if not kind:
+            return ("failed", f"fm-captain-hold.sh answer {item['id']}",
+                    "this row records no kind, so the command center cannot tell a "
+                    "question from work held pending your answer; nothing was sent. "
+                    "Answer it with fm-captain-hold.sh, which can see the task itself.",
+                    "none")
+        mode = "close" if kind == "captain" else "release"
+        args = [os.path.join(BIN, "fm-captain-hold.sh"), "answer", item["id"]]
+        if mode == "release":
+            args.append("--release")
+        route = " ".join(["fm-captain-hold.sh", "answer", item["id"]]
+                         + (["--release"] if mode == "release" else []))
         fd, tmp = tempfile.mkstemp(prefix="cc-decision-", text=True)
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
                 fh.write(text)
             proc = subprocess.run(
-                [os.path.join(BIN, "fm-captain-hold.sh"), "answer", item["id"],
-                 "--decision-file", tmp],
+                args + ["--decision-file", tmp],
                 capture_output=True, text=True, timeout=SEND_TIMEOUT,
                 env=env, stdin=subprocess.DEVNULL, check=False,
             )
         except subprocess.SubprocessError as exc:
-            return "failed", route, str(exc)
+            return "failed", route, str(exc), mode
         finally:
             os.unlink(tmp)
         # A hold is a LOCAL record write with no delivery plane, and
@@ -270,6 +286,7 @@ def send_answer(home_path, item, text):
         # refusal or a killed child is a plain failure he may simply send again.
         outcome = "sent" if proc.returncode == 0 else "failed"
     else:
+        mode = "close"
         route = f"fm-send.sh {item['id']}"
         args = [os.path.join(BIN, "fm-send.sh"), item["id"]]
         if item.get("key"):
@@ -283,14 +300,14 @@ def send_answer(home_path, item, text):
         except subprocess.SubprocessError as exc:
             # Killed mid-flight: the steer may already sit on the worker's
             # inbox, and saying "not sent" is what invites a second delivery.
-            return "unknown", route, str(exc)
+            return "unknown", route, str(exc), mode
         # fm-send.sh distinguishes only confirmed (0) from unconfirmed (3); its
         # remaining nonzero exits conflate a refusal with a delivery it could
         # not read back, so delivery is genuinely unknown and unknown is what a
         # surface that never guesses has to say.
         outcome = {0: "sent", 3: "unknown"}.get(proc.returncode, "unknown")
     detail = (proc.stdout + proc.stderr).strip()
-    return outcome, route, detail[:600]
+    return outcome, route, detail[:600], mode
 
 
 def send_note(home_path, text):
@@ -494,13 +511,14 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(404, {"ok": False,
                                  "error": "that item is no longer waiting for you"})
                 return
-            outcome, route, detail = send_answer(home_path, item, text)
+            outcome, route, detail, mode = send_answer(home_path, item, text)
             ok = outcome == "sent"
             record_said(self.records.home, {
                 "at": utc_now(), "kind": "answer", "home": home_id, "item": task_id,
                 "source": item["source"], "key": item.get("key"),
                 "item_key": item_key(item), "title": item.get("title"),
-                "text": text, "route": route, "outcome": outcome, "detail": detail,
+                "text": text, "route": route, "outcome": outcome, "mode": mode,
+                "detail": detail,
             })
             if outcome != "failed":
                 self.records.invalidate()     # force a rescan on the next poll

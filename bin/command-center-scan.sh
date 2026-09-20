@@ -321,18 +321,20 @@ command_scan() {
       beat=$(epoch_of "$hpath/state/.last-watcher-beat")
       jq -cn --arg id "$hid" --arg name "$hname" --arg path "$hpath" \
         --arg beat "$beat" --argjson readable "$readable" \
-        '{kind:"home",id:$id,name:$name,path:$path,
+        '{_row:"home",id:$id,name:$name,path:$path,
           watcher_beat_epoch:(if $beat == "" then null else ($beat|tonumber) end),
           backlog_readable:$readable}' || exit 1
       items=$(scan_home "$hid" "$hname" "$hpath") || exit 1
-      [ -z "$items" ] || printf '%s\n' "$items" | jq -c '. + {kind:"item"}' || exit 1
+      # The tag is _row, not kind: an item carries a kind of its own and the
+      # collision was deleting it along with the tag.
+      [ -z "$items" ] || printf '%s\n' "$items" | jq -c '. + {_row:"item"}' || exit 1
     done < <(home_records)
   ) || fail "the scan could not read every record; refusing to publish a partial list"
   printf '%s\n' "$produced" \
     | jq -cs --arg schema "$SCHEMA" --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '
     {schema:$schema, generated:$now,
-     homes:[.[] | select(.kind == "home") | del(.kind)],
-     items:[.[] | select(.kind == "item") | del(.kind)]}'
+     homes:[.[] | select(._row == "home") | del(._row)],
+     items:[.[] | select(._row == "item") | del(._row)]}'
 }
 
 case "${1-}" in

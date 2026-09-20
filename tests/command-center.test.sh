@@ -204,7 +204,7 @@ test_a_scan_that_cannot_read_everything_fails_instead_of_truncating() {
   # producer keeps going and the list comes out short unless the scan checks.
   cat > "$shim/jq" <<EOF
 #!/usr/bin/env bash
-case " \$* " in *'kind:"item"'*) exit 1 ;; esac
+case " \$* " in *'_row:"item"'*) exit 1 ;; esac
 exec "$realjq" "\$@"
 EOF
   chmod +x "$shim/jq"
@@ -369,7 +369,7 @@ test_answering_a_hold_records_the_captains_words_and_clears_the_item() {
   home="$TMP_ROOT/answer"
   mkdir -p "$home/data" "$home/state"
   FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
-    "$ROOT/bin/fm-tasks-axi.sh" add cc-answer "Blue or green?" --kind ship --repo demo \
+    "$ROOT/bin/fm-tasks-axi.sh" add cc-answer "Blue or green?" --kind captain --repo demo \
     >/dev/null 2>&1 || { pass "tasks-axi unavailable; skipped the live answer round trip"; return; }
   FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
     "$ROOT/bin/fm-captain-hold.sh" hold cc-answer --reason "The colour call" >/dev/null 2>&1
@@ -386,20 +386,74 @@ test_answering_a_hold_records_the_captains_words_and_clears_the_item() {
     "the captain's exact words did not reach the durable task record"
   assert_grep 'cc-answer' "$home/data/command-center/said.jsonl" \
     "the answer was not appended to the captain's own record of what he said"
-  # The closure is carried where it can be proved: the log line the server wrote
-  # as part of the act that closed the decision.
-  # The page's "you last sent … — …" line is derived from this record alone, so it
-  # has to carry the item, his exact words, the outcome, and which route ran -
-  # only a captain hold's answer closes the decision, and the line says so.
-  assert_equals "main/hold/cc-answer/cc-answer|Green. Blue reads as disabled.|sent|hold" \
+  # The page's "you last sent … — …" line is derived from this record alone, so
+  # it has to carry the item, his exact words, the outcome, which route ran, and
+  # whether that act closed the task or lifted its hold.
+  assert_equals "main/hold/cc-answer/cc-answer|Green. Blue reads as disabled.|sent|hold|close" \
     "$(curl -s -m 30 "http://127.0.0.1:$port/api/said" \
         | jq -r '[.said[] | select(.item == "cc-answer")][0]
-                 | [.item_key, .text, .outcome, .source] | join("|")')" \
+                 | [.item_key, .text, .outcome, .source, .mode] | join("|")')" \
     "the record the item line is derived from did not carry what he sent and what became of it"
   assert_not_contains "$(curl -s -m 120 "http://127.0.0.1:$port/api/items")" '"id":"cc-answer"' \
     "an answered decision stayed in the waiting list"
   stop_server
   pass "an answer reaches the task record, the captain's log, and leaves the list"
+}
+
+# A question held for the captain IS the task, so answering it closes the task.
+# Work held pending his answer is not: answering it must lift the hold so the
+# work resumes, because marking unstarted work complete cannot be undone.
+test_answering_held_work_releases_it_instead_of_closing_it() {
+  local home port shown
+  home="$TMP_ROOT/release"
+  mkdir -p "$home/data" "$home/state"
+  FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
+    "$ROOT/bin/fm-tasks-axi.sh" add cc-work "Ship the palette" --kind ship --repo demo \
+    >/dev/null 2>&1 || { pass "tasks-axi unavailable; skipped the release round trip"; return; }
+  FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
+    "$ROOT/bin/fm-captain-hold.sh" hold cc-work --reason "Which palette?" >/dev/null 2>&1
+
+  start_server "$home" || fail "the server did not start"
+  port=$SERVER_PORT
+  assert_contains "$(post "$port" /api/answer \
+      '{"home":"main","id":"cc-work","source":"hold","key":"cc-work","text":"Go with green."}')" \
+    '"ok":true' "held work could not be answered"
+  assert_equals "release" \
+    "$(curl -s -m 30 "http://127.0.0.1:$port/api/said" \
+        | jq -r '[.said[] | select(.item == "cc-work")][0].mode')" \
+    "answering held work was not recorded as lifting its hold"
+  stop_server
+
+  shown=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
+    "$ROOT/bin/fm-tasks-axi.sh" show cc-work --full 2>/dev/null)
+  assert_not_contains "$shown" 'state: done' \
+    "answering work held pending his answer marked that work complete"
+  assert_grep 'Go with green.' "$home/data/backlog.md" \
+    "the captain's exact words did not reach the durable task record"
+  pass "answering held work lifts its hold and never marks the work done"
+}
+
+# Closing real work as done is not a guess worth making.
+test_a_held_row_with_no_kind_is_refused_rather_than_guessed() {
+  local home port result
+  home="$TMP_ROOT/nokind"
+  mkdir -p "$home/data" "$home/state"
+  {
+    printf '# Backlog\n'
+    printf -- '- [ ] cc-bare - Which palette? (repo: demo) (hold: pick one) (hold-kind: captain)\n'
+  } > "$home/data/backlog.md"
+  start_server "$home" || fail "the server did not start"
+  port=$SERVER_PORT
+  result=$(post "$port" /api/answer \
+    '{"home":"main","id":"cc-bare","source":"hold","key":"cc-bare","text":"Green."}')
+  stop_server
+  assert_contains "$result" '"outcome":"failed"' \
+    "a row that cannot be classified was answered anyway"
+  assert_contains "$result" 'cannot tell a question from work' \
+    "the refusal did not say why nothing was sent"
+  assert_not_contains "$(cat "$home/data/backlog.md")" 'Green.' \
+    "a refused send still reached the task record"
+  pass "a held row with no kind is refused rather than guessed"
 }
 
 # A firstmate script that reads stdin must not be able to block the server on
@@ -476,7 +530,7 @@ spec.loader.exec_module(cc)
 status_item = {"source": "status", "id": "t-1", "key": "k"}
 # A captain hold is a local record write with no delivery plane, and its script
 # documents an exact retry as idempotent: a refusal there is a plain failure.
-hold_item = {"source": "hold", "id": "t-1", "key": "t-1"}
+hold_item = {"source": "hold", "id": "t-1", "key": "t-1", "kind": "captain"}
 # fm-send.sh echoes its own argv back on the remote leg, so this output can
 # carry the captain's answer verbatim. The same prose under a different exit
 # code must never move the verdict, in either direction.
@@ -503,7 +557,7 @@ def killed(*a, **k):
     raise subprocess.TimeoutExpired(a[0] if a else [], 120)
 for item in (status_item, hold_item):
     subprocess.run = killed
-    outcome, route, _ = cc.send_answer(os.environ["FM_CC_HOME"], item, "answer text")
+    outcome, route = cc.send_answer(os.environ["FM_CC_HOME"], item, "answer text")[:2]
     print(outcome, route)
 # fm-inbox.sh publishes the note record before it wakes firstmate, so a nonzero
 # exit there cannot mean nothing was saved.
@@ -583,6 +637,8 @@ test_fingerprint_changes_only_when_a_record_moves
 test_server_serves_the_page_and_the_records
 test_server_refuses_bad_input_before_running_anything
 test_answering_a_hold_records_the_captains_words_and_clears_the_item
+test_answering_held_work_releases_it_instead_of_closing_it
+test_a_held_row_with_no_kind_is_refused_rather_than_guessed
 test_a_note_of_just_a_dash_is_queued_and_never_hangs_the_server
 test_an_unreadable_log_is_reported_not_shown_as_empty
 test_the_send_outcome_is_decided_by_the_exit_code_alone
