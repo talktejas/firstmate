@@ -807,7 +807,15 @@ esac
 exit 0
 SH
   chmod +x "$fb/tmux"
-  fm_fake_exit0 "$fb" treehouse
+  # Stand in for the pool: the spawn leases its worktree, so the stub hands back
+  # the same fake worktree this fixture's tmux stub reports.
+  cat > "$fb/treehouse" <<SH
+#!/usr/bin/env bash
+set -u
+case " \$* " in *" --lease "*) printf '%s\\n' "$wt"; exit 0 ;; esac
+exit 0
+SH
+  chmod +x "$fb/treehouse"
   printf '%s\n' "$fb"
 }
 
@@ -877,7 +885,15 @@ esac
 exit 0
 SH
   chmod +x "$fb/tmux"
-  fm_fake_exit0 "$fb" treehouse
+  # Stand in for the pool: the spawn leases its worktree, so the stub hands back
+  # the same fake worktree this fixture's tmux stub reports.
+  cat > "$fb/treehouse" <<SH
+#!/usr/bin/env bash
+set -u
+case " \$* " in *" --lease "*) printf '%s\\n' "$wt"; exit 0 ;; esac
+exit 0
+SH
+  chmod +x "$fb/treehouse"
   printf '%s\n' "$fb"
 }
 
