@@ -1,0 +1,50 @@
+[
+  {
+    "tab": 1,
+    "pageLoaded": true,
+    "title": "Review page 1 · Lavish",
+    "socketsToServer": 4
+  },
+  {
+    "tab": 2,
+    "pageLoaded": true,
+    "title": "Review page 2 · Lavish",
+    "socketsToServer": 3
+  },
+  {
+    "tab": 3,
+    "pageLoaded": true,
+    "title": "Review page 3 · Lavish",
+    "socketsToServer": 5
+  },
+  {
+    "tab": 4,
+    "pageLoaded": true,
+    "title": "Review page 4 · Lavish",
+    "socketsToServer": 7
+  },
+  {
+    "tab": 5,
+    "pageLoaded": true,
+    "title": "Review page 5 · Lavish",
+    "socketsToServer": 7
+  },
+  {
+    "tab": 6,
+    "pageLoaded": true,
+    "title": "Review page 6 · Lavish",
+    "socketsToServer": 6
+  },
+  {
+    "tab": 7,
+    "pageLoaded": false,
+    "title": "",
+    "socketsToServer": 6
+  },
+  {
+    "tab": 8,
+    "pageLoaded": false,
+    "title": "",
+    "socketsToServer": 6
+  }
+]

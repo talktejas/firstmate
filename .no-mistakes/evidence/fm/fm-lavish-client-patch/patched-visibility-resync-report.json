@@ -1,0 +1,35 @@
+[
+  {
+    "step": "tab B open and looked at",
+    "visibility": "visible",
+    "streamEvents": [
+      "stream opened"
+    ]
+  },
+  {
+    "step": "artifact tab B shows while looked at",
+    "text": "This artifact load is no longer current. Reload Lavish to continue."
+  },
+  {
+    "step": "tab B backgrounded",
+    "visibility": "hidden",
+    "streamEvents": [
+      "stream opened",
+      "stream released"
+    ]
+  },
+  {
+    "step": "artifact regenerated while tab B hidden",
+    "textStillShownInHiddenTab": "This artifact load is no longer current. Reload Lavish to continue."
+  },
+  {
+    "step": "tab B shown again",
+    "visibility": "visible",
+    "streamEvents": [
+      "stream opened",
+      "stream released",
+      "stream opened"
+    ],
+    "artifactTextAfterResync": "Review page 2\n\nartifact revision 2 - regenerated while this tab was hidden"
+  }
+]

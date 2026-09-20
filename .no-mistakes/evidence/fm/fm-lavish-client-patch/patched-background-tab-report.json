@@ -1,0 +1,13 @@
+[
+  {
+    "step": "review page opened into a background tab",
+    "visibility": "hidden",
+    "pageTitle": "Review page 3 · Lavish",
+    "liveUpdateStreamsOpened": 0
+  },
+  {
+    "step": "captain clicks that background tab",
+    "visibility": "visible",
+    "liveUpdateStreamsOpened": 1
+  }
+]
