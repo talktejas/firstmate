@@ -737,6 +737,31 @@ True" "$out" \
   pass "one change produces one scan however many tabs poll"
 }
 
+# The page loads its decision rules as a second request, so that request is part
+# of the page working at all. Serve them, and serve rules that actually decide.
+test_the_server_serves_the_pages_decision_rules() {
+  local home port body
+  home="$TMP_ROOT/rules"
+  seed_home "$home"
+  start_server "$home" || fail "the server did not start"
+  port=$SERVER_PORT
+  assert_equals "200" \
+    "$(curl -s -o "$TMP_ROOT/rules.js" -w '%{http_code}' \
+        "http://127.0.0.1:$port/command-center-state.js")" \
+    "the page's decision rules were not served"
+  stop_server
+
+  body=$(node -e '
+    const r = require(process.argv[1]);
+    const facts = r.pollFacts({kind:"unchanged"}, 42);
+    process.stdout.write([facts.confirmed, facts.readAt, facts.offline,
+      r.transportFailure("hold", "x").outcome === undefined].map(String).join(","));
+  ' "$TMP_ROOT/rules.js") || fail "the served rules could not be executed"
+  assert_equals "true,42,null,true" "$body" \
+    "the served rules did not decide what the page depends on them deciding"
+  pass "the server serves decision rules the page can actually use"
+}
+
 # The page's decision rules live in bin/command-center-state.js because they are
 # what got the rules wrong twice; these execute that file itself.
 test_the_pages_decision_rules_hold() {
@@ -773,3 +798,4 @@ test_an_unreadable_log_is_reported_not_shown_as_empty
 test_the_send_outcome_is_decided_by_the_exit_code_alone
 test_concurrent_polls_produce_one_scan
 test_the_pages_decision_rules_hold
+test_the_server_serves_the_pages_decision_rules

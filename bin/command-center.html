@@ -346,6 +346,21 @@
 <script src="command-center-state.js"></script>
 <script>
 "use strict";
+// The rules above are a second request, so they can fail while this one does
+// not. Every decision below is made by them, so without them the page would
+// poll into a ReferenceError and sit showing an empty list and a Live beat -
+// the silent false reassurance this surface exists to end. Say it instead.
+if (typeof pollFacts !== 'function'){
+  document.querySelector('#live').innerHTML =
+    '<span class="lamp dead"></span>Page incomplete';
+  document.querySelector('#watcher').innerHTML =
+    '<div class="watcher" style="background:var(--hot-soft)"><span class="lamp dead"></span>' +
+    '<span><b>This page did not load completely.</b> Its decision rules ' +
+    '(command-center-state.js) are missing, so nothing here can be trusted or ' +
+    'sent. Reload; if that does not fix it, restart the command center.</span></div>';
+  throw new Error('command-center-state.js did not load');
+}
+
 // The page is a view. Every fact it shows comes from /api/items, which is
 // bin/command-center-scan.sh reading firstmate's own records; the only thing
 // the browser keeps is what is genuinely the captain's and nowhere else: an

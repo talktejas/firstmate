@@ -27,14 +27,13 @@ const NOW = 1_800_000_000;
 
 // --- what a poll's answer means -------------------------------------------------
 
-// A request merely being open is not an answer. There is no entry point for one,
-// and a confirmed view stays confirmed until a resolved answer says otherwise.
+// A request merely being open is not an answer: a confirmed view stays confirmed
+// until a resolved one says otherwise, and there is no answer kind for "open".
 test('an in-flight poll cannot unconfirm a confirmed view', () => {
   const live = { confirmed: true, readAt: NOW - 5, connected: true };
   assert.deepStrictEqual(tense(live, NOW), { past: false, readAt: NOW });
-  assert.strictEqual(
-    Object.keys(pollFacts).length, 0,
-    'pollFacts takes an answer; it must have no notion of a request being open');
+  assert.throws(() => pollFacts({ kind: 'inflight' }, NOW), /unknown poll answer/,
+    'a request being open decides nothing, so it is not an answer this accepts');
 });
 
 // A 304 IS a successful read: it proves the server is reachable and confirms the
