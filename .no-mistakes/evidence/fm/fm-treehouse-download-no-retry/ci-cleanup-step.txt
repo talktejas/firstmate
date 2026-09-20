@@ -1,0 +1,24 @@
+Simulating the 'Cleanup job-owned Herdr lab sessions' step exactly as extracted from .github/workflows/ci.yml,
+with herdr on PATH (as it is in CI after the herdr install step) and the treehouse install step having failed,
+so RUNNER_TEMP/fm-herdr/sessions-before.json was never written.
+
+### BEFORE (base commit a077d3d): snapshot absent
+fm-herdr-ci-cleanup.sh: snapshot file not found: /tmp/fmretry/runner-temp/fm-herdr/sessions-before.json
+::warning::lab session cleanup reported a problem; see logs
+{"sessions":[{"default":true,"name":"default","running":true,"session_dir":"/home/tds/.config/herdr","socket_path":"/home/tds/.config/herdr/herdr.sock"}]}
+step exit=1
+
+### AFTER (target commit): snapshot absent
+::warning::skipping lab session cleanup: pre-suite snapshot is absent; an earlier step did not complete
+step exit=0
+
+### AFTER: snapshot present (normal path) - guard must not skip the real teardown
+fm-herdr-ci-cleanup.sh: herdr not on PATH; nothing to teardown
+step exit=0 (herdr absent from PATH here, so teardown itself no-ops; the point is teardown WAS invoked)
+### AFTER: snapshot present but unusable (teardown genuinely fails) - the real failure path must still fire
+jq: invalid JSON text passed to --argjson
+Use jq --help for help with command-line options,
+or see the jq manpage, or online docs  at https://jqlang.org
+::warning::lab session cleanup reported a problem; see logs
+{"sessions":[{"default":true,"name":"default","running":true,"session_dir":"/home/tds/.config/herdr","socket_path":"/home/tds/.config/herdr/herdr.sock"}]}
+step exit=1

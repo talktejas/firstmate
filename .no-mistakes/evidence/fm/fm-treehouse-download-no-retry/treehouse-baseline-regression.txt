@@ -1,0 +1,13 @@
+### Baseline (base commit a077d3d, no retry) - server resets the FIRST connection, then serves the real pinned archive
+fm-install-treehouse.sh: downloading treehouse-v2.0.1-linux-amd64.tar.gz from https://github.com/kunchenguid/treehouse/releases/download/v2.0.1/treehouse-v2.0.1-linux-amd64.tar.gz
+curl: (35) Recv failure: Connection reset by peer
+fm-install-treehouse.sh: download failed for https://github.com/kunchenguid/treehouse/releases/download/v2.0.1/treehouse-v2.0.1-linux-amd64.tar.gz (bounded at 15000000 bytes)
+exit=1
+server log:
+listening on 8443, flaky=1, body=/tmp/fmretry/fixtures/treehouse.tar.gz
+conn 1: reset
+
+
+(Baseline reproduction only: the base-commit installer fails on the very first reset with the
+exact CI symptom 'curl: (35) Recv failure: Connection reset by peer'. The fixed-installer runs
+are in treehouse-retry-fixed.txt.)

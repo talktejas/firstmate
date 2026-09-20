@@ -1,0 +1,32 @@
+### Fixed installer (target commit) - server resets the first TWO connections, then serves the real pinned v2.0.1 archive
+fm-install-treehouse.sh: downloading treehouse-v2.0.1-linux-amd64.tar.gz from https://github.com/kunchenguid/treehouse/releases/download/v2.0.1/treehouse-v2.0.1-linux-amd64.tar.gz
+curl: (35) Recv failure: Connection reset by peer
+curl: (35) Recv failure: Connection reset by peer
+fm-install-treehouse.sh: installed treehouse v2.0.1 to /tmp/fmretry/dest-new/treehouse
+v2.0.1
+exit=0  elapsed=4s (two 2s backoffs)
+server connection log:
+listening on 8443, flaky=2, body=/tmp/fmretry/fixtures/treehouse.tar.gz
+conn 1: reset
+conn 2: reset
+conn 3: served GET /kunchenguid/treehouse/releases/download/v2.0.1/treehouse-v2.0.1-linux-amd64.tar.gz HTTP/1.1 (7150582 bytes)
+installed:
+v2.0.1
+
+### Adversarial: every connection reset (retries exhausted)
+Terminated                 nohup python3 server.py "$1" "$2" 8443 $W/server.log > /dev/null 2>&1
+fm-install-treehouse.sh: downloading treehouse-v2.0.1-linux-amd64.tar.gz from https://github.com/kunchenguid/treehouse/releases/download/v2.0.1/treehouse-v2.0.1-linux-amd64.tar.gz
+curl: (35) Recv failure: Connection reset by peer
+curl: (35) Recv failure: Connection reset by peer
+curl: (35) Recv failure: Connection reset by peer
+curl: (35) Recv failure: Connection reset by peer
+fm-install-treehouse.sh: download failed for https://github.com/kunchenguid/treehouse/releases/download/v2.0.1/treehouse-v2.0.1-linux-amd64.tar.gz (bounded at 15000000 bytes)
+exit=1  elapsed=6s
+server connection log:
+listening on 8443, flaky=99, body=/tmp/fmretry/fixtures/treehouse.tar.gz
+conn 1: reset
+conn 2: reset
+conn 3: reset
+conn 4: reset
+destination left empty: 0 files
+Terminated                 nohup python3 server.py "$1" "$2" 8443 $W/server.log > /dev/null 2>&1

@@ -1,0 +1,34 @@
+### Adversarial: retry succeeds on connection 3 but the served archive is tampered - checksum gate must still refuse
+fm-install-treehouse.sh: downloading treehouse-v2.0.1-linux-amd64.tar.gz from https://github.com/kunchenguid/treehouse/releases/download/v2.0.1/treehouse-v2.0.1-linux-amd64.tar.gz
+curl: (35) Recv failure: Connection reset by peer
+curl: (35) Recv failure: Connection reset by peer
+fm-install-treehouse.sh: checksum mismatch for treehouse-v2.0.1-linux-amd64.tar.gz (expected 1d5a32751ab921670103fd201ddb2b91b47338cb13976f45642b827cf8976af2, got 88731740d1a32986aec04c0328a1b4ab0792d0ce0f8d22c5b7eb730c7de18dfe)
+exit=1
+listening on 8443, flaky=2, body=/tmp/fmretry/fixtures/treehouse-tampered.tar.gz
+conn 1: reset
+conn 2: reset
+conn 3: served GET /kunchenguid/treehouse/releases/download/v2.0.1/treehouse-v2.0.1-linux-amd64.tar.gz HTTP/1.1 (7150582 bytes)
+nothing installed: 0 files
+
+### Herdr installer (same fix) - first two connections reset, then the real pinned v0.7.4 asset
+Terminated                 nohup python3 server.py "$1" "$2" 8443 $W/server.log > /dev/null 2>&1
+fm-install-herdr.sh: downloading herdr-linux-x86_64 from https://github.com/ogulcancelik/herdr/releases/download/v0.7.4/herdr-linux-x86_64
+curl: (35) Recv failure: Connection reset by peer
+curl: (35) Recv failure: Connection reset by peer
+fm-install-herdr.sh: installed herdr 0.7.4 (protocol 16) to /tmp/fmretry/dest-herdr/herdr
+herdr 0.7.4
+exit=0  elapsed=4s
+listening on 8443, flaky=2, body=/tmp/fmretry/fixtures/herdr
+conn 1: reset
+conn 2: reset
+conn 3: served GET /ogulcancelik/herdr/releases/download/v0.7.4/herdr-linux-x86_64 HTTP/1.1 (19073408 bytes)
+
+### Baseline: base-commit herdr installer (no retry) against a single reset
+Terminated                 nohup python3 server.py "$1" "$2" 8443 $W/server.log > /dev/null 2>&1
+fm-install-herdr.sh: downloading herdr-linux-x86_64 from https://github.com/ogulcancelik/herdr/releases/download/v0.7.4/herdr-linux-x86_64
+curl: (35) Recv failure: Connection reset by peer
+fm-install-herdr.sh: download failed for https://github.com/ogulcancelik/herdr/releases/download/v0.7.4/herdr-linux-x86_64 (bounded at 25000000 bytes)
+exit=1
+listening on 8443, flaky=1, body=/tmp/fmretry/fixtures/herdr
+conn 1: reset
+Terminated                 nohup python3 server.py "$1" "$2" 8443 $W/server.log > /dev/null 2>&1
