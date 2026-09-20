@@ -37,10 +37,10 @@ The decision then follows one rule, stated in the refusal itself:
   There is no allowance and no window, so there is no rhythm a primary can pace itself into; the guard holds no state of any kind.
   Every fact a dispatch needs reaches the primary through its workers and through the always-allowed fleet tooling below.
 - **A narrow set of project-runtime verbs is denied with no path at all.**
-  `docker`/`podman` and their compose forms, the database clients (`psql`, `mysql`, `mariadb`, `mongosh`, `redis-cli`), and an `curl`/`wget`/`http`/`xh` request aimed at a loopback address are work on a project's own containers, database, or running service - the "diagnosing a backend health failure" shape - and a project's runtime is a worker's territory whatever the arguments look like.
+  `docker`/`podman` and their compose forms, the database clients (`psql`, `mysql`, `mariadb`, `mongosh`, `redis-cli`), and a `curl`/`wget`/`http`/`xh` request aimed at a loopback address are work on a project's own containers, database, or running service - the "diagnosing a backend health failure" shape - and a project's runtime is a worker's territory whatever the arguments look like.
   The home's own loopback services are the exception: the command center ([`command-center.md`](command-center.md)) and the lavish review server ([`lavish-connection-limit.md`](lavish-connection-limit.md)) are the primary's own tooling, and their ports are listed once in the script's `HOME_SERVICE_PORTS`. Every other loopback port is a project's service.
   The list is deliberately short: it covers the verbs that plainly mean project work rather than attempting to classify every command in the world.
-- **The primary's own job is always allowed**, whatever project paths it carries: every `fm-*.sh` script, `no-mistakes`, and the `gh-axi`/`tasks-axi`/`quota-axi`/`lavish-axi` tools, because dispatch and lifecycle commands take project directories as arguments by design.
+- **The primary's own job is always allowed**, whatever project paths it carries: every `fm-*.sh` script plus the fleet and `*-axi` tools listed once in the script's `ALLOW_WORDS`, because dispatch and lifecycle commands take project directories as arguments by design.
   Reads and writes inside the home itself (`data/`, `state/`, `config/`, tracked files) never touch the guard.
 
 Bash commands are split into shell segments; a segment is refused when it carries a project path or a project-runtime verb and its lead word is not the primary's own fleet tooling.

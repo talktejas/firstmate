@@ -7,14 +7,15 @@
 # reading migrations, running builds, and resolving merges while the captain
 # waited. This guard makes that refused by mechanism rather than remembered.
 #
-# WHAT IT CLASSIFIES. A Bash, Read, Grep, Glob, Edit, Write, or NotebookEdit
-# call in a genuine primary home whose target resolves into a PROJECT: any git
-# repository other than the firstmate home's own repo, plus anything under
-# $FM_HOME/projects/ even when git cannot resolve it. Clones under projects/,
-# the captain's own copies, and task worktrees are all such repositories; the
-# rule is deliberately broad because the primary's job description makes any
-# other repo's code a worker's territory. A linked worktree of the home's own
-# repo shares its git common dir and stays classified as the home.
+# WHAT IT CLASSIFIES. A Bash, Read, Grep, Glob, Edit, Write, NotebookEdit, or
+# MultiEdit call in a genuine primary home whose target resolves into a
+# PROJECT: any git repository other than the firstmate home's own repo, plus
+# anything under $FM_HOME/projects/ even when git cannot resolve it. Clones
+# under projects/, the captain's own copies, and task worktrees are all such
+# repositories; the rule is deliberately broad because the primary's job
+# description makes any other repo's code a worker's territory. A linked
+# worktree of the home's own repo shares its git common dir and stays
+# classified as the home.
 #
 # THE RULE. A project-targeted call is denied whatever its shape. Reading a
 # project is how "one quick look" becomes a working session, and every fact a
@@ -100,11 +101,11 @@ Usage: fm-delegate-pretool-check.sh [--tool <name>] [--command <cmd>] [--path <p
 
 With no --tool, reads a PreToolUse-style JSON payload on stdin (Claude/Codex
 tool_name and tool_input, or Grok toolName and toolInput).
-Denies a firstmate primary's Bash, Read, Grep, Glob, Edit, Write, or
-NotebookEdit call whose target is inside a project: any git repository other
-than the home's own or another firstmate home, or anything under
-$FM_HOME/projects/. fm-*.sh, no-mistakes, and the *-axi tools are always
-allowed.
+Denies a firstmate primary's Bash, Read, Grep, Glob, Edit, Write,
+NotebookEdit, or MultiEdit call whose target is inside a project: any git
+repository other than the home's own or another firstmate home, or anything
+under $FM_HOME/projects/. fm-*.sh, no-mistakes, and the *-axi tools are
+always allowed.
 Fires only in a genuine firstmate primary home; it is a silent no-op in a
 crewmate/scout task worktree or any non-firstmate repo, where a worker
 investigating project code is exactly right.
