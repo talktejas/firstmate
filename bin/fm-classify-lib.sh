@@ -404,24 +404,6 @@ _fm_key_before_colon() {  # <status-line>
     *) return 1 ;;
   esac
 }
-# Raw slug of a complete "[key=<slug>]" token at the head of the note (the
-# first thing after the line's first colon, ignoring whitespace, and ignoring
-# a timestamp bracket that may sit ahead of it). Fails when the line has no
-# colon or no complete token there; slug charset validity is the caller's
-# check via _fm_decision_slug_ok, exactly as for the before-colon position.
-_fm_key_at_note_head() {  # <status-line> -> raw slug
-  local rest
-  case "$1" in
-    *:*) rest=${1#*:} ;;
-    *) return 1 ;;
-  esac
-  rest=${rest#"${rest%%[![:space:]]*}"}
-  rest=$(_fm_ts_strip_head "$rest")
-  case "$rest" in
-    \[key=*\]*) rest=${rest#\[key=}; printf '%s' "${rest%%\]*}" ;;
-    *) return 1 ;;
-  esac
-}
 # 0 when a stated key slug is well-formed: nonempty, A-Za-z0-9._- only.
 _fm_decision_slug_ok() {  # <slug>
   case "$1" in
@@ -429,68 +411,88 @@ _fm_decision_slug_ok() {  # <slug>
     *) return 0 ;;
   esac
 }
-# Raw "YYYY-MM-DDTHH:MM:SSZ" token when <text> starts with a complete
-# "[<utc-timestamp>]" bracket, or fail. A worker append is timestamped by
-# writing that bracket as the first thing after the colon (ahead of any
-# note-head key token an older shape may also carry); a pre-timestamp log
-# simply has no such bracket, so every reader here treats it as absent
-# rather than malformed.
-_fm_ts_at_head() {  # <text> -> raw UTC timestamp
-  case "$1" in
+# Split <text> into a leading complete "[<utc-timestamp>]" bracket and the
+# rest (whitespace after the bracket dropped), assigning both to the named
+# out-variables; <ts-outvar> is set empty when there is no such bracket. A
+# worker append is timestamped by writing that bracket as the first thing
+# after the colon (ahead of any note-head key token an older shape may also
+# carry); a pre-timestamp log simply has no bracket, so every reader here
+# treats it as absent rather than malformed. Out-parameters, not printf, so
+# the per-line fold below pays no subshell for the split.
+_fm_ts_split_head() {  # <text> <ts-outvar> <rest-outvar>
+  local _fm_h=$1 _fm_t
+  case "$_fm_h" in
     \[[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z\]*)
-      local t=${1#\[}
-      printf '%s' "${t%%\]*}"
+      _fm_t=${_fm_h#\[}
+      printf -v "$2" '%s' "${_fm_t%%\]*}"
+      _fm_h=${_fm_h#*\]}
+      printf -v "$3" '%s' "${_fm_h#"${_fm_h%%[![:space:]]*}"}"
       ;;
+    *)
+      printf -v "$2" '%s' ''
+      printf -v "$3" '%s' "$_fm_h"
+      ;;
+  esac
+}
+# Raw slug of a complete "[key=<slug>]" token at the head of the note (the
+# first thing after the line's first colon, ignoring whitespace, and ignoring
+# a timestamp bracket that may sit ahead of it). Fails when the line has no
+# colon or no complete token there; slug charset validity is the caller's
+# check via _fm_decision_slug_ok, exactly as for the before-colon position.
+_fm_key_at_note_head() {  # <status-line> -> raw slug
+  local _fm_rest _fm_ts
+  case "$1" in
+    *:*) _fm_rest=${1#*:} ;;
+    *) return 1 ;;
+  esac
+  _fm_rest=${_fm_rest#"${_fm_rest%%[![:space:]]*}"}
+  _fm_ts_split_head "$_fm_rest" _fm_ts _fm_rest
+  case "$_fm_rest" in
+    \[key=*\]*) _fm_rest=${_fm_rest#\[key=}; printf '%s' "${_fm_rest%%\]*}" ;;
     *) return 1 ;;
   esac
 }
-# <text> with one leading "[<utc-timestamp>]" bracket (and the space after it)
-# removed, or <text> unchanged when it has none.
-_fm_ts_strip_head() {  # <text> -> text
-  local ts
-  if ts=$(_fm_ts_at_head "$1"); then
-    local t=${1#"[$ts]"}
-    printf '%s' "${t#"${t%%[![:space:]]*}"}"
-  else
-    printf '%s' "$1"
-  fi
-}
-# Text after the first colon, trimmed, with a note-head "[key=...]" token
-# (see status_line_note) removed but a note-head timestamp bracket left in
-# place - the shared first half both status_line_note and
-# status_line_timestamp fold from, so the key-stripping rule is written once.
-_fm_note_after_key_strip() {  # <status-line> -> note text
-  local n k
+# Split a status line into the timestamp its note carries and the note text
+# itself: everything after the first colon, trimmed, with the timestamp
+# bracket and a note-head "[key=...]" token (see status_line_note) removed in
+# either order. The ONE place both note and timestamp are derived, assigned to
+# out-variables so the fold pays no subshell per line.
+_fm_note_split() {  # <status-line> <ts-outvar> <note-outvar>
+  local _fm_n _fm_k _fm_ts=''
   case "$1" in
-    *:*) n=${1#*:}; n=${n#"${n%%[![:space:]]*}"} ;;
-    *) printf '%s' "$1"; return 0 ;;
+    *:*) _fm_n=${1#*:}; _fm_n=${_fm_n#"${_fm_n%%[![:space:]]*}"} ;;
+    *) _fm_ts_split_head "$1" "$2" "$3"; return 0 ;;
   esac
+  _fm_ts_split_head "$_fm_n" _fm_ts _fm_n
   # A note-head token that states this line's key (no before-colon token, valid
   # slug) is key metadata, not note text: strip it so both stated-key positions
   # yield the same note.
-  if ! _fm_key_before_colon "$1" && k=$(_fm_key_at_note_head "$1") \
-    && _fm_decision_slug_ok "$k"; then
-    local ts head=''
-    if ts=$(_fm_ts_at_head "$n"); then
-      head="[$ts] "
-      n=${n#"[$ts]"}
-      n=${n#"${n%%[![:space:]]*}"}
-    fi
-    n=${n#"[key=$k]"}
-    n=${n#"${n%%[![:space:]]*}"}
-    n="$head$n"
-  fi
-  printf '%s' "$n"
+  case "$_fm_n" in
+    \[key=*\]*)
+      _fm_k=${_fm_n#\[key=}; _fm_k=${_fm_k%%\]*}
+      if ! _fm_key_before_colon "$1" && _fm_decision_slug_ok "$_fm_k"; then
+        _fm_n=${_fm_n#"[key=$_fm_k]"}
+        _fm_n=${_fm_n#"${_fm_n%%[![:space:]]*}"}
+        [ -n "$_fm_ts" ] || _fm_ts_split_head "$_fm_n" _fm_ts _fm_n
+      fi
+      ;;
+  esac
+  printf -v "$2" '%s' "$_fm_ts"
+  printf -v "$3" '%s' "$_fm_n"
 }
 status_line_note() {  # <status-line> -> text after the first colon, trimmed
-  _fm_ts_strip_head "$(_fm_note_after_key_strip "$1")"
+  local _fm_out_ts _fm_out_note
+  _fm_note_split "$1" _fm_out_ts _fm_out_note
+  printf '%s' "$_fm_out_note"
 }
 # The UTC timestamp a worker append carries at the head of its note ("[<ts>]"
 # right after the colon, or after a note-head key token), formatted
 # "YYYY-MM-DDTHH:MM:SSZ" with printf, or empty for a pre-timestamp line so
 # every existing status log keeps parsing.
 status_line_timestamp() {  # <status-line> -> UTC timestamp, or empty
-  _fm_ts_at_head "$(_fm_note_after_key_strip "$1")" 2>/dev/null || printf ''
+  local _fm_out_ts _fm_out_note
+  _fm_note_split "$1" _fm_out_ts _fm_out_note
+  printf '%s' "$_fm_out_ts"
 }
 _fm_decision_key() {  # <status-line> -> key slug, or "default" when no token
   local k
@@ -796,7 +798,8 @@ status_key_opened_at() {  # <status-file> <key> -> UTC timestamp, or empty
   done <<EOF
 $candidates
 EOF
-  _fm_open_set_has "$open" "$want" && printf '%s' "$ts"
+  _fm_open_set_has "$open" "$want" || ts=''
+  printf '%s' "$ts"
 }
 
 # Fleet-wide wrapper around status_open_decisions: scans every task's status

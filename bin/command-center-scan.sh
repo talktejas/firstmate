@@ -260,7 +260,10 @@ emit_item() {  # <home-id> <state-dir> <id> <source> <key> <title> <detail> <rep
     # honest waiting time; the status file's mtime is only ever the LAST
     # append, which can be a much newer, unrelated line. Fall back to that
     # mtime only for a pre-timestamp log with nothing better to report.
-    since=$(status_key_opened_at "$state/$id.status" "$key" 2>/dev/null)
+    since=
+    if [ "$source" = status ]; then
+      since=$(status_key_opened_at "$state/$id.status" "$key" 2>/dev/null)
+    fi
     if [ -n "$since" ]; then
       since=$(date -u -d "$since" +%s 2>/dev/null || printf '')
     fi
