@@ -462,7 +462,15 @@ test_complete_accepts_a_migrated_inventory_on_beads() {
     "the attestation did not record the attested legacy id"
   run_captain "$home" verify "$scout" >/dev/null \
     || fail "verify did not re-resolve the attested legacy id after completion"
-  pass "the completion gate attests an inventory resolved through a migrated beads row"
+
+  # The same still-held row under its migrated spelling is a re-attestation,
+  # not a drop, so the drop guard must not refuse the corrective pass.
+  run_captain "$home" complete "$scout" fm-herald-github-delete >/dev/null \
+    || fail "re-attesting the same row under its migrated id read as dropping a live call"
+  assert_equals "decision_keys=fm-herald-github-delete" \
+    "$(grep '^decision_keys=' "$home/state/$scout.meta" | tail -1)" \
+    "the corrective completion did not replace the inventory with the migrated id"
+  pass "the completion gate attests an inventory resolved through a migrated beads row and re-attests it under the migrated id"
 }
 
 test_verify_names_the_unresolvable_legacy_id_once() {

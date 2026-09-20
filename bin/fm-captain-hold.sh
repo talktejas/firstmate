@@ -433,12 +433,8 @@ list_has_key() {  # <comma-list> <key>
   esac
 }
 
-sorted_key_union() {  # <comma-list> <newline-or-space-separated-new-keys>
-  local existing=$1 new=$2
-  {
-    printf '%s\n' "$existing" | tr ',' '\n'
-    printf '%s\n' "$new" | tr ' ' '\n'
-  } | sed '/^$/d' | LC_ALL=C sort -u | paste -sd, -
+sorted_key_list() {  # <space-separated-keys>; prints the sorted deduped comma list
+  printf '%s\n' "$1" | tr ' ' '\n' | sed '/^$/d' | LC_ALL=C sort -u | paste -sd, -
 }
 
 meta_value() {  # <meta> <key>
@@ -1623,7 +1619,7 @@ reconcile_note() {
 
 command_complete() {
   local origin=${1:-} meta previous='' supplied='' keys='' entry key status_file open has_meta=0 transfer_rc resolved
-  local resolved_how attested_by_prefix='' dropped_unresolved='' resolve_rc
+  local resolved_how attested_by_prefix='' dropped_unresolved='' resolve_rc retained='' drop_err reason
   [ "$#" -ge 2 ] || { usage >&2; exit 2; }
   validate_slug origin-id "$origin"
   shift
@@ -1655,13 +1651,14 @@ command_complete() {
   # so a later repair can remove that settled id by supplying only the calls
   # still awaiting the captain. What a replacement drops is checked below
   # against the durable record itself, never against the status stream.
-  keys=$(sorted_key_union '' "$supplied")
+  keys=$(sorted_key_list "$supplied")
   if [ -n "$keys" ]; then
     while IFS= read -r entry; do
       [ -n "$entry" ] || continue
       resolved=$(verify_entry_durable "$origin" "$entry") || exit $?
       resolved_how=${resolved##* }
       resolved=${resolved%% *}
+      retained="${retained}${retained:+,}$resolved"
       if [ "$resolved_how" = migrated-prefix ]; then
         attested_by_prefix="${attested_by_prefix}${attested_by_prefix:+ }$entry=$resolved"
       fi
@@ -1675,24 +1672,33 @@ EOF
   # A recorded captain answer is the outcome this gate exists to accept; a call
   # still held and unanswered is refused by name; an id that resolves to no row
   # at all is repairable drift, reported so a mistype stays visible.
+  drop_err=$(umask 077; mktemp "${TMPDIR:-/tmp}/fm-captain-hold-drop-err.XXXXXX") \
+    || fail "cannot stage the inventory-drop resolution diagnostics"
   while IFS= read -r entry; do
     [ -n "$entry" ] || continue
     ! list_has_key "$keys" "$entry" || continue
     resolve_rc=0
-    resolved=$(resolve_entry "$origin" "$entry" 2>/dev/null) || resolve_rc=$?
+    resolved=$(resolve_entry "$origin" "$entry" 2>"$drop_err") || resolve_rc=$?
+    resolved=${resolved%% *}
+    reason=$(tr '\n' ' ' < "$drop_err")
     [ "$resolve_rc" -ne 124 ] \
       || fail "the backlog backend exceeded its read bound resolving $entry"
     [ "$resolve_rc" -ne 2 ] \
-      || fail "the migrated-hold scan refused to resolve $entry, so it cannot be dropped from the $origin inventory"
+      || fail "the migrated-hold scan refused to resolve $entry, so it cannot be dropped from the $origin inventory${reason:+: $reason}"
     if [ "$resolve_rc" -ne 0 ]; then
       dropped_unresolved="${dropped_unresolved}${dropped_unresolved:+ }$entry"
       continue
     fi
-    hold_answered "${resolved%% *}" \
+    # The supplied inventory may name the same row under its resolved identity,
+    # so a spelling absent from the keys is only dropped when the row it
+    # resolves to is absent from the rows the replacement just attested.
+    ! list_has_key "$retained" "$resolved" || continue
+    hold_answered "$resolved" \
       || fail "attested captain call $entry carries no recorded captain answer, so it cannot be dropped from the $origin inventory; answer it or keep it in the supplied inventory"
   done <<EOF
 $(printf '%s\n' "$previous" | tr ',' '\n')
 EOF
+  rm -f -- "$drop_err"
 
   status_file="$STATE/$origin.status"
   open=$(status_open_decisions "$status_file")
