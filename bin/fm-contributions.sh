@@ -32,22 +32,23 @@
 #
 # poll consumes fm-fleet-snapshot.sh --contribution-input, a local-only read,
 # and spends at most FM_CONTRIBUTIONS_BUDGET seconds on forge reads. The
-# watcher kills this check at FM_CHECK_TIMEOUT (default 30) seconds, so the
-# whole bound available to a poll is FM_CHECK_TIMEOUT minus three: 27 seconds
-# by default. An unset budget takes that whole bound and a configured one is
-# capped by it, so raising FM_CHECK_TIMEOUT is what buys a slow link more
-# forge time. Each gh call is bounded by the remaining budget and
-# FM_CONTRIBUTIONS_CALL_TIMEOUT seconds (default 15); a call killed at the
-# smaller remaining budget is the deadline's outcome, one killed at the
-# per-call bound is the forge's. The 15-second default leaves headroom over
-# the 12.2-second slow-link forge call observed in the contributions-poll
-# incident. A PR costs eight sequential calls, so observing one at that bound
-# needs 8 x 15 = 120 seconds of forge time plus the local work between reads;
-# a ninth call of margin covers that, so one observation wants a 135-second
-# budget and therefore FM_CHECK_TIMEOUT 138. When the whole budget goes to one
-# PR and it still does not finish, the poll records that URL unavailable and
-# names each setting that actually bounds it with the value it needs, rather
-# than leaving it silently unobserved poll after poll.
+# watcher kills this check at FM_CONTRIBUTIONS_CHECK_TIMEOUT (default 138)
+# seconds - its own bound, not the sweep-wide FM_CHECK_TIMEOUT, because one
+# pull request costs eight sequential reads - so the whole time a poll has is
+# that bound minus three: 135 seconds by default. An unset budget takes the
+# whole bound and a configured one is capped by it. Each gh call is bounded by
+# the remaining budget and FM_CONTRIBUTIONS_CALL_TIMEOUT seconds (default 15);
+# a call killed at the smaller remaining budget is the deadline's outcome, one
+# killed at the per-call bound is the forge's. The 15-second default leaves
+# headroom over the 12.2-second slow-link forge call observed in the
+# contributions-poll incident, and 8 x 15 = 120 seconds of forge time plus a
+# ninth call of margin for the local work between reads is why the default
+# bound is 135 + 3: a PR on that link is observed without configuring
+# anything. An issue costs two reads, so it wants 3 x 15. When the whole
+# budget goes to one URL and it still does not finish, the poll records that
+# URL unavailable and names each setting that actually bounds it with the
+# value that URL's kind needs, rather than leaving it silently unobserved poll
+# after poll.
 # Oldest observations go first, so a large corpus progresses across polls.
 # Each distinct URL is observed once per poll and applied to every owner. A
 # final observation applies to every owner without another forge read. When
@@ -100,14 +101,14 @@ EPOCH=$(jq -nr --arg now "$NOW" '$now | fromdateiso8601') || fail 'invalid obser
 MAX_AGE=${FM_CONTRIBUTIONS_MAX_AGE:-900}
 BUDGET=${FM_CONTRIBUTIONS_BUDGET:-}
 CALL_TIMEOUT=${FM_CONTRIBUTIONS_CALL_TIMEOUT:-15}
-CHECK_TIMEOUT=${FM_CHECK_TIMEOUT:-30}
+CHECK_TIMEOUT=${FM_CONTRIBUTIONS_CHECK_TIMEOUT:-138}
 case "$MAX_AGE" in ''|*[!0-9]*) fail 'invalid freshness bound' ;; esac
 case "$CALL_TIMEOUT" in ''|*[!0-9]*|0) fail 'per-call timeout must be a whole number of seconds' ;; esac
-case "$CHECK_TIMEOUT" in ''|*[!0-9]*|0) CHECK_TIMEOUT=30 ;; esac
-# The watcher kills this check at FM_CHECK_TIMEOUT, so that bound less the
-# kill margin the mail and tool-update checks also leave is the whole time a
-# poll has: an unset budget takes it, and a configured budget past it would be
-# killed mid-observation with nothing recorded.
+case "$CHECK_TIMEOUT" in ''|*[!0-9]*|0) CHECK_TIMEOUT=138 ;; esac
+# The watcher kills this check at FM_CONTRIBUTIONS_CHECK_TIMEOUT, so that
+# bound less the kill margin the mail and tool-update checks also leave is the
+# whole time a poll has: an unset budget takes it, and a configured budget
+# past it would be killed mid-observation with nothing recorded.
 BUDGET_MAX=$((CHECK_TIMEOUT - 3))
 [ "$BUDGET_MAX" -ge 1 ] || BUDGET_MAX=1
 if [ -z "$BUDGET" ]; then
@@ -115,22 +116,6 @@ if [ -z "$BUDGET" ]; then
 else
   case "$BUDGET" in *[!0-9]*|0) fail 'poll budget must be a whole number of seconds' ;; esac
   [ "$BUDGET" -le "$BUDGET_MAX" ] || BUDGET=$BUDGET_MAX
-fi
-# Eight sequential calls observe one PR and a ninth call of margin covers the
-# local work between reads, so this is the budget one observation wants. A
-# budget already that large was still not enough on this link, so ask for one
-# call more than it.
-NEEDED_BUDGET=$((9 * CALL_TIMEOUT))
-[ "$NEEDED_BUDGET" -gt "$BUDGET" ] || NEEDED_BUDGET=$((BUDGET + CALL_TIMEOUT))
-# Name only the settings that actually bound this poll: a configured budget
-# below the watcher's own bound, the watcher bound itself, or both.
-BUDGET_ADVICE=
-if [ "$BUDGET" -lt "$BUDGET_MAX" ]; then
-  BUDGET_ADVICE="raise FM_CONTRIBUTIONS_BUDGET to at least ${NEEDED_BUDGET}s"
-fi
-if [ "$NEEDED_BUDGET" -gt "$BUDGET_MAX" ]; then
-  [ -z "$BUDGET_ADVICE" ] || BUDGET_ADVICE="$BUDGET_ADVICE and "
-  BUDGET_ADVICE="${BUDGET_ADVICE}raise FM_CHECK_TIMEOUT to at least $((NEEDED_BUDGET + 3))s"
 fi
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/fm-contributions.XXXXXX")
 LOCK_HELD=0
@@ -220,6 +205,21 @@ write_record() { # task record-json-file
   chmod 600 "$staged"
   fm_pr_regular_destination_on_device_or_absent "$file" "$device" || fail 'contribution destination changed'
   mv -f -- "$staged" "$file"
+}
+
+budget_advice() { # pr|issue : the settings that bound this observation, with the value each needs
+  local kind=$1 needed advice=
+  # Eight sequential calls observe a PR and two observe an issue; one call
+  # more covers the local work between reads. A budget already that large was
+  # still not enough on this link, so ask for one call beyond it.
+  if [ "$kind" = issue ]; then needed=$((3 * CALL_TIMEOUT)); else needed=$((9 * CALL_TIMEOUT)); fi
+  [ "$needed" -gt "$BUDGET" ] || needed=$((BUDGET + CALL_TIMEOUT))
+  [ "$BUDGET" -ge "$BUDGET_MAX" ] || advice="raise FM_CONTRIBUTIONS_BUDGET to at least ${needed}s"
+  if [ "$needed" -gt "$BUDGET_MAX" ]; then
+    [ -z "$advice" ] || advice="$advice and "
+    advice="${advice}raise FM_CONTRIBUTIONS_CHECK_TIMEOUT to at least $((needed + 3))s"
+  fi
+  printf '%s\n' "$advice"
 }
 
 forge() {
@@ -339,7 +339,7 @@ settle_final() { # canonical-url task... : copy the URL's final observation to e
 }
 
 poll() {
-  local task url old kind error observed starved progressed=0
+  local task url old kind error observed starved advice progressed=0
   local -a row
   acquire
   get_input
@@ -365,6 +365,7 @@ poll() {
     fi
     observed=0
     starved=0
+    case "$url" in */issues/*) kind=issue ;; *) kind="pr" ;; esac
     observe "$url" || observed=$?
     if [ "$BUDGET_EXHAUSTED" -ne 0 ]; then
       # An observation the budget cut short after earlier URLs spent it is
@@ -375,6 +376,7 @@ poll() {
       [ "$progressed" -eq 0 ] || break
       observed=1
       starved=1
+      advice=$(budget_advice "$kind")
     fi
     progressed=1
     # Wake once per failure episode: only when no owner has a prior error.
@@ -385,10 +387,9 @@ poll() {
         printf 'contributions: observation unavailable for %s\n' "$url"
       else
         printf 'contributions: observation needs more than the %ss poll budget for %s; %s\n' \
-          "$BUDGET" "$url" "$BUDGET_ADVICE"
+          "$BUDGET" "$url" "$advice"
       fi
     fi
-    case "$url" in */issues/*) kind=issue ;; *) kind="pr" ;; esac
     for task in "${row[@]:1}"; do
       fm_pr_task_id_valid "$task" || { printf 'contributions: invalid durable task id\n'; continue; }
       old="$TMP/old.json"
@@ -409,7 +410,7 @@ poll() {
         if [ "$starved" -eq 0 ]; then
           error='forge observation unavailable or changed during read'
         else
-          error="forge observation needs more than the ${BUDGET}s poll budget; ${BUDGET_ADVICE}"
+          error="forge observation needs more than the ${BUDGET}s poll budget; ${advice}"
         fi
         jq --arg now "$NOW" --arg error "$error" '.checked_at=$now | .error=$error' "$old" > "$TMP/row.json"
       fi
