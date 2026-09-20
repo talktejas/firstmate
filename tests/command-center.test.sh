@@ -388,12 +388,13 @@ test_answering_a_hold_records_the_captains_words_and_clears_the_item() {
     "the answer was not appended to the captain's own record of what he said"
   # The closure is carried where it can be proved: the log line the server wrote
   # as part of the act that closed the decision.
-  # The page's "you last sent … — …" line is derived from this record alone, so
-  # it has to carry the item it belongs to, his exact words, and the outcome.
-  assert_equals "main/hold/cc-answer/cc-answer|Green. Blue reads as disabled.|sent" \
+  # The page's "you last sent … — …" line is derived from this record alone, so it
+  # has to carry the item, his exact words, the outcome, and which route ran -
+  # only a captain hold's answer closes the decision, and the line says so.
+  assert_equals "main/hold/cc-answer/cc-answer|Green. Blue reads as disabled.|sent|hold" \
     "$(curl -s -m 30 "http://127.0.0.1:$port/api/said" \
         | jq -r '[.said[] | select(.item == "cc-answer")][0]
-                 | [.item_key, .text, .outcome] | join("|")')" \
+                 | [.item_key, .text, .outcome, .source] | join("|")')" \
     "the record the item line is derived from did not carry what he sent and what became of it"
   assert_not_contains "$(curl -s -m 120 "http://127.0.0.1:$port/api/items")" '"id":"cc-answer"' \
     "an answered decision stayed in the waiting list"

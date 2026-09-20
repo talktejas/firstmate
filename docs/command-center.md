@@ -51,10 +51,10 @@ The page never shows a state the records cannot support.
 |---|---|
 | Delivered | the steering record exists under `state/<id>.inbox/` |
 | Picked up | the worker moved that record into `handled/`, which is the acknowledgement itself |
-| Acted on | the send that closed the decision, reported under **My words** |
+| Acted on | a captain hold's answer, which closes the decision in the same act — reported under **My words** |
 
 Nothing is reported between delivered and picked up, because nothing between them is observable.
-An item is in the waiting list only while its decision is still open, so the live track carries the first two facts only; the closure appears under **My words**, written by the act that closed it.
+An item is in the waiting list only while its decision is still open, so the live track carries the first two facts only; the closure appears under **My words**, written by the act that closed it. An ordinary steer closes nothing, and is never reported as closing anything.
 The doorbell ring that `fm-send.sh` types into a pane is best effort and is never treated as proof that anything was read.
 
 The lamp beside each row is `bin/fm-busy-lib.sh`'s classification of whether anyone is listening: **working**, **waiting**, **cannot tell**, **not running**, or **no worker** for a question firstmate itself owns.

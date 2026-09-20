@@ -334,7 +334,7 @@
   <form method="dialog" class="dlg">
     <h3>Note to firstmate</h3>
     <p>Not answering anything — a thought, an instruction, a correction. It is queued for
-       firstmate's next turn and kept under <b>My words</b>.</p>
+       firstmate's next turn.</p>
     <textarea id="note-text" placeholder="Stop everything on JewelTrek until I have looked at 183."></textarea>
     <div class="dlg-foot">
       <button class="defer" value="cancel">Cancel</button>
@@ -567,7 +567,9 @@ function itemRow(it){
 function wordOutcome(r){
   if (r.kind === 'draft') return 'Not sent. Kept here so it is not lost.';
   switch (r.outcome){
-    case 'sent': return r.kind === 'answer'
+    // The same rule the delivery track follows: a steer that closes no decision
+    // key is a steer, and only a captain hold's answer closes the decision.
+    case 'sent': return r.kind === 'answer' && r.source === 'hold'
       ? 'Delivered through ' + esc(r.route) + ' — the decision closed'
       : 'Delivered through ' + esc(r.route);
     case 'unknown':
@@ -583,10 +585,10 @@ function renderWords(){
     .map(([key, text]) => ({ kind:'draft', at:null, text, key }));
   const rows = drafts.concat(state.said)
     .filter(r => !q || String(r.text || '').toLowerCase().includes(q));
-  const head = `<div class="archive-note">Everything you have typed, wherever it went.
-    <strong>Firstmate keeps an answer that closes a decision, and drops the rest</strong> —
-    a steer goes with the task's inbox at cleanup, and a draft was never recorded at all —
-    so this is the only place those survive.</div>`;
+  const head = `<div class="archive-note">What you typed and where it went, as far as this
+    log got it. <strong>Firstmate keeps an answer that closes a decision, and drops the
+    rest</strong> — a steer goes with the task's inbox at cleanup, and a draft was never
+    recorded at all — so for those this log is the only copy.</div>`;
   // Not readable and nothing there are different states and must read differently.
   const note = state.saidError
     ? `<div class="archive-note" style="background:var(--warn-soft)"><b>The record could
@@ -884,11 +886,12 @@ async function sendAnswer(){
       render();
       return;
     }
+    await loadSaid();
+    renderWatcher(); renderList();
     $('#sendnote').innerHTML = `<b style="color:var(--hot)">Not sent.</b> ${
       esc(data.error || data.detail || 'the command failed')} — your words are still here.`;
     $('#send').disabled = false;
     $('#send').textContent = 'Send to firstmate';
-    renderWatcher();
     return;
   }
   delete state.draft[itemKey(it)]; save('cc.draft', state.draft);
@@ -944,7 +947,7 @@ $('#note-dlg').addEventListener('close', async function(){
   }
   // The same rule the answer path follows: unknown delivery never reads as a
   // failure, because retyping it is how the captain sends it twice.
-  btn.textContent = (ok && data.ok) ? '✓  Queued — and kept under My words'
+  btn.textContent = (ok && data.ok) ? '✓  Queued for firstmate'
     : data.outcome === 'unknown'
       ? '?  It may already be saved — check before sending it again. '
         + (data.detail || '')
