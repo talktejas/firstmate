@@ -1,0 +1,22 @@
+== command-center-scan.sh on a seeded home (timestamped, ts-before-key, legacy, hold) ==
+{"id":"cc-hold-nosince","source":"hold","key":"cc-hold-nosince","title":"Blue or green?","since_kind":"none","since_epoch":null}
+{"id":"t-keyed","source":"status","key":"api","title":"pick REST or RPC","since_kind":"status-timestamp","since_epoch":1789898400}
+{"id":"t-legacy","source":"status","key":"legacy","title":"pick a colour","since_kind":"status-mtime","since_epoch":1789931292}
+{"id":"t-tsfirst","source":"status","key":"api-shape","title":"pick REST or RPC","since_kind":"status-timestamp","since_epoch":1789905600}
+
+== same ts-before-key line, base commit c09603f vs this change ==
+base:    {"key":"default","title":"[2026-09-20T12:00:00Z] [key=api-shape] pick REST or RPC","since_kind":"status-mtime"}
+current: {"key":"api-shape","title":"pick REST or RPC","since_kind":"status-timestamp"}
+
+== hold row whose id collides with a status decision key keeps the mtime clock ==
+{"id":"cc-nosince","source":"hold","since_kind":"status-mtime"}
+{"id":"cc-nosince","source":"status","since_kind":"status-timestamp"}
+
+== real producer: fm-secondmate-report.sh line on the parent channel ==
+needs-decision [corr=0123456789abcdef]: [2026-09-20T19:12:10Z] should the audit cover vendor code too? (via-helper)
+
+== live page tooltips (http://127.0.0.1:8799) ==
+9h  || from the moment the worker opened this decision
+7h  || from the moment the worker opened this decision
+1m  || from when the worker last wrote to its log — this line carries no timestamp, so this is the closest honest clock
+no recorded time || this record carries no time at all
