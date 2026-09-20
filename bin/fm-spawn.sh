@@ -2933,10 +2933,15 @@ freshen_spawn_worktree_base() {  # <worktree>
     echo "error: pooled worktree '$worktree' is at '${actual:-unknown}', not current $base_source base '$target' ('$expected'); refusing to launch" >&2
     return 1
   fi
-  # Recorded below as base= so the task record names the branch it was actually
-  # created against rather than a record that may have moved on since; a
-  # relaunch carries the line forward unchanged with the reused worktree.
-  SPAWN_RESOLVED_BASE=$default
+  # Only a base this spawn was explicitly dispatched against is recorded below
+  # as base=, so the task record names the branch it was created against rather
+  # than a record that may have moved on since; a relaunch carries the line
+  # forward unchanged with the reused worktree. A spawn that named no base owns
+  # no base: its landing and cleanup keep resolving the project's standing
+  # declaration, which is free to change under an in-flight task.
+  if [ "$base_source" = explicit ]; then
+    SPAWN_RESOLVED_BASE=$default
+  fi
 }
 
 herdr_projection_meta_field_exact() { # <meta> <key>

@@ -99,15 +99,15 @@ git -C "$PROJ" rev-parse --verify --quiet "refs/heads/$BRANCH" >/dev/null || { e
 # dispatched with an explicit --base was created against that branch, and
 # landing it anywhere else would fast-forward the standing branch over every
 # commit the effort has accumulated - the one-merge-checked-as-a-whole rule the
-# per-task base exists to keep. A recorded base that no longer exists refuses
-# rather than silently landing on another branch.
-DEFAULT=$(grep '^base=' "$META" | tail -n 1 | cut -d= -f2- || true)
-if [ -n "$DEFAULT" ]; then
-  git -C "$PROJ" rev-parse --verify --quiet "refs/heads/$DEFAULT" >/dev/null || {
-    echo "error: task $ID was created against base branch '$DEFAULT', which no longer exists in $PROJ; refusing to land it on another branch" >&2
-    exit 1
-  }
-else
+# per-task base exists to keep. A recorded branch that has since disappeared
+# falls back to the project's current declaration, exactly as cleanup does,
+# rather than stranding the work with no command that lands it.
+TASK_BASE=$(grep '^base=' "$META" | tail -n 1 | cut -d= -f2- || true)
+DEFAULT=
+if [ -n "$TASK_BASE" ] && git -C "$PROJ" rev-parse --verify --quiet "refs/heads/$TASK_BASE" >/dev/null; then
+  DEFAULT=$TASK_BASE
+fi
+if [ -z "$DEFAULT" ]; then
   DEFAULT=$("$FM_ROOT/bin/fm-project-base.sh" "$PROJ" "$(basename "$PROJ")" 2>/dev/null || true)
   [ -n "$DEFAULT" ] || DEFAULT=$(default_branch) || { echo "error: cannot determine default branch for $PROJ; expected origin/HEAD, main, or master" >&2; exit 1; }
 fi

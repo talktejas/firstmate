@@ -468,7 +468,8 @@ test_registry_base_applies_without_the_flag() {
   expect_code 0 "$status" "a spawn with no --base should still use the registry: $out"
   [ "$(head_sha "$WT_DIR")" = "$(git -C "$PROJ_DIR" rev-parse origin/develop)" ] \
     || fail "the registry base stopped applying when --base was absent"
-  assert_grep "base=develop" "$HOME_DIR/state/$id.meta" "registry base was not recorded"
+  assert_no_grep "base=develop" "$HOME_DIR/state/$id.meta" \
+    "a spawn that named no base still recorded one, freezing its landing target"
   pass "the registry base still applies when --base is absent"
 }
 
@@ -576,31 +577,50 @@ test_secondmate_refuses_an_explicit_base() {
 # fast-forward the project's STANDING branch over every commit the effort has
 # accumulated, which is precisely the one-merge-checked-as-a-whole rule the flag
 # exists to keep.
-test_local_merge_lands_on_the_tasks_recorded_base() {
-  local dir home proj wt id out status main_before
-  id=base-landing-b16
-  dir="$TMP_ROOT/landing"
+# make_landing_case <name> <id> <branch-the-task-was-built-on> [base=<branch>]:
+# a local-only project with main plus an integration branch, a task worktree
+# holding one commit on top of <branch-the-task-was-built-on>, and the project
+# checkout left on that branch so the landing can fast-forward it. Extra args
+# are appended to the task's meta. Prints home|project|worktree.
+make_landing_case() {
+  local name=$1 id=$2 on=$3
+  shift 3
+  local dir home proj wt
+  dir="$TMP_ROOT/landing/$name"
   home="$dir/home"
-  proj="$dir/projects/base-landing"
+  proj="$dir/projects/$name"
   wt="$dir/projects/$id"
   mkdir -p "$home/state" "$home/data" "$home/config" "$dir/projects"
   fm_git_init_commit "$proj"
   git -C "$proj" branch integration/x main
-  git -C "$proj" worktree add --quiet -b "fm/$id" "$wt" integration/x
+  git -C "$proj" worktree add --quiet -b "fm/$id" "$wt" "$on"
   printf 'effort work\n' > "$wt/effort.txt"
   git -C "$wt" add effort.txt
   git -C "$wt" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' \
     commit -qm 'effort work'
-  git -C "$proj" checkout -q integration/x
+  git -C "$proj" checkout -q "$on"
   fm_write_meta "$home/state/$id.meta" \
     "window=firstmate:fm-$id" "endpoint_task_id=$id" "worktree=$wt" \
-    "project=$proj" "kind=ship" "mode=local-only" "base=integration/x" \
-    "spawn_gen=fixture-$id"
+    "project=$proj" "kind=ship" "mode=local-only" "spawn_gen=fixture-$id" "$@"
+  printf '%s|%s|%s\n' "$home" "$proj" "$wt"
+}
+
+run_local_merge() {  # <home> <id>
+  FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$1" FM_STATE_OVERRIDE="$1/state" \
+    FM_DATA_OVERRIDE="$1/data" FM_CONFIG_OVERRIDE="$1/config" \
+    "$ROOT/bin/fm-merge-local.sh" "$2" 2>&1
+}
+
+test_local_merge_lands_on_the_tasks_recorded_base() {
+  local rec home proj wt id out status main_before
+  id=base-landing-b16
+  rec=$(make_landing_case base-landing "$id" integration/x "base=integration/x")
+  IFS='|' read -r home proj wt <<EOF
+$rec
+EOF
   main_before=$(git -C "$proj" rev-parse main)
 
-  out=$(FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
-    FM_DATA_OVERRIDE="$home/data" FM_CONFIG_OVERRIDE="$home/config" \
-    "$ROOT/bin/fm-merge-local.sh" "$id" 2>&1)
+  out=$(run_local_merge "$home" "$id")
   status=$?
   expect_code 0 "$status" "the local landing should fast-forward the task's recorded base: $out"
   [ "$(git -C "$proj" rev-parse integration/x)" = "$(git -C "$wt" rev-parse HEAD)" ] \
@@ -608,6 +628,53 @@ test_local_merge_lands_on_the_tasks_recorded_base() {
   [ "$(git -C "$proj" rev-parse main)" = "$main_before" ] \
     || fail "the landing moved the project's standing branch instead of the task's base"
   pass "a local-only task lands on the base it was created against, not the standing one"
+}
+
+# A task dispatched without --base owns no base, so its landing keeps resolving
+# the project's CURRENT declaration - which is free to change under an in-flight
+# task. Freezing the target at spawn time would leave such a task landable only
+# by hand-editing its record.
+test_local_merge_without_a_recorded_base_follows_the_declaration() {
+  local rec home proj wt id out status
+  id=base-nolanding-b17
+  rec=$(make_landing_case base-nolanding "$id" integration/x)
+  IFS='|' read -r home proj wt <<EOF
+$rec
+EOF
+  # The project adopts the branch the task happens to sit on, after the task was
+  # dispatched: the landing must follow that, not anything recorded at spawn.
+  git -C "$proj" checkout -q main
+  printf 'integration/x\n' > "$proj/.firstmate-base"
+  git -C "$proj" add .firstmate-base
+  git -C "$proj" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' \
+    commit -qm 'declare integration/x'
+  git -C "$proj" checkout -q integration/x
+
+  out=$(run_local_merge "$home" "$id")
+  status=$?
+  expect_code 0 "$status" "a task with no recorded base should land on the project's current declaration: $out"
+  [ "$(git -C "$proj" rev-parse integration/x)" = "$(git -C "$wt" rev-parse HEAD)" ] \
+    || fail "the declared branch did not receive the work"
+  pass "a task dispatched without --base lands on the project's current declaration"
+}
+
+# A recorded branch that has since disappeared is a reason to fall back to the
+# project's current declaration, not to refuse forever: refusing there strands
+# the work with no command that lands it.
+test_local_merge_falls_back_when_the_recorded_base_is_gone() {
+  local rec home proj wt id out status
+  id=base-gonebase-b18
+  rec=$(make_landing_case base-gonebase "$id" main "base=integration/gone")
+  IFS='|' read -r home proj wt <<EOF
+$rec
+EOF
+
+  out=$(run_local_merge "$home" "$id")
+  status=$?
+  expect_code 0 "$status" "a vanished recorded base should fall back to the standing one: $out"
+  [ "$(git -C "$proj" rev-parse main)" = "$(git -C "$wt" rev-parse HEAD)" ] \
+    || fail "the standing branch did not receive the work after the recorded base vanished"
+  pass "a landing whose recorded base has vanished falls back to the project's standing base"
 }
 
 # CI's stock macOS Bash lane sets FM_TEST_ONLY to run just the resolver's
@@ -634,6 +701,8 @@ test_scout_on_a_local_only_project_uses_the_local_branch
 test_relaunch_refuses_an_explicit_base
 test_secondmate_refuses_an_explicit_base
 test_local_merge_lands_on_the_tasks_recorded_base
+test_local_merge_without_a_recorded_base_follows_the_declaration
+test_local_merge_falls_back_when_the_recorded_base_is_gone
 
 test_declaration_is_read_from_the_branch_that_carries_it
 test_declaration_beats_the_private_registry
