@@ -437,9 +437,11 @@ function ageLabel(it){
 }
 const ageTitle = it => it.since_kind === 'created'
   ? 'from the date the question was filed'
-  : it.since_kind === 'status-mtime'
-    ? 'from when the worker last wrote to its log — the closest honest clock, since status lines carry no timestamp'
-    : 'this record carries no time at all';
+  : it.since_kind === 'status-timestamp'
+    ? 'from the moment the worker opened this decision'
+    : it.since_kind === 'status-mtime'
+      ? 'from when the worker last wrote to its log — this line predates timestamped status, so this is the closest honest clock'
+      : 'this record carries no time at all';
 
 // --- derived per-item state --------------------------------------------------
 const sentUnhandled = it => (it.sent || []).filter(m => !m.handled);

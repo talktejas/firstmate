@@ -145,6 +145,35 @@ test_status_decisions_are_carded_with_their_verb() {
   pass "open status decisions are carded and resolved ones are not"
 }
 
+# A status decision's honest "since" is the moment the worker's own line
+# opened it, not the status file's mtime, which only ever reflects the LAST
+# append - a much newer, unrelated line routinely follows the one that
+# actually matters. A pre-timestamp log has nothing better than that mtime,
+# and must still say so plainly through since_kind rather than pretending to
+# know the real moment.
+test_status_decision_since_prefers_the_opening_line_timestamp() {
+  local home out
+  home="$TMP_ROOT/since-kind"
+  mkdir -p "$home/data" "$home/state"
+  printf '# Backlog\n' > "$home/data/backlog.md"
+  printf 'needs-decision [key=k-ts]: [2026-01-01T00:00:00Z] pick REST or RPC\nworking: [2026-01-01T01:00:00Z] still thinking\n' \
+    > "$home/state/t-ts.status"
+  printf 'needs-decision [key=k-legacy]: pick a colour\n' \
+    > "$home/state/t-legacy.status"
+
+  out=$(scan "$home")
+  assert_equals "status-timestamp" \
+    "$(printf '%s' "$out" | jq -r '.items[] | select(.id == "t-ts") | .since_kind')" \
+    "a timestamped opening line was not preferred over the file's later mtime"
+  assert_equals "1767225600" \
+    "$(printf '%s' "$out" | jq -r '.items[] | select(.id == "t-ts") | .since_epoch')" \
+    "the reported since_epoch did not match the opening line's own timestamp"
+  assert_equals "status-mtime" \
+    "$(printf '%s' "$out" | jq -r '.items[] | select(.id == "t-legacy") | .since_kind')" \
+    "a pre-timestamp status line was not reported as falling back to file mtime"
+  pass "a timestamped opening line beats the status file's mtime; a legacy line still falls back honestly"
+}
+
 # Delivered and picked up are different facts with different proofs. The move
 # into handled/ IS the acknowledgement, and nothing may be reported between them.
 test_steering_records_report_delivered_and_picked_up() {
@@ -784,6 +813,7 @@ test_a_home_with_no_backlog_yet_is_empty_not_unreadable
 test_deferred_hold_reports_its_date
 test_branch_states_are_honest
 test_status_decisions_are_carded_with_their_verb
+test_status_decision_since_prefers_the_opening_line_timestamp
 test_steering_records_report_delivered_and_picked_up
 test_a_scan_that_cannot_read_everything_fails_instead_of_truncating
 test_fingerprint_changes_only_when_a_record_moves

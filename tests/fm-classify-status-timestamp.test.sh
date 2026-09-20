@@ -80,8 +80,40 @@ test_open_decisions_fold_is_unaffected_by_a_timestamp() {
   pass "a timestamp on a decision-opening or -closing line changes nothing about the open-decisions fold"
 }
 
+# status_key_opened_at is the accessor a consumer (command-center-scan.sh)
+# uses to report how long a decision has actually been waiting: the timestamp
+# on the line that opened it, never the status file's last-write mtime, which
+# only reflects whatever was appended most recently and may be unrelated.
+test_key_opened_at_tracks_the_actual_opening_line() {
+  local dir got
+  dir=$(case_dir opened-at)
+
+  printf 'needs-decision [key=api]: [2026-09-21T10:00:00Z] pick REST or RPC\n' > "$dir/t.status"
+  printf 'working: [2026-09-21T10:00:05Z] still thinking about api\n' >> "$dir/t.status"
+  got=$(status_key_opened_at "$dir/t.status" api)
+  [ "$got" = "2026-09-21T10:00:00Z" ] || \
+    fail "a later unrelated append changed the reported opening time: got '$got'"
+
+  printf 'resolved [key=api]: [2026-09-21T10:05:00Z] answered: REST\n' >> "$dir/t.status"
+  printf 'needs-decision [key=api]: [2026-09-21T10:10:00Z] actually, what about GraphQL too?\n' \
+    >> "$dir/t.status"
+  got=$(status_key_opened_at "$dir/t.status" api)
+  [ "$got" = "2026-09-21T10:10:00Z" ] || \
+    fail "a reopened decision still reported its first opening time: got '$got'"
+
+  got=$(status_key_opened_at "$dir/t.status" no-such-key)
+  [ "$got" = "" ] || fail "a key that was never opened reported a timestamp: got '$got'"
+
+  printf 'needs-decision [key=legacy]: pick a colour\n' > "$dir/legacy.status"
+  got=$(status_key_opened_at "$dir/legacy.status" legacy)
+  [ "$got" = "" ] || fail "a pre-timestamp opening line reported a timestamp it never carried: got '$got'"
+
+  pass "status_key_opened_at reports the current opening line's own timestamp, not a stale or absent one"
+}
+
 test_timestamp_round_trips_and_note_stays_clean
 test_timestamp_after_a_before_colon_key
 test_pre_timestamp_line_still_parses
 test_bracket_shaped_prose_is_not_mistaken_for_a_timestamp
 test_open_decisions_fold_is_unaffected_by_a_timestamp
+test_key_opened_at_tracks_the_actual_opening_line

@@ -40,7 +40,7 @@
 #     home, id, source (hold|status), key, title, detail, repo, kind,
 #     project, worktree, branch, branch_state (branch|detached|not-started),
 #     listen (busy|idle|unknown|dead|none), listen_source,
-#     since_epoch, since_kind (created|status-mtime|none),
+#     since_epoch, since_kind (created|status-timestamp|status-mtime|none),
 #     sent[]   the captain's steering records still in flight:
 #              seq, at, delivered, handled, text
 #   generated, schema
@@ -256,8 +256,20 @@ emit_item() {  # <home-id> <state-dir> <id> <source> <key> <title> <detail> <rep
     since=$(date -u -d "${SINCE_DATE}T00:00:00Z" +%s 2>/dev/null || printf '')
     since_kind=created
   else
-    since=$(epoch_of "$state/$id.status")
-    since_kind=status-mtime
+    # A worker's timestamp on the line that actually opened this decision is
+    # honest waiting time; the status file's mtime is only ever the LAST
+    # append, which can be a much newer, unrelated line. Fall back to that
+    # mtime only for a pre-timestamp log with nothing better to report.
+    since=$(status_key_opened_at "$state/$id.status" "$key" 2>/dev/null)
+    if [ -n "$since" ]; then
+      since=$(date -u -d "$since" +%s 2>/dev/null || printf '')
+    fi
+    if [ -n "$since" ]; then
+      since_kind=status-timestamp
+    else
+      since=$(epoch_of "$state/$id.status")
+      since_kind=status-mtime
+    fi
   fi
   [ -n "$since" ] || since_kind=none
   sent=$(sent_records "$state" "$id")

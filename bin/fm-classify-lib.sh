@@ -747,6 +747,50 @@ EOF
   printf '%s' "$verb"
 }
 
+# The UTC timestamp (see status_line_timestamp) carried by the line that most
+# recently opened <key> in <status-file>'s current open set, or empty when
+# <key> is not open or its opening line predates the timestamp convention.
+# Walks the same candidate stream and fold as status_key_closing_verb above,
+# but tracks the moment a key transitions INTO the open set rather than out of
+# it, so a consumer reporting how long a decision has been waiting can use the
+# line that actually opened it instead of the status file's last-write time,
+# which only ever reflects the newest append.
+status_key_opened_at() {  # <status-file> <key> -> UTC timestamp, or empty
+  local f=$1 want=$2 line resolve held open='' ts='' kind event candidates was
+  [ -f "$f" ] && [ -r "$f" ] && [ ! -L "$f" ] || return 0
+  [ -n "$want" ] || return 0
+  kind=$(_fm_status_kind "$f")
+  resolve=${FM_CLASSIFY_RESOLVE_VERB:-$FM_CLASSIFY_RESOLVE_VERB_DEFAULT}
+  held=${FM_CLASSIFY_CAPTAIN_HELD_VERB:-$FM_CLASSIFY_CAPTAIN_HELD_VERB_DEFAULT}
+  candidates=$(grep -E \
+    "^[[:space:]]*(needs-decision|blocked|done|failed|$resolve|$held)[[:space:]:[]" \
+    "$f") || [ "$?" -eq 1 ] || candidates=$(cat "$f")
+  while IFS= read -r line || [ -n "$line" ]; do
+    status_line_verb "$line" event
+    case "$event:$kind" in
+      done:ship|done:scout|failed:ship|failed:scout) ;;
+      *)
+        case "$event" in
+          needs-decision|blocked|"$resolve"|"$held") ;;
+          *) continue ;;
+        esac
+        if [ "$want" != default ]; then
+          case "$line" in *"[key=$want]"*) ;; *) continue ;; esac
+        fi
+        ;;
+    esac
+    was=0
+    _fm_open_set_has "$open" "$want" && was=1
+    open=$(_fm_decision_fold_line "$open" "$line" "$resolve" "$held" "$kind")
+    if [ "$was" = 0 ] && _fm_open_set_has "$open" "$want"; then
+      ts=$(status_line_timestamp "$line")
+    fi
+  done <<EOF
+$candidates
+EOF
+  _fm_open_set_has "$open" "$want" && printf '%s' "$ts"
+}
+
 # Fleet-wide wrapper around status_open_decisions: scans every task's status
 # log under <state> and prefixes each still-open decision with its owning task
 # id, so a per-wake or per-session surface can print the consolidated open set
