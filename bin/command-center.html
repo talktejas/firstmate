@@ -1038,10 +1038,17 @@ $('#note-dlg').addEventListener('close', async function(){
   try {
     ({ ok, data } = await post('/api/note', { text }));
   } catch (err) {
-    data = { error: String(err.message || err) };
+    // As on the answer path: the request never came back, so the server may
+    // have started the note and been restarted before it could answer. A second
+    // note is a second note - queue_note mints a fresh id - so delivery here is
+    // unknown, never failed.
+    data = { outcome: 'unknown', detail: String(err.message || err) };
   }
   // The same rule the answer path follows: unknown delivery never reads as a
-  // failure, because retyping it is how the captain sends it twice.
+  // failure, because retyping it is how the captain sends it twice. It warns
+  // rather than locking Send, because a note hangs off no item: there is no key
+  // to hold a verdict against and no steering record whose arrival could ever
+  // release one.
   btn.textContent = (ok && data.ok) ? '✓  Queued for firstmate'
     : data.outcome === 'unknown'
       ? '?  It may already be saved — check before sending it again. '
