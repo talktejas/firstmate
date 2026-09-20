@@ -78,7 +78,7 @@ The server reuses those commands rather than writing records itself, so every gu
 
 ## What it stores
 
-One file: `<home>/data/command-center/said.jsonl`, an append-only log of what you typed and where it went, with the outcome of the send: **sent** (the command reported success) or **unknown** (it did not, and `fm-send.sh` reports no structured way to tell a failed delivery from an unconfirmed one, so the page never guesses which).
+One file: `<home>/data/command-center/said.jsonl`, an append-only log of what you typed and where it went, with the outcome of the send, read from the exit code of the command that ran and nothing else: **sent**, **failed** (the record was refused and nothing left this machine — answering a captain hold again is safe, and `fm-captain-hold.sh` documents an exact retry as idempotent), or **unknown** (`fm-send.sh` could not confirm the steer reached the worker, and reports no way to tell that from a refusal, so the page never guesses which).
 On **unknown** the page keeps your text, says plainly that delivery could not be confirmed, and does not offer Send again until the steering record appears — or until you say so yourself, knowing it may be a second copy.
 Older lines carry the earlier `delivered`/`closed` shape and keep reading as exactly what they recorded.
 

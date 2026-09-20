@@ -99,8 +99,10 @@ class Records:
             return self.etag, self.body
 
     def invalidate(self):
-        with self.lock:
-            self.etag = None
+        # Force the next scan without unpublishing: a null etag means "never
+        # scanned" and nothing else, or a poll right after a send would be told
+        # records it has been reading for hours have never been read.
+        self.checked = float("-inf")
 
     def _run(self, args, timeout):
         env = dict(os.environ, FM_HOME=self.home)
@@ -236,10 +238,10 @@ def send_answer(home_path, item, text):
     never guesses. Both record the captain's words durably as part of the same
     act that closes the decision.
 
-    Returns (outcome, route, detail). bin/fm-send.sh exits nonzero AFTER a
-    successful delivery when only the decision close failed, and says so in its
-    own words: "do not resend the answer". Collapsing that into a plain failure
-    would invite the resend it forbids, so each outcome keeps its own name.
+    Returns (outcome, route, detail), read from the exit code and nothing else.
+    The output carries the captain's own answer back (fm-send.sh echoes its argv
+    on the remote leg), so reading prose here would let his words decide whether
+    his send was delivered.
     """
     env = dict(os.environ, FM_HOME=home_path)
     if item["source"] == "hold":
@@ -256,6 +258,10 @@ def send_answer(home_path, item, text):
         finally:
             os.unlink(tmp)
         route = f"fm-captain-hold.sh answer {item['id']}"
+        # A hold is a LOCAL record write with no delivery plane, and
+        # bin/fm-captain-hold.sh documents an exact retry as idempotent, so a
+        # refusal here is a plain failure he may simply send again.
+        outcome = "sent" if proc.returncode == 0 else "failed"
     else:
         args = [os.path.join(BIN, "fm-send.sh"), item["id"]]
         if item.get("key"):
@@ -266,14 +272,12 @@ def send_answer(home_path, item, text):
             env=env, stdin=subprocess.DEVNULL, check=False,
         )
         route = f"fm-send.sh {item['id']}"
+        # fm-send.sh distinguishes only confirmed (0) from unconfirmed (3); its
+        # remaining nonzero exits conflate a refusal with a delivery it could
+        # not read back, so delivery is genuinely unknown and unknown is what a
+        # surface that never guesses has to say.
+        outcome = {0: "sent", 3: "unknown"}.get(proc.returncode, "unknown")
     detail = (proc.stdout + proc.stderr).strip()
-    # The exit code, and nothing else. This output carries the captain's own
-    # answer back (fm-send.sh echoes its argv on the remote leg), so reading
-    # prose here would let his words decide whether his send was delivered.
-    # fm-send.sh distinguishes only confirmed (0) from unconfirmed (3); every
-    # other nonzero leaves delivery genuinely unknown, and unknown is what a
-    # surface that never guesses has to say.
-    outcome = {0: "sent", 3: "unknown"}.get(proc.returncode, "unknown")
     return outcome, route, detail[:600]
 
 

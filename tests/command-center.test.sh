@@ -394,16 +394,28 @@ import importlib.util, subprocess, sys, os
 spec = importlib.util.spec_from_file_location("cc", sys.argv[1])
 cc = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(cc)
-item = {"source": "status", "id": "t-1", "key": "k"}
+status_item = {"source": "status", "id": "t-1", "key": "k"}
+# A captain hold is a local record write with no delivery plane, and its script
+# documents an exact retry as idempotent: a refusal there is a plain failure.
+hold_item = {"source": "hold", "id": "t-1", "key": "t-1"}
 # fm-send.sh echoes its own argv back on the remote leg, so this output can
 # carry the captain's answer verbatim. The same prose under a different exit
 # code must never move the verdict, in either direction.
 quotes_him = ("error: steer to remote secondmate box is unconfirmed (transport lost "
               "twice). Resend: FM_HOME=/h fm-send.sh t-1 'the build status is "
               "unconfirmed (see CI)'")
-cases = [(0, quotes_him), (0, ""), (3, ""), (1, quotes_him), (1, "error: no such task")]
+cases = [
+    (status_item, 0, quotes_him),
+    (status_item, 0, ""),
+    (status_item, 3, ""),
+    (status_item, 1, quotes_him),
+    (status_item, 1, "error: no such task"),
+    (hold_item, 0, ""),
+    (hold_item, 1, "error: that task is no longer held"),
+    (hold_item, 2, "error: mode mismatch"),
+]
 real = subprocess.run
-for rc, err in cases:
+for item, rc, err in cases:
     subprocess.run = lambda *a, rc=rc, err=err, **k: subprocess.CompletedProcess(
         a[0] if a else [], rc, "", err)
     print(cc.send_answer(os.environ["FM_CC_HOME"], item, "answer text")[0])
@@ -414,9 +426,12 @@ PYEOF
 sent
 unknown
 unknown
-unknown" "$out" \
-    "the delivery verdict was decided by prose that can carry the captain's own words"
-  pass "the send outcome is decided by the exit code alone"
+unknown
+sent
+failed
+failed" "$out" \
+    "the outcome was not read from the exit code of the route that actually ran"
+  pass "each route's outcome is decided by its own exit code alone"
 }
 
 # The module header promises the expensive scan runs once per actual change
