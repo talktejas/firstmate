@@ -1,0 +1,1056 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Firstmate Command Center</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --panel:#ffffff; --ink:#15191f; --dim:#5d6672; --faint:#8a929e;
+    --line:#e2e6ec; --line2:#eef1f5;
+    --accent:#1f5fd0; --accent-soft:#eaf1fd;
+    --warn:#b45309; --warn-soft:#fdf3e3; --warn-line:#f0dcb8;
+    --ok:#177245; --ok-soft:#e7f5ec; --ok-line:#c6e4d2;
+    --hot:#b3261e; --hot-soft:#fdecea; --hot-line:#f3cdc8;
+    --merge:#6b34b8; --merge-soft:#f2ebfc;
+    --grey:#6b7480; --grey-soft:#eef1f5;
+    --radius:9px;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box;min-width:0}
+  html,body{height:100%}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  button,select{font:inherit;color:inherit}
+
+  .shell{display:grid;grid-template-columns:minmax(0,392px) minmax(0,1fr);height:100vh}
+  @media (max-width:900px){
+    .shell{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr)}
+    .rail{max-height:46vh}
+  }
+
+  /* ---------- left rail ---------- */
+  .rail{border-right:1px solid var(--line);background:var(--panel);display:flex;flex-direction:column;overflow:hidden}
+  .rail-head{padding:13px 16px 10px;border-bottom:1px solid var(--line2)}
+  .brand{display:flex;align-items:center;gap:9px;margin-bottom:10px}
+  .brand h1{font-size:15px;margin:0;letter-spacing:-.01em;flex:1}
+  .proto{font-size:10.5px;text-transform:uppercase;letter-spacing:.09em;color:var(--faint);
+    border:1px solid var(--line);border-radius:20px;padding:1px 7px}
+  .live{display:flex;align-items:center;gap:5px;font-size:11.5px;color:var(--ok);font-weight:600}
+  .live .beat{width:7px;height:7px;border-radius:50%;background:var(--ok);animation:beat 2s ease-in-out infinite}
+  @keyframes beat{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.8)}}
+
+  .watcher{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--dim);
+    background:var(--ok-soft);border:1px solid var(--ok-line);border-radius:6px;
+    padding:5px 9px;margin-bottom:8px}
+  .watcher .beat{width:6px;height:6px;border-radius:50%;background:var(--ok);flex:none}
+  .watcher b{color:var(--ok)}
+
+  .addr{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--dim);
+    background:var(--line2);border-radius:6px;padding:5px 9px;margin-bottom:9px}
+  .addr code{font-family:var(--mono);font-size:11.5px;color:var(--ink);font-weight:600}
+  .addr .tag{margin-left:auto;font-size:10px;text-transform:uppercase;letter-spacing:.07em;
+    color:var(--faint);flex:none}
+
+  .search{position:relative;margin-bottom:9px}
+  .search input{width:100%;border:1px solid var(--line);border-radius:7px;
+    padding:6px 26px 6px 28px;font:inherit;font-size:13px;background:#fcfdfe}
+  .search input:focus{outline:2px solid var(--accent);outline-offset:-1px;background:#fff}
+  .search .mag{position:absolute;left:9px;top:50%;transform:translateY(-50%);
+    color:var(--faint);font-size:12px;pointer-events:none}
+  .search .clr{position:absolute;right:5px;top:50%;transform:translateY(-50%);
+    border:0;background:transparent;color:var(--faint);cursor:pointer;font-size:14px;padding:2px 5px}
+  .hits{font-size:11px;color:var(--faint);margin:-4px 0 8px 2px}
+
+  /* ---------- my words ---------- */
+  .word{width:100%;text-align:left;border:0;background:transparent;cursor:pointer;display:block;
+    padding:10px 16px 11px;border-left:3px solid transparent}
+  .word:hover{background:#fafbfc}
+  .word-top{display:flex;align-items:center;gap:7px;margin-bottom:4px}
+  .word-when{font-size:11.5px;color:var(--faint);font-variant-numeric:tabular-nums;flex:none}
+  .word-where{font-size:11.5px;color:var(--dim);flex:1;overflow:hidden;
+    text-overflow:ellipsis;white-space:nowrap}
+  .word-text{font-size:13px;background:var(--accent-soft);border:1px solid #cfdefa;
+    border-radius:7px;padding:8px 10px;line-height:1.45}
+  .word-text.draftbox{background:var(--warn-soft);border-color:var(--warn-line)}
+  .word-text.notebox{background:var(--grey-soft);border-color:var(--line)}
+  .word-out{font-size:11.5px;color:var(--dim);margin-top:5px;padding-left:2px}
+  mark{background:#fff2a8;color:inherit;border-radius:2px;padding:0 1px}
+
+  .tabs{display:flex;gap:4px;margin-bottom:9px}
+  .tab{border:0;background:transparent;border-radius:6px;padding:5px 10px;font-size:13px;
+    color:var(--dim);cursor:pointer}
+  .tab:hover{background:var(--line2)}
+  .tab[aria-selected="true"]{background:var(--ink);color:#fff}
+  .tab .n{opacity:.65;margin-left:5px;font-variant-numeric:tabular-nums}
+
+  .groupbar{display:flex;align-items:center;gap:7px;margin-bottom:9px}
+  .groupbar label{font-size:11.5px;color:var(--faint);text-transform:uppercase;letter-spacing:.07em;flex:none}
+  .groupbar select{flex:1;border:1px solid var(--line);border-radius:6px;padding:4px 7px;
+    font-size:12.5px;background:#fcfdfe;color:var(--ink)}
+
+  .homes{display:flex;flex-wrap:wrap;gap:5px}
+  .chip{border:1px solid var(--line);background:transparent;border-radius:20px;padding:2.5px 9px;
+    font-size:12px;color:var(--dim);cursor:pointer;display:flex;align-items:center;gap:6px}
+  .chip:hover{border-color:#c8cfd9}
+  .chip[aria-pressed="true"]{background:var(--accent-soft);border-color:#bcd3f6;color:var(--accent)}
+  .chip .dot{width:7px;height:7px;border-radius:50%}
+  .chip .n{font-variant-numeric:tabular-nums;opacity:.7}
+
+  .list{overflow-y:auto;flex:1;padding:4px 0 30px}
+  .grp{position:sticky;top:0;background:linear-gradient(#fff 76%,rgba(255,255,255,0));
+    padding:13px 16px 6px;z-index:1}
+  .grp .g1{font-size:11.5px;font-weight:700;letter-spacing:.055em;text-transform:uppercase;
+    color:var(--dim);display:flex;align-items:center;gap:7px}
+  .grp .g1 .dot{width:7px;height:7px;border-radius:50%;flex:none}
+  .grp .g1 .cnt{margin-left:auto;font-weight:600;color:var(--faint);font-variant-numeric:tabular-nums}
+  .grp .g2{font-size:11.5px;color:var(--faint);font-family:var(--mono);margin-top:2px;
+    padding-left:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .grp .g2.none{font-family:inherit;font-style:italic}
+
+  .item{width:100%;text-align:left;border:0;background:transparent;cursor:pointer;
+    display:block;padding:9px 16px 10px;border-left:3px solid transparent}
+  .item:hover{background:#fafbfc}
+  .item[aria-current="true"]{background:var(--accent-soft);border-left-color:var(--accent)}
+  .item.answered{opacity:.6}
+  .item.answered:hover{opacity:.85}
+  .item.fresh{animation:arrive 1.6s ease-out}
+  @keyframes arrive{0%{background:#fff6d8}70%{background:#fffcf0}100%{background:transparent}}
+  .item-top{display:flex;align-items:center;gap:7px;margin-bottom:3px}
+  .lamp{width:8px;height:8px;border-radius:50%;flex:none}
+  .lamp.busy{background:var(--ok)}
+  .lamp.idle{background:var(--accent)}
+  .lamp.unknown{background:#c3c9d2;box-shadow:inset 0 0 0 1.5px #aeb5bf;background:transparent}
+  .lamp.dead{background:var(--hot)}
+  .lamp.none{background:var(--line)}
+  .item-title{font-size:13.5px;font-weight:600;letter-spacing:-.005em;flex:1;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .item.answered .item-title{font-weight:500}
+  .age{font-size:11.5px;color:var(--faint);font-variant-numeric:tabular-nums;flex:none}
+  .age.old{color:var(--hot);font-weight:600}
+  .item-sub{font-size:11.5px;color:var(--dim);display:flex;align-items:center;gap:6px;
+    padding-left:15px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+  .src{display:inline-flex;align-items:center;gap:5px;flex:none}
+  .src .dot{width:6px;height:6px;border-radius:50%}
+  .sep{color:#d6dbe2;flex:none}
+  .mono{font-family:var(--mono);font-size:11px}
+  .kind{font-size:10px;text-transform:uppercase;letter-spacing:.06em;
+    border-radius:4px;padding:1px 5px;flex:none;font-weight:700}
+  .k-decision{background:var(--accent-soft);color:var(--accent)}
+  .k-blocker{background:var(--hot-soft);color:var(--hot)}
+  .k-merge{background:var(--merge-soft);color:var(--merge)}
+  .k-credential{background:var(--warn-soft);color:var(--warn)}
+  .flag{font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
+    border-radius:4px;padding:1px 5px;flex:none}
+  .f-stuck{background:var(--hot-soft);color:var(--hot)}
+  .f-sent{background:var(--ok-soft);color:var(--ok)}
+  .empty{padding:34px 20px;text-align:center;color:var(--faint);font-size:13px}
+  .archive-note{margin:8px 16px 4px;padding:9px 11px;background:var(--line2);border-radius:7px;
+    font-size:11.5px;color:var(--dim);line-height:1.45}
+
+  .rail-foot{border-top:1px solid var(--line2);padding:9px 16px;background:#fbfcfd}
+  .notebtn{width:100%;border:1px dashed var(--line);background:#fff;border-radius:var(--radius);
+    padding:8px;font-size:12.5px;color:var(--dim);cursor:pointer}
+  .notebtn:hover{border-color:#c8cfd9;color:var(--ink)}
+
+  /* ---------- main pane ---------- */
+  .main{overflow-y:auto;padding:26px 30px 90px}
+  .main-inner{max-width:770px;margin:0 auto}
+  .blank{display:flex;flex-direction:column;align-items:center;justify-content:center;
+    height:100%;color:var(--faint);gap:8px;text-align:center;padding:20px}
+  .blank strong{color:var(--dim);font-weight:600;font-size:15px}
+
+  .crumbs{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12.5px;
+    color:var(--dim);margin-bottom:12px}
+  h2.subject{font-size:22px;line-height:1.3;margin:0 0 14px;letter-spacing:-.02em}
+
+  .listen{display:flex;align-items:center;gap:9px;border-radius:var(--radius);
+    padding:9px 13px;margin-bottom:16px;font-size:13px;border:1px solid}
+  .listen .lamp{width:9px;height:9px}
+  .listen b{font-weight:700}
+  .listen.busy{background:var(--ok-soft);border-color:var(--ok-line);color:#14603b}
+  .listen.idle{background:var(--accent-soft);border-color:#bcd3f6;color:#17458f}
+  .listen.unknown{background:var(--grey-soft);border-color:var(--line);color:var(--dim)}
+  .listen.dead{background:var(--hot-soft);border-color:var(--hot-line);color:#8f1f18}
+  .listen.none{background:var(--grey-soft);border-color:var(--line);color:var(--dim)}
+
+  .where{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;
+    background:var(--line);border:1px solid var(--line);border-radius:var(--radius);
+    overflow:hidden;margin-bottom:18px}
+  .where div{background:var(--panel);padding:9px 12px;min-width:0}
+  .where dt{font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--faint);margin-bottom:2px}
+  .where dd{margin:0;font-size:12.5px;font-family:var(--mono);word-break:break-all;line-height:1.4}
+  .where dd.na{font-family:inherit;font-style:italic;color:var(--faint)}
+
+  .body{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+    padding:17px 19px;margin-bottom:18px}
+  .body p{margin:0 0 11px}
+  .body p:last-child{margin-bottom:0}
+  .body code{background:var(--line2);border-radius:4px;padding:1px 5px;font-size:12.5px;
+    font-family:var(--mono);word-break:break-word}
+  .body a{color:var(--accent);word-break:break-all}
+  .body .quiet{color:var(--dim);font-size:13.5px}
+
+  /* ---------- thread ---------- */
+  .thread{margin-bottom:18px}
+  .thread h3{font-size:11.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--faint);
+    margin:0 0 9px}
+  .msg{border-radius:var(--radius);padding:12px 14px;margin-bottom:9px;border:1px solid}
+  .msg.you{background:var(--accent-soft);border-color:#cfdefa;margin-left:34px}
+  .msg.them{background:var(--panel);border-color:var(--line);margin-right:34px}
+  .msg-who{font-size:11.5px;font-weight:700;color:var(--dim);margin-bottom:5px;
+    display:flex;align-items:center;gap:7px}
+  .msg-who .t{margin-left:auto;font-weight:500;color:var(--faint);font-variant-numeric:tabular-nums}
+  .msg-text{font-size:14px;white-space:pre-wrap;word-break:break-word}
+  .msg-text a{color:var(--accent);word-break:break-all}
+
+  .track{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;padding-top:9px;
+    border-top:1px solid rgba(0,0,0,.07)}
+  .step{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;border-radius:20px;
+    padding:2.5px 9px;border:1px solid;font-weight:600}
+  .step .ic{font-size:11px;line-height:1}
+  .step.done{background:var(--ok-soft);border-color:var(--ok-line);color:var(--ok)}
+  .step.now{background:#fff;border-color:#bcd3f6;color:var(--accent)}
+  .step.now .ic{animation:spin 1s linear infinite;display:inline-block}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .step.wait{background:transparent;border-color:var(--line);color:#a8afb9}
+  .step.bad{background:var(--hot-soft);border-color:var(--hot-line);color:var(--hot)}
+  .step .when{font-weight:500;opacity:.75}
+  .proof{font-size:11px;color:var(--faint);font-family:var(--mono);margin-top:7px;
+    word-break:break-all}
+
+  .stuck-bar{background:var(--hot-soft);border:1px solid var(--hot-line);border-radius:var(--radius);
+    padding:11px 14px;font-size:13px;color:#8f1f18;margin-top:9px;margin-left:34px}
+  .stuck-bar b{font-weight:700}
+  .stuck-bar .sub{color:#a4443c;font-size:12px;margin-top:4px}
+
+  .ask{font-size:13px;text-transform:uppercase;letter-spacing:.07em;color:var(--faint);margin:0 0 9px}
+  .opts{display:flex;flex-direction:column;gap:8px;margin-bottom:16px}
+  .opt{display:flex;gap:11px;align-items:flex-start;text-align:left;width:100%;
+    background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+    padding:12px 14px;cursor:pointer}
+  .opt:hover{border-color:#b9c4d2}
+  .opt[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft);
+    box-shadow:inset 0 0 0 1px var(--accent)}
+  .radio{width:16px;height:16px;border-radius:50%;border:1.5px solid #b6bec9;flex:none;margin-top:2px}
+  .opt[aria-pressed="true"] .radio{border-color:var(--accent);border-width:5px}
+  .opt-txt{flex:1}
+  .opt-label{font-weight:600;font-size:14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .opt-hint{font-size:12.5px;color:var(--dim);margin-top:2px}
+  .pill{font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
+    background:var(--ok-soft);color:var(--ok);border-radius:4px;padding:1px 6px}
+
+  .reply{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:13px 14px}
+  .reply label{display:block;font-size:12.5px;color:var(--dim);margin-bottom:7px}
+  .reply textarea{width:100%;min-height:82px;resize:vertical;border:1px solid var(--line);
+    border-radius:7px;padding:10px 11px;font:inherit;font-size:14px;background:#fcfdfe;color:var(--ink)}
+  .reply textarea:focus{outline:2px solid var(--accent);outline-offset:-1px;background:#fff}
+  .reply-foot{display:flex;align-items:center;gap:11px;margin-top:11px;flex-wrap:wrap}
+  .send{background:var(--ink);color:#fff;border:0;border-radius:7px;padding:9px 17px;
+    font-weight:600;font-size:14px;cursor:pointer}
+  .send:disabled{background:#c6ccd4;cursor:not-allowed}
+  .send-note{font-size:12px;color:var(--faint);flex:1;min-width:150px}
+  .defer{background:transparent;border:1px solid var(--line);border-radius:7px;
+    padding:8px 13px;font-size:13px;color:var(--dim);cursor:pointer}
+  .defer:hover{border-color:#c8cfd9;color:var(--ink)}
+  .draft-flag{font-size:11.5px;color:var(--warn);background:var(--warn-soft);
+    border-radius:4px;padding:1px 6px;font-weight:600}
+  .dead-warn{background:var(--hot-soft);border:1px solid var(--hot-line);border-radius:7px;
+    padding:10px 12px;font-size:12.5px;color:#8f1f18;margin-bottom:11px}
+
+  /* ---------- toast ---------- */
+  .toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);
+    background:var(--ink);color:#fff;border-radius:9px;padding:11px 17px;font-size:13.5px;
+    box-shadow:0 10px 30px rgba(15,25,40,.25);display:flex;align-items:center;gap:11px;
+    z-index:50;max-width:min(560px,92vw)}
+  .toast button{background:#3a424e;border:0;border-radius:6px;padding:5px 11px;
+    color:#fff;font-size:12.5px;cursor:pointer;flex:none}
+
+  dialog{border:0;border-radius:12px;padding:0;width:min(560px,92vw);
+    box-shadow:0 20px 50px rgba(15,25,40,.22)}
+  dialog::backdrop{background:rgba(20,26,34,.36)}
+  .dlg{padding:20px 22px}
+  .dlg h3{margin:0 0 4px;font-size:16px}
+  .dlg p{margin:0 0 14px;font-size:13px;color:var(--dim)}
+  .dlg textarea{width:100%;min-height:110px;resize:vertical;border:1px solid var(--line);
+    border-radius:7px;padding:10px 11px;font:inherit;font-size:14px}
+  .dlg-foot{display:flex;gap:9px;justify-content:flex-end;margin-top:13px}
+</style></head>
+<body>
+
+<div class="shell">
+  <aside class="rail">
+    <div class="rail-head">
+      <div class="brand">
+        <h1>Command Center</h1>
+        <span class="live" id="live"><span class="beat"></span>Live</span>
+      </div>
+      <div id="watcher"><div class="watcher"><span class="beat"></span><span>Checking…</span></div></div>
+      <div class="search">
+        <span class="mag">⌕</span>
+        <input id="q" type="search" autocomplete="off"
+               placeholder="Search everything — items, your words, replies…">
+        <button class="clr" id="clr" hidden>×</button>
+      </div>
+      <div class="tabs" role="tablist">
+        <button class="tab" role="tab" data-tab="waiting" aria-selected="true">Waiting <span class="n" id="n-waiting"></span></button>
+        <button class="tab" role="tab" data-tab="words" aria-selected="false">My words <span class="n" id="n-words"></span></button>
+      </div>
+      <div class="groupbar">
+        <label for="grouping">Group by</label>
+        <select id="grouping">
+          <option value="project">Project</option>
+          <option value="worktree">Project + worktree</option>
+          <option value="branch">Project + branch</option>
+          <option value="latest">Latest first</option>
+          <option value="oldest">Oldest first</option>
+          <!-- Approved proposal section 6 names flat as its own selector entry. -->
+          <option value="none">Nothing — one flat list</option>
+        </select>
+        <!-- Approved proposal section 4: a state filter, so things are findable without scrolling. -->
+        <select id="statefilter" title="Filter by state">
+          <option value="">Waiting now</option>
+          <option value="stuck">Stuck</option>
+          <option value="sent">Sent, not acted on</option>
+          <option value="dead">Nobody listening</option>
+          <option value="deferred">Deferred</option>
+        </select>
+      </div>
+      <div class="homes" id="homes"></div>
+    </div>
+    <div class="list" id="list"></div>
+    <div class="rail-foot">
+      <button class="notebtn" id="open-note">✎&nbsp; Tell firstmate something — not an answer</button>
+    </div>
+  </aside>
+  <main class="main" id="main"></main>
+</div>
+
+<!-- Approved proposal section 3: everything the captain types is logged, a note included. -->
+<dialog id="note-dlg">
+  <form method="dialog" class="dlg">
+    <h3>Note to firstmate</h3>
+    <p>Not answering anything — a thought, an instruction, a correction. It is queued for
+       firstmate's next turn.</p>
+    <textarea id="note-text" placeholder="Stop everything on JewelTrek until I have looked at 183."></textarea>
+    <div class="dlg-foot">
+      <button class="defer" value="cancel">Cancel</button>
+      <button class="send" value="send">Queue it</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="command-center-state.js"></script>
+<script>
+"use strict";
+// The rules above are a second request, so they can fail while this one does
+// not. Every decision below is made by them, so without them the page would
+// poll into a ReferenceError and sit showing an empty list and a Live beat -
+// the silent false reassurance this surface exists to end. Say it instead.
+if (typeof pollFacts !== 'function'){
+  document.querySelector('#live').innerHTML =
+    '<span class="lamp dead"></span>Page incomplete';
+  document.querySelector('#watcher').innerHTML =
+    '<div class="watcher" style="background:var(--hot-soft)"><span class="lamp dead"></span>' +
+    '<span><b>This page did not load completely.</b> Its decision rules ' +
+    '(command-center-state.js) are missing, so nothing here can be trusted or ' +
+    'sent. Reload; if that does not fix it, restart the command center.</span></div>';
+  throw new Error('command-center-state.js did not load');
+}
+
+// The page is a view. Every fact it shows comes from /api/items, which is
+// bin/command-center-scan.sh reading firstmate's own records; the only thing
+// the browser keeps is what is genuinely the captain's and nowhere else: an
+// unsent draft, and which items he has already looked at.
+
+// This page's own thresholds, defaulted to match firstmate's retry ladder
+// (FM_TASK_INBOX_GRACE_SECS and FM_TASK_INBOX_RING_MAX in
+// bin/fm-task-inbox-lib.sh). Nothing serves that environment to the browser, so
+// if either is overridden there, change these to match.
+const GRACE_SECS = 90, RING_MAX = 3;
+const STUCK_SECS = GRACE_SECS * RING_MAX;
+const POLL_MS = 3000;
+
+const LISTEN = {
+  busy:    { label:'Working right now',  say:'Mid-turn. It sees your answer when this turn ends.' },
+  idle:    { label:'Waiting for you',    say:'Alive and idle. Your answer arrives straight away.' },
+  unknown: { label:'Cannot tell',        say:'No trustworthy signal recently. Your answer is still saved, but nobody can promise it is being watched.' },
+  dead:    { label:'Not running',        say:'Nobody is listening. Your answer is saved and firstmate picks it up — nothing is lost, but nothing happens until it does.' },
+  none:    { label:'No worker',          say:'Nobody is working on this. It is a question held for you; firstmate acts on your answer.' },
+};
+const HOME_COLOURS = ['#1f5fd0','#177245','#6b34b8','#b45309','#b3261e'];
+
+// An unconfirmed delivery leaves a standing verdict on the item, not a line of
+// text the next poll's re-render wipes, because it forbids a resend. A plain
+// failure leaves none: nothing was delivered, so sending again is the fix.
+const SEND_VERDICT = {
+  unknown: {
+    label: 'Delivery unknown — do not resend',
+    note: '<b>Delivery could not be confirmed.</b> It may already have reached the '
+        + 'worker, so do not send it again until you know. The reason follows:',
+  },
+};
+
+const $ = s => document.querySelector(s);
+const esc = s => String(s == null ? '' : s)
+  .replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+const state = {
+  tab:'waiting', group:'project', sfilter:'', q:'', homes:new Set(),
+  open:null, view:{homes:[],items:[]}, said:[], etag:null,
+  sending:false, flash:null, error:null, seen:load('cc.seen',{}), draft:load('cc.draft',{}),
+  note:load('cc.note',''), outcome:load('cc.outcome',{}), scanned:false, saidError:null,
+  offline:null, unread:null, confirmed:false, readAt:null,
+};
+
+// Browser storage, wrapped: a private window or cleared site data must degrade
+// to "no draft remembered", never to a broken page.
+function load(key, fallback){
+  try { return JSON.parse(localStorage.getItem(key)) || fallback; }
+  catch (e) { return fallback; }
+}
+function save(key, value){
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* not fatal */ }
+}
+
+// --- honest time -------------------------------------------------------------
+// since_kind says which clock a row actually has. A row with none is never given
+// a guessed position or a made-up age; it says so instead.
+const nowSecs = () => Math.floor(Date.now() / 1000);
+const agoWords = s => s < 60 ? Math.max(0, s) + ' seconds' : Math.round(s / 60) + ' minutes';
+// Records stay UTC; every time this page SHOWS is his own clock, because that
+// is the clock he reasons against. Half a page in each is worse than either.
+const localTime = iso => {
+  const t = Date.parse(iso || '');
+  return isNaN(t) ? '' : new Date(t).toLocaleString();
+};
+function ageLabel(it){
+  if (!it.since_epoch) return 'no recorded time';
+  const s = Math.max(0, nowSecs() - it.since_epoch);
+  if (s < 3600) return Math.max(1, Math.round(s/60)) + 'm';
+  if (s < 172800) return Math.round(s/3600) + 'h';
+  const d = Math.round(s/86400);
+  return d < 14 ? d + 'd' : Math.round(d/7) + 'w';
+}
+const ageTitle = it => it.since_kind === 'created'
+  ? 'from the date the question was filed'
+  : it.since_kind === 'status-mtime'
+    ? 'from when the worker last wrote to its log — the closest honest clock, since status lines carry no timestamp'
+    : 'this record carries no time at all';
+
+// --- derived per-item state --------------------------------------------------
+const sentUnhandled = it => (it.sent || []).filter(m => !m.handled);
+function stuckFor(it){
+  const pending = sentUnhandled(it);
+  if (!pending.length) return 0;
+  const oldest = pending.map(m => Date.parse(m.at || '') / 1000)
+                        .filter(n => !isNaN(n)).sort((a,b) => a - b)[0];
+  if (!oldest) return 0;
+  const waited = nowSecs() - oldest;
+  return waited >= STUCK_SECS ? waited : 0;
+}
+const isStuck   = it => stuckFor(it) > 0;
+const isPending = it => sentUnhandled(it).length > 0 && !isStuck(it);
+const isDeferred = it => Boolean(it.deferred_until) &&
+  /^\d{4}-\d{2}-\d{2}$/.test(it.deferred_until) &&
+  Date.parse(it.deferred_until + 'T00:00:00Z') / 1000 > nowSecs();
+// A task can be captain-held AND stopped on its own status record at once; the
+// two are answered by different commands, so home+id alone would merge them into
+// one row and one draft. itemKey comes from bin/command-center-state.js.
+const isUnread = it => !state.seen[itemKey(it)];
+const projectOf = it => it.project || 'No project';
+const homeOf = id => state.view.homes.find(h => h.id === id) || {id, name:id};
+const homeColour = id => HOME_COLOURS[
+  Math.max(0, state.view.homes.findIndex(h => h.id === id)) % HOME_COLOURS.length];
+
+function haystack(it){
+  return [it.title, it.detail, it.project, it.worktree, it.branch, it.repo, it.id,
+          ...(it.sent || []).map(m => m.text)]
+    .filter(Boolean).join(' ').toLowerCase();
+}
+
+// Approved proposal section 4: the named state filter, so things are findable without scrolling.
+function passesState(it){
+  switch (state.sfilter){
+    case 'stuck':    return isStuck(it);
+    case 'sent':     return isPending(it);
+    case 'dead':     return it.listen === 'dead';
+    case 'deferred': return isDeferred(it);
+    default:         return !isDeferred(it);   // deferred is out of the way by default
+  }
+}
+
+function visible(){
+  const q = state.q.trim().toLowerCase();
+  return (state.view.items || []).filter(it =>
+    (!state.homes.size || state.homes.has(it.home)) &&
+    passesState(it) && (!q || haystack(it).includes(q)));
+}
+
+// --- grouping ----------------------------------------------------------------
+// These three drop the grouping. "Latest first" and "Oldest first" order by the
+// best time each row actually has, and a row with no honest time is never given
+// a position among the dated ones: it sits in its own tail and says why.
+// 'none' is approved proposal section 6's flat entry and is genuinely unsorted -
+// the order bin/command-center-scan.sh read the records in, nothing more.
+const FLAT = new Set(['none','latest','oldest']);
+function groupOf(it){
+  const p = projectOf(it);
+  if (state.group === 'project') return { key:p, g1:p, g2:undefined };
+  if (state.group === 'worktree')
+    return { key:p+'\u0000'+(it.worktree||''), g1:p, g2:it.worktree, none:!it.worktree,
+             noneLabel:'Not started — no working copy yet' };
+  return { key:p+'\u0000'+(it.branch||it.branch_state), g1:p, g2:it.branch,
+           none:!it.branch,
+           noneLabel: it.branch_state === 'detached'
+             ? 'Detached scratch copy — no branch'
+             : 'Not started — no branch yet' };
+}
+
+function ordered(rows){
+  if (state.group === 'none') return rows;   // as scanned: the flat list claims no order
+  const dated   = rows.filter(r => r.since_epoch);
+  const undated = rows.filter(r => !r.since_epoch);
+  // Latest first, or oldest first - which is also the default, longest waiting.
+  dated.sort((a,b) => state.group === 'latest' ? b.since_epoch - a.since_epoch
+                                               : a.since_epoch - b.since_epoch);
+  return dated.concat(undated);
+}
+
+// --- render ------------------------------------------------------------------
+function renderHomes(){
+  $('#homes').innerHTML = (state.view.homes || []).map(h => {
+    const n = (state.view.items || []).filter(i => i.home === h.id && !isDeferred(i)).length;
+    return `<button class="chip" data-home="${esc(h.id)}" aria-pressed="${state.homes.has(h.id)}">
+      <span class="dot" style="background:${homeColour(h.id)}"></span>${esc(h.name)}<span class="n">${n}</span></button>`;
+  }).join('');
+}
+
+// STANDING RULE for every notice slot on this page: two independent persistent
+// facts never share one slot, and no notice returns early over another. Each
+// one that applies is rendered; none of them can push another off the screen.
+function renderWatcher(){
+  const notices = [];
+  const band = (tone, lamp, html) =>
+    `<div class="watcher" style="background:var(--${tone})"><span class="lamp ${lamp}"></span>
+     <span>${html}</span></div>`;
+  const homes = state.view.homes || [];
+  // Three reachability states, named by what he can DO in each. OFFLINE: the
+  // fetch failed, nothing can be sent. UNREAD: the server answers but no scan
+  // has ever published, so there is no list and it refuses sends too. ERROR: a
+  // scan failed over a list an earlier one published, so the list may be short
+  // but everything on it still answers. The last two leave the view stale, so
+  // facts derived from it are history rather than claims about now.
+  const offline = state.connected === false;
+  // Tense and read time both come from bin/command-center-state.js.
+  const { past, readAt } = tense(state, nowSecs());
+  const asOf = past
+    ? ` As at the last read${state.readAt
+        ? ', ' + esc(new Date(state.readAt * 1000).toLocaleString()) : ''}.`
+    : '';
+
+  if (offline)
+    notices.push(band('hot-soft', 'dead',
+      `<b>Cannot reach the server.</b> ${esc(state.offline || '')} Nothing can be sent
+       until it is back.`));
+  if (state.unread)
+    notices.push(band('hot-soft', 'dead',
+      `<b>The records have not been read yet.</b> ${esc(state.unread)} Nothing here can
+       be answered until they are.`));
+  if (state.error)
+    notices.push(band('hot-soft', 'dead',
+      `<b>The last read of the records failed.</b> ${esc(state.error)} This list may be
+       incomplete — what is on it can still be answered.`));
+
+  // Holds HIDDEN from him - an unsupported backend, or a backlog that is there
+  // and cannot be read. A home with no backlog file yet simply holds nothing.
+  const unread = homes.filter(h => h.backlog_readable === false);
+  if (unread.length)
+    notices.push(band('hot-soft', 'dead',
+      `<b>The backlog of ${unread.map(h => esc(h.name)).join(', ')} could not be read.</b>
+       Anything held for you there is missing from this list — this is not the whole
+       of it.${asOf}`));
+
+  const stale = homes.filter(h =>
+    !h.watcher_beat_epoch || readAt - h.watcher_beat_epoch > 300);
+  if (stale.length)
+    notices.push(band('warn-soft', 'unknown',
+      `<b>Firstmate ${past ? 'was' : 'is'} not watching ${
+        stale.map(h => esc(h.name)).join(', ')}.</b> ${offline
+        ? 'Nothing can be sent anywhere until this page can reach the server again.'
+        : 'An answer you send there is saved, but nothing will ring it until firstmate is back.'
+      }${asOf}`));
+
+  if (!homes.length){
+    // The unread band above already says this, and better; it is the same fact.
+    if (!state.unread)
+      notices.push(band('warn-soft', 'unknown',
+        `<b>No homes read yet.</b> Nothing here is a statement about firstmate's health.`));
+  } else {
+    // Named per home with its own age: the healthiest home's beat is not a
+    // figure for the fleet, and this band can now sit beside a stale one.
+    const fresh = homes.filter(h => !stale.includes(h));
+    if (fresh.length)
+      notices.push(`<div class="watcher"${past ? ' style="background:var(--warn-soft)"' : ''}>
+        <span class="${past ? 'lamp unknown' : 'beat'}"></span><span><b>Firstmate ${
+          past ? 'was' : 'is'} watching ${fresh.map(h =>
+          esc(h.name) + ' (heard ' + agoWords(readAt - h.watcher_beat_epoch) + ' ago)'
+        ).join(', ')}.</b>${asOf}</span></div>`);
+  }
+  $('#watcher').innerHTML = notices.join('');
+}
+
+function itemRow(it){
+  const bits = [];
+  if (state.group !== 'project' || FLAT.has(state.group))
+    bits.push(`<span>${esc(projectOf(it))}</span>`);
+  if (it.branch && state.group !== 'branch') bits.push(`<span class="mono">${esc(it.branch)}</span>`);
+  else if (it.branch_state === 'detached' && state.group !== 'branch') bits.push('<span>detached</span>');
+  let flag = '';
+  if (isStuck(it))        flag = '<span class="flag f-stuck">stuck</span>';
+  else if (isPending(it)) flag = '<span class="flag f-sent">sent</span>';
+  else if (isDeferred(it)) flag = `<span class="flag f-sent">until ${esc(it.deferred_until)}</span>`;
+  const old = it.since_epoch && (nowSecs() - it.since_epoch) > 86400;
+  return `<button class="item ${isUnread(it) ? '' : 'answered'} ${state.flash === itemKey(it) ? 'fresh' : ''}"
+      data-key="${esc(itemKey(it))}" aria-current="${state.open === itemKey(it)}">
+    <span class="item-top">
+      <span class="lamp ${esc(it.listen)}" title="${esc((LISTEN[it.listen]||LISTEN.unknown).label)}"></span>
+      <span class="item-title">${esc(it.title)}</span>${flag}
+      <span class="age ${old ? 'old' : ''}" title="${esc(ageTitle(it))}">${ageLabel(it)}</span>
+    </span>
+    <span class="item-sub">
+      <span class="src"><span class="dot" style="background:${homeColour(it.home)}"></span>${esc(homeOf(it.home).name)}</span>
+      ${bits.map(b => `<span class="sep">·</span>${b}`).join('')}
+      <span class="sep">·</span><span class="kind k-${it.source === 'hold' ? 'decision' : 'blocker'}">${it.source === 'hold' ? 'decision' : esc(it.status_verb || 'blocked')}</span>
+    </span>
+  </button>`;
+}
+
+// Approved proposal sections 3 and 4: the archive and My words are where a
+// closure can honestly be shown - the server wrote this line as part of the very
+// act that closed the decision, so nothing here is inferred.
+function wordOutcome(r){
+  if (r.kind === 'draft') return 'Not sent. Kept here so it is not lost.';
+  switch (r.outcome){
+    // Both routes close the decision they answer; a held WORK item is the one
+    // case that is released instead, and the record says which act ran.
+    case 'sent':
+      if (r.kind !== 'answer') return 'Delivered through ' + esc(r.route);
+      return 'Delivered through ' + esc(r.route) + (r.mode === 'release'
+        ? ' — the hold lifted, so the work resumes'
+        : ' — the decision closed');
+    case 'unknown':
+      return 'Delivery unknown — it may already have arrived: ' + esc(r.detail || '');
+    default: return 'Not delivered: ' + esc(r.detail || '');
+  }
+}
+
+function renderWords(){
+  const q = state.q.trim().toLowerCase();
+  const drafts = Object.entries(state.draft)
+    .filter(([, t]) => t && t.trim())
+    .map(([key, text]) => ({ kind:'draft', at:null, text, key }));
+  const rows = drafts.concat(state.said)
+    .filter(r => !q || String(r.text || '').toLowerCase().includes(q));
+  const head = `<div class="archive-note">What you typed and where it went, as far as this
+    log got it. <strong>Firstmate keeps an answer that closes a decision, and drops the
+    rest</strong> — a steer goes with the task's inbox at cleanup, and a draft was never
+    recorded at all — so for those this log is the only copy.</div>`;
+  // Not readable and nothing there are different states and must read differently.
+  const note = state.saidError
+    ? `<div class="archive-note" style="background:var(--warn-soft)"><b>The record could
+       not be read.</b> ${esc(state.saidError)} Anything below is only what this browser
+       still holds.</div>` : '';
+  if (!rows.length){
+    $('#list').innerHTML = head + note + `<div class="empty">${
+      state.saidError ? 'The record could not be read.' : 'Nothing yet.'}</div>`;
+    return;
+  }
+  $('#list').innerHTML = head + note + rows.map(r => {
+    const draft = r.kind === 'draft';
+    const item = (state.view.items || []).find(i => itemKey(i) === (r.item_key || r.key));
+    const where = item ? esc(item.title)
+      : r.kind === 'note' ? 'Note to firstmate — not about one item'
+      : esc(r.title || r.item || '—');
+    const out = wordOutcome(r);
+    return `<button class="word" data-key="${esc(r.item_key || r.key || '')}">
+      <span class="word-top">
+        <span class="word-when">${esc(draft ? 'unsent' : localTime(r.at))}</span>
+        <span class="word-where">${where}</span>
+        ${draft ? '<span class="flag f-stuck">unsent draft</span>'
+                : r.kind === 'note' ? '<span class="kind k-decision">note</span>' : ''}
+      </span>
+      <span class="word-text ${draft ? 'draftbox'
+        : r.kind === 'note' ? 'notebox' : ''}">${esc(r.text)}</span>
+      <span class="word-out">${out}</span>
+    </button>`;
+  }).join('');
+}
+
+function renderList(){
+  const items = state.view.items || [];
+  $('#n-waiting').textContent = items.filter(i => !isDeferred(i)).length;
+  $('#n-words').textContent = state.said.length +
+    Object.values(state.draft).filter(t => t && t.trim()).length;
+  document.querySelectorAll('.tab').forEach(t =>
+    t.setAttribute('aria-selected', String(t.dataset.tab === state.tab)));
+  $('#clr').hidden = !state.q;
+  renderHomes(); renderWatcher();
+  if (state.tab === 'words'){ renderWords(); return; }
+
+  const rows = ordered(visible());
+  let head = '';
+  if (state.q || state.sfilter)
+    head = `<div class="hits">${rows.length} match${rows.length === 1 ? '' : 'es'}${
+      state.q ? ` for “${esc(state.q)}”` : ''}</div>`;
+  if (!rows.length){
+    $('#list').innerHTML = head + `<div class="empty">${
+      state.q || state.sfilter ? 'Nothing matches.'
+        : !state.scanned ? 'The records have not been read yet.'
+        : 'Nothing is waiting on you.<br>Firstmate is getting on with it.'}</div>`;
+    return;
+  }
+  if (FLAT.has(state.group)){
+    const undatedCount = rows.filter(r => !r.since_epoch).length;
+    // The flat list makes no ordering claim, so it owes no note about the rows
+    // that could not be ordered; the two sorted views do.
+    const note = (undatedCount && state.group !== 'none')
+      ? `<div class="hits">${undatedCount} row${undatedCount === 1 ? '' : 's'} carry no
+         recorded time and cannot be ordered — they follow at the end.</div>` : '';
+    $('#list').innerHTML = head + note + rows.map(itemRow).join('');
+    return;
+  }
+  const buckets = new Map();
+  for (const it of rows){
+    const g = groupOf(it);
+    if (!buckets.has(g.key)) buckets.set(g.key, {g, items:[]});
+    buckets.get(g.key).items.push(it);
+  }
+  let html = head;
+  for (const {g, items:bucket} of buckets.values()){
+    const sub = g.g2 === undefined ? ''
+      : g.none ? `<div class="g2 none">${esc(g.noneLabel)}</div>`
+               : `<div class="g2">${esc(g.g2)}</div>`;
+    html += `<div class="grp"><div class="g1">
+      <span class="dot" style="background:${homeColour(bucket[0].home)}"></span>${esc(g.g1)}
+      <span class="cnt">${bucket.length}</span></div>${sub}</div>` +
+      bucket.map(itemRow).join('');
+  }
+  $('#list').innerHTML = html;
+}
+
+function trackHtml(m){
+  const step = (cls, ic, label, when) =>
+    `<span class="step ${cls}"><span class="ic">${ic}</span>${esc(label)}${
+      when ? `<span class="when">${esc(when)}</span>` : ''}</span>`;
+  const waited = m.at ? nowSecs() - Math.floor(Date.parse(m.at) / 1000) : 0;
+  const stuck = !m.handled && waited >= STUCK_SECS;
+  let html = step('done', '✓', 'Delivered', localTime(m.at));
+  html += m.handled ? step('done', '✓', 'Picked up', '')
+        : stuck     ? step('bad', '!', 'Not picked up', '')
+                    : step('wait', '○', 'Not picked up yet', '');
+  // An item is listed only while its decision is still OPEN, so closure cannot
+  // be shown here at all; My words carries it (approved proposal sections 3, 4).
+  return `<div class="track">${html}</div><div class="proof">record ${esc(m.seq)}.msg ${
+    m.handled ? '→ handled/' + esc(m.seq) + '.msg — the worker acknowledged it'
+              : '· still in the inbox, not in handled/'}</div>`;
+}
+
+function threadHtml(it){
+  if (!(it.sent || []).length) return '';
+  return `<div class="thread"><h3>What you sent</h3>` + it.sent.map(m => {
+    const waited = m.at ? nowSecs() - Math.floor(Date.parse(m.at) / 1000) : 0;
+    const stuck = !m.handled && waited >= STUCK_SECS;
+    const mins = Math.round(waited / 60);
+    return `<div class="msg you">
+        <div class="msg-who">You<span class="t">${esc(localTime(m.at))}</span></div>
+        <div class="msg-text">${esc(m.text)}</div>${trackHtml(m)}
+      </div>` + (stuck ? `<div class="stuck-bar">
+        <b>This has not been picked up for ${mins} minutes.</b>
+        <div class="sub">Firstmate rings an unread message every ${GRACE_SECS} seconds and
+          gives up after ${RING_MAX} tries, so it is now treated as stuck. Your message is
+          safe on disk; nobody has read it.</div></div>` : '');
+  }).join('') + '</div>';
+}
+
+function renderMain(){
+  const it = (state.view.items || []).find(i => itemKey(i) === state.open);
+  if (!it){
+    $('#main').innerHTML = `<div class="blank"><strong>Pick something on the left.</strong>
+      <span>Everything firstmate is waiting on you for, from every project, in one list.<br>
+      New items appear on their own — you never reload, and you never get a new link.<br>
+      Search finds anything you remember, including your own words.</span></div>`;
+    return;
+  }
+  const L = LISTEN[it.listen] || LISTEN.unknown;
+  const detail = esc(it.detail || '').split(/\n{2,}/)
+    .map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`).join('');
+  const draft = state.draft[itemKey(it)] || '';
+  const verdict = SEND_VERDICT[(state.outcome[itemKey(it)] || {}).outcome];
+  // Approved proposal section 7 proves delivery by the steering record existing;
+  // until it does, this is the captain's own way out - he is the one who can look.
+  const anyway = verdict
+    ? '<button class="defer" id="sendanyway">Send anyway — this may be a second copy</button>'
+    : '';
+  // Derived from the durable record, not from an in-memory notice: the last
+  // thing he sent about this item and what became of it.
+  const last = state.said.find(r => r.item_key === itemKey(it));
+  const lastLine = last
+    ? `<div class="hits">You last sent “${esc(last.text)}” — ${wordOutcome(last)}.</div>`
+    : '';
+  const cell = (label, value, na) =>
+    `<div><dt>${label}</dt><dd class="${value ? '' : 'na'}">${esc(value || na)}</dd></div>`;
+  const deadWarn = it.listen === 'dead' ? `<div class="dead-warn">
+      <b>Nobody is listening to this one right now.</b> Your answer is written down and will
+      not be lost, but it sits unread until firstmate restarts the worker.</div>` : '';
+
+  $('#main').innerHTML = `<div class="main-inner">
+    <div class="crumbs">
+      <span class="src"><span class="dot" style="background:${homeColour(it.home)}"></span>${esc(homeOf(it.home).name)}</span>
+      <span class="sep">·</span><span class="kind k-${it.source === 'hold' ? 'decision' : 'blocker'}">${it.source === 'hold' ? 'decision' : esc(it.status_verb || 'blocked')}</span>
+      <span class="sep">·</span><span title="${esc(ageTitle(it))}">waiting ${ageLabel(it)}</span>
+      ${it.deferred_until ? `<span class="sep">·</span><span>deferred to ${esc(it.deferred_until)}</span>` : ''}
+    </div>
+    <h2 class="subject">${esc(it.title)}</h2>
+    <div class="listen ${esc(it.listen)}"><span class="lamp ${esc(it.listen)}"></span>
+      <span><b>${esc(L.label)}.</b> ${esc(L.say)}</span></div>
+    <div class="where">
+      ${cell('Project', it.project, 'No registered project')}
+      ${cell('Worktree', it.worktree, 'Not started')}
+      ${cell('Branch', it.branch, it.branch_state === 'detached' ? 'Detached — no branch' : 'Not started')}
+    </div>
+    <div class="body">${detail || '<p class="quiet">No detail recorded.</p>'}</div>
+    ${lastLine}
+    ${threadHtml(it)}
+    <div class="reply">
+      ${deadWarn}
+      <label for="reply">Your answer — in your own words</label>
+      <textarea id="reply" placeholder="Type here…">${esc(draft)}</textarea>
+      <div class="reply-foot">
+        <button class="send" id="send" ${
+          draft.trim() && !state.sending && !verdict ? '' : 'disabled'}>${
+          verdict ? esc(verdict.label)
+                  : state.sending ? 'Sending…' : 'Send to firstmate'}</button>
+        <button class="defer" id="defer">Not now</button>
+        ${anyway}
+        ${draft.trim() ? '<span class="draft-flag">Draft kept</span>' : ''}
+        <span class="send-note" id="sendnote">${verdict
+          ? verdict.note + ' <span class="mono">' + esc(state.outcome[itemKey(it)].detail || '') + '</span>'
+          : 'Goes through ' + (it.source === 'hold' ? 'the decision record'
+                                                    : 'the worker’s steering inbox') + '.'}</span>
+      </div>
+    </div>
+  </div>`;
+
+  const ta = $('#reply');
+  ta.addEventListener('input', () => {
+    state.draft[itemKey(it)] = ta.value;
+    save('cc.draft', state.draft);
+    $('#send').disabled = !ta.value.trim() || state.sending || !!verdict;
+    renderList();
+  });
+}
+
+function render(){ renderList(); renderMain(); }
+
+function open(key){
+  state.open = key;
+  state.seen[key] = true; save('cc.seen', state.seen);
+  render();
+}
+
+// --- talking to the server ---------------------------------------------------
+// A read that resolved well answers every reachability question at once, so
+// they are all cleared here rather than at each branch's discretion - the
+// per-branch enumeration is what kept leaving one alarm standing.
+// The rules live in bin/command-center-state.js; this applies what they decide
+// and moves the one piece of them that is a pixel rather than a fact.
+function commit(answer){
+  const before = state.connected;
+  Object.assign(state, pollFacts(answer, nowSecs()));
+  if (state.connected !== before)
+    $('#live').innerHTML = state.connected
+      ? '<span class="beat"></span>Live'
+      : '<span class="lamp dead"></span>Not connected';
+}
+
+async function poll(){
+  // A poll being IN FLIGHT says nothing about the view on screen: the last poll
+  // confirmed it, and only a RESOLVED outcome may take that back. So the verdict
+  // is committed when the answer arrives, never optimistically on the way out.
+  try {
+    const res = await fetch('/api/items', {
+      headers: state.etag ? {'If-None-Match': state.etag} : {} });
+    if (res.status === 503){
+      commit({ kind:'unread',
+               detail: (await res.json().catch(() => ({}))).error
+                 || 'the records have not been read yet' });
+      render();
+      return;
+    }
+    if (!res.ok && res.status !== 304) throw new Error('HTTP ' + res.status);
+    if (res.status === 304){
+      commit({ kind:'unchanged' });
+      renderWatcher();
+      return;
+    }
+    state.etag = res.headers.get('ETag');
+    const next = await res.json();
+    const before = new Set((state.view.items || []).map(itemKey));
+    const arrived = (next.items || []).map(itemKey).filter(k => !before.has(k));
+    commit({ kind:'body', error: next.error || null });
+    state.view = next;
+    state.scanned = true;
+    state.outcome = releaseVerdicts(state.outcome, next);
+    save('cc.outcome', state.outcome);
+    if (before.size && arrived.length === 1) state.flash = arrived[0];
+    render();
+    if (state.flash) setTimeout(() => { state.flash = null; renderList(); }, 2000);
+  } catch (err) {
+    commit({ kind:'unreachable', detail: String(err.message || err) });
+    renderWatcher();
+  }
+}
+
+async function loadSaid(){
+  try {
+    const res = await fetch('/api/said');
+    if (res.ok){
+      const body = await res.json();
+      state.said = body.said || [];
+      state.saidError = body.error || null;
+    }
+  } catch (e) { /* the list still works without it */ }
+}
+
+async function post(url, body){
+  const res = await fetch(url, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(body) });
+  return { ok: res.ok, data: await res.json().catch(() => ({})) };
+}
+
+async function sendAnswer(){
+  const it = (state.view.items || []).find(i => itemKey(i) === state.open);
+  if (!it) return;
+  const text = (state.draft[itemKey(it)] || '').trim();
+  if (!text || state.sending) return;
+  state.sending = true; renderMain();
+  let ok = false, data = {};
+  try {
+    ({ ok, data } = await post('/api/answer',
+      { home: it.home, id: it.id, source: it.source, key: it.key || '', text }));
+  } catch (err) {
+    // The request never came back. On the SEND route the steer may already sit
+    // on the worker's inbox, so delivery is unknown and a second try is a second
+    // steer. A HOLD writes a local record with no delivery plane and
+    // fm-captain-hold.sh documents an exact retry as idempotent, so it is a
+    // plain failure: the hold route has NO locking outcome, in this failure or
+    // any other, because a lock there only blocks the retry that is the fix.
+    data = transportFailure(it.source, String(err.message || err));
+  } finally {
+    state.sending = false;
+  }
+  if (!ok || !data.ok){
+    // Unknown delivery tells him the opposite of not-sent, so it never reads as
+    // a failure and never leaves Send offered.
+    const verdict = verdictFor(it.source, data.outcome, data.detail,
+                               (it.sent || []).length);
+    if (verdict){
+      state.outcome[itemKey(it)] = verdict;
+      save('cc.outcome', state.outcome);
+      await loadSaid();
+      render();
+      return;
+    }
+    await loadSaid();
+    render();
+    // render() may have painted the blank pane, if the item left the list while
+    // the log was reloading; it has already set the button from state either way.
+    const note = $('#sendnote');
+    if (note) note.innerHTML = `<b style="color:var(--hot)">Not sent.</b> ${
+      esc(data.error || data.detail || 'the command failed')} — your words are still here.`;
+    return;
+  }
+  delete state.draft[itemKey(it)]; save('cc.draft', state.draft);
+  state.etag = null;
+  await loadSaid(); await poll();
+  const next = ordered(visible())[0];
+  state.open = next ? itemKey(next) : null;
+  render();
+}
+
+// --- events ------------------------------------------------------------------
+document.addEventListener('click', async e => {
+  const tab = e.target.closest('.tab');
+  if (tab){ state.tab = tab.dataset.tab; renderList(); return; }
+  const chip = e.target.closest('.chip');
+  if (chip){
+    const id = chip.dataset.home;
+    state.homes.has(id) ? state.homes.delete(id) : state.homes.add(id);
+    renderList(); return;
+  }
+  const row = e.target.closest('.item, .word');
+  if (row){ if (row.dataset.key) open(row.dataset.key); return; }
+  if (e.target.id === 'send'){ await sendAnswer(); return; }
+  if (e.target.id === 'defer'){ state.open = null; render(); return; }
+  if (e.target.id === 'sendanyway'){
+    delete state.outcome[state.open]; save('cc.outcome', state.outcome);
+    renderMain(); return;
+  }
+  if (e.target.id === 'clr'){ state.q = ''; $('#q').value = ''; renderList(); return; }
+  if (e.target.id === 'open-note'){ $('#note-dlg').showModal(); }
+});
+
+$('#grouping').addEventListener('change', e => { state.group = e.target.value; renderList(); });
+$('#statefilter').addEventListener('change', e => { state.sfilter = e.target.value; renderList(); });
+$('#q').addEventListener('input', e => { state.q = e.target.value; renderList(); });
+
+// The note box keeps what he typed the same way the answer box does: a note
+// that vanishes on a failed send is the loss this whole surface exists to end.
+$('#note-text').value = state.note;
+$('#note-text').addEventListener('input', e => {
+  state.note = e.target.value; save('cc.note', state.note);
+});
+
+$('#note-dlg').addEventListener('close', async function(){
+  const text = $('#note-text').value.trim();
+  if (this.returnValue !== 'send' || !text) return;
+  const btn = $('#open-note');
+  let ok = false, data = {};
+  try {
+    ({ ok, data } = await post('/api/note', { text }));
+  } catch (err) {
+    // As on the answer path: the request never came back, so the server may
+    // have started the note and been restarted before it could answer. A second
+    // note is a second note - queue_note mints a fresh id - so delivery here is
+    // unknown, never failed.
+    data = transportFailure('note', String(err.message || err));
+  }
+  // The same rule the answer path follows: unknown delivery never reads as a
+  // failure, because retyping it is how the captain sends it twice. It warns
+  // rather than locking Send, because a note hangs off no item: there is no key
+  // to hold a verdict against and no steering record whose arrival could ever
+  // release one.
+  btn.textContent = (ok && data.ok) ? '✓  Queued for firstmate'
+    : data.outcome === 'unknown'
+      ? '?  It may already be saved — check before sending it again. '
+        + (data.detail || '')
+      : '✕  Not queued: ' + (data.error || data.detail || 'the command failed');
+  if (ok && data.ok){
+    $('#note-text').value = ''; state.note = ''; save('cc.note', state.note);
+  }
+  setTimeout(() => { btn.textContent = '✎  Tell firstmate something — not an answer'; },
+    data.outcome === 'unknown' ? 12000 : 3500);
+  await loadSaid(); render();
+});
+
+loadSaid().then(poll);
+setInterval(poll, POLL_MS);
+setInterval(renderList, 30000);   // keep the ages and stuck flags honest
+</script>
+</body>
+</html>
