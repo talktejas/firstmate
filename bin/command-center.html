@@ -915,7 +915,7 @@ function renderMessagePane(m){
       <div class="msg-text">${esc(r.text)}</div>
       <div class="proof">${wordOutcome(r)}</div>
     </div>`).join('');
-  paintMain(`<div class="main-inner">
+  paintMain(key, `<div class="main-inner">
     <div class="crumbs">
       <span class="kind k-decision">firstmate said</span>
       <span class="sep">·</span><span>${esc(localTime(m.at))}</span>
@@ -969,7 +969,7 @@ function renderMain(){
   }
   const it = (state.view.items || []).find(i => itemKey(i) === state.open);
   if (!it){
-    paintMain(`<div class="blank"><strong>Pick something on the left.</strong>
+    paintMain('', `<div class="blank"><strong>Pick something on the left.</strong>
       <span>Everything firstmate has said to you, newest first, with a box to reply in.<br>
       <b>Waiting on you</b> is the queue it is still holding — questions and stopped workers.<br>
       New things appear on their own — you never reload, and you never get a new link.</span></div>`);
@@ -998,7 +998,7 @@ function renderMain(){
       <b>Nobody is listening to this one right now.</b> Your answer is written down and will
       not be lost, but it sits unread until firstmate restarts the worker.</div>` : '';
 
-  paintMain(`<div class="main-inner">
+  paintMain(itemKey(it), `<div class="main-inner">
     <div class="crumbs">
       <span class="src"><span class="dot" style="background:${homeColour(it.home)}"></span>${esc(homeOf(it.home).name)}</span>
       <span class="sep">·</span><span class="kind k-${it.source === 'hold' ? 'decision' : 'blocker'}">${it.source === 'hold' ? 'decision' : esc(it.status_verb || 'blocked')}</span>
@@ -1056,17 +1056,26 @@ function renderMain(){
 // one path and left the pane stale on another. #main is the scroll container
 // (.main{overflow-y:auto}), and assigning its innerHTML drops that offset to
 // the top, which mid-sentence is the page moving under him.
-function paintMain(html){
+//
+// Keeping his place means keeping his place in the thing he is READING, so what
+// is being painted is named rather than inferred: the same pane again restores
+// where he was, and anything else opens at its own top - clicking a message to
+// read it is what this page is for, and it may never open with its title
+// scrolled off screen.
+let painted = null;
+function paintMain(key, html){
   const pane = $('#main');
+  const same = key === painted;
   const where = pane.scrollTop;
   const box = $('#reply');
   const typing = box && document.activeElement === box
     ? {start: box.selectionStart, end: box.selectionEnd, scroll: box.scrollTop}
     : null;
   pane.innerHTML = html;
-  pane.scrollTop = where;
+  painted = key;
+  pane.scrollTop = same ? where : 0;
   const next = $('#reply');
-  if (!typing || !next) return;
+  if (!same || !typing || !next) return;
   next.focus({preventScroll: true});
   next.setSelectionRange(typing.start, typing.end);
   next.scrollTop = typing.scroll;
