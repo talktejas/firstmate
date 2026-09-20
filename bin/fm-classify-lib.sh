@@ -313,6 +313,20 @@ status_paused_until() {  # <status-line> -> epoch on stdout
 # number of "[name=value]" tags before the colon, in any order, so verb parsing
 # ends at the first tag rather than special-casing "[key=...]".
 #
+# Note-head timestamp. A worker append also carries the UTC moment it was
+# written as a complete "[YYYY-MM-DDTHH:MM:SSZ]" bracket at the head of the
+# note (bin/fm-brief.sh instructs every worker to put it first), which is the
+# only honest record of how long that line has been waiting - the status
+# file's mtime is only ever its newest append. It is accepted on either side
+# of a note-head key token, so both of these state the same key, the same note
+# and the same timestamp:
+#   needs-decision: [2026-09-21T10:00:00Z] [key=api-shape] <summary>
+#   needs-decision: [key=api-shape] [2026-09-21T10:00:00Z] <summary>
+# status_line_timestamp reads it and status_line_note strips it, so it is key
+# metadata rather than note text. A pre-timestamp line simply has no bracket
+# and reads as an empty timestamp, never as malformed: every status log
+# written before this convention keeps parsing unchanged.
+#
 # Correlation tokens. That bracket rule already covers every BRACKETED tag,
 # including the "[corr=<16 hex>]" form bin/fm-secondmate-report.sh writes. It
 # does not cover the UNBRACKETED token that bin/fm-pending-reply-lib.sh writes
