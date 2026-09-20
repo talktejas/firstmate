@@ -616,11 +616,11 @@ test_budget_too_small_for_one_observation_is_reported() {
   mutate_record "$home" delivery '.records[0].checked_at="2026-09-15T08:00:00Z"'
   /bin/date +%s > "$home/forge/clock"
   printf 'exhaust\n' > "$home/forge/fault"
-  expected='contributions: observation needs more than the 2s poll budget for https://github.com/o/r/pull/8; raise FM_CHECK_TIMEOUT to at least 138s'
+  expected='contributions: observation needs more than the 2s poll budget for https://github.com/o/r/pull/8; raise FM_CONTRIBUTIONS_BUDGET to at least 135s and raise FM_CHECK_TIMEOUT to at least 138s'
   out=$(with_home "$home" env FM_CONTRIBUTIONS_BUDGET=2 "$ROOT/bin/fm-contributions.sh" poll) \
     || fail 'poll failed when its whole budget went to one observation'
   [ "$out" = "$expected" ] || fail "a budget too small for one observation was not reported: $out"
-  jq -e --arg now "$NOW" --arg error 'forge observation needs more than the 2s poll budget; raise FM_CHECK_TIMEOUT to at least 138s' '
+  jq -e --arg now "$NOW" --arg error 'forge observation needs more than the 2s poll budget; raise FM_CONTRIBUTIONS_BUDGET to at least 135s and raise FM_CHECK_TIMEOUT to at least 138s' '
     .records[0].checked_at == $now and .records[0].error == $error' \
     "$home/data/delivery/contributions.json" >/dev/null \
     || fail 'a budget too small for one observation left no actionable evidence'
@@ -652,22 +652,23 @@ test_unset_budget_takes_the_whole_watcher_bound() {
   pass 'an unset budget follows FM_CHECK_TIMEOUT, so the advised bound observes the PR'
 }
 
-test_call_timeout_above_budget_is_the_calls_outcome() {
-  local home out
+test_call_timeout_above_budget_is_the_deadlines_outcome() {
+  local home out expected
   home=$(new_home call-timeout-above-budget)
   forge_home "$home"
   wrap_forge "$home"
   mutate_record "$home" delivery '.records[0].checked_at="2026-09-15T08:00:00Z"'
   printf 'hang\n' > "$home/forge/fault"
+  expected='contributions: observation needs more than the 3s poll budget for https://github.com/o/r/pull/8; raise FM_CONTRIBUTIONS_BUDGET to at least 225s and raise FM_CHECK_TIMEOUT to at least 228s'
   out=$(with_home "$home" env FM_CONTRIBUTIONS_BUDGET=3 FM_CONTRIBUTIONS_CALL_TIMEOUT=25 \
     "$ROOT/bin/fm-contributions.sh" poll) || fail 'poll failed with a per-call timeout above its budget'
-  [ "$out" = 'contributions: observation unavailable for https://github.com/o/r/pull/8' ] \
-    || fail "a per-call timeout above the budget was not attributed to the call: $out"
-  jq -e --arg now "$NOW" '.records[0].checked_at == $now
-    and .records[0].error == "forge observation unavailable or changed during read"' \
+  [ "$out" = "$expected" ] \
+    || fail "a call killed at the deadline was not attributed to the budget that bound it: $out"
+  jq -e --arg now "$NOW" --arg error 'forge observation needs more than the 3s poll budget; raise FM_CONTRIBUTIONS_BUDGET to at least 225s and raise FM_CHECK_TIMEOUT to at least 228s' '
+    .records[0].checked_at == $now and .records[0].error == $error' \
     "$home/data/delivery/contributions.json" >/dev/null \
-    || fail 'a per-call timeout above the budget left the URL unchecked and silent'
-  pass 'a per-call timeout above the budget is cut to fit and reports the call outcome'
+    || fail 'a call killed at the deadline named no setting that could change it'
+  pass 'a per-call timeout at or above the budget reports the deadline and the settings that bind it'
 }
 
 test_budget_refusal_between_calls() { test_budget_exhaustion_keeps_prior_record exhaust; }
@@ -890,7 +891,7 @@ test_late_owner_keeps_failure_episode_suppressed() {
 }
 
 failures=0
-for test_name in test_actor_coverage test_stale_verdict test_unchecked_is_not_silence test_newest_check_has_no_verdict test_comment_wake test_review_wake test_inline_wake test_ready_issue_wake test_fresh_issue_requires_maintainer test_missing_lane_remains_missing test_partial_freshness_keeps_measured_rows test_malformed_record_cannot_prove_silence test_issue_timeline_and_exact_ack test_verdict_retains_judged_head test_observed_replacement_refreshes_verdict test_unobserved_head_leaves_verdict_unknown test_away_yolo_is_fleet_work test_away_yolo_cross_home_is_fleet_work test_retired_and_unsupported_coverage test_unsupported_forge_is_not_fleet_work test_held_unsupported_forge_is_not_captain_work test_shared_contribution_signal_wakes_once test_watcher_keeps_diagnostics_separate_from_contribution_wakes test_expired_child_unsupported_forge_stays_unmeasured test_watcher_surfaces_new_contribution_once test_home_summary_coverage test_unreadable_pending_is_not_empty test_budget_refusal_between_calls test_budget_bounded_call_timeout test_budget_too_small_for_one_observation_is_reported test_unset_budget_takes_the_whole_watcher_bound test_call_timeout_above_budget_is_the_calls_outcome test_per_call_timeout_is_unavailable test_genuine_failure_near_deadline_is_unavailable test_shared_url_observed_once test_terminal_contribution_settles test_late_owner_inherits_terminal_observation test_done_task_open_pr_still_observed test_failure_wakes_once_per_episode test_late_owner_keeps_failure_episode_suppressed; do
+for test_name in test_actor_coverage test_stale_verdict test_unchecked_is_not_silence test_newest_check_has_no_verdict test_comment_wake test_review_wake test_inline_wake test_ready_issue_wake test_fresh_issue_requires_maintainer test_missing_lane_remains_missing test_partial_freshness_keeps_measured_rows test_malformed_record_cannot_prove_silence test_issue_timeline_and_exact_ack test_verdict_retains_judged_head test_observed_replacement_refreshes_verdict test_unobserved_head_leaves_verdict_unknown test_away_yolo_is_fleet_work test_away_yolo_cross_home_is_fleet_work test_retired_and_unsupported_coverage test_unsupported_forge_is_not_fleet_work test_held_unsupported_forge_is_not_captain_work test_shared_contribution_signal_wakes_once test_watcher_keeps_diagnostics_separate_from_contribution_wakes test_expired_child_unsupported_forge_stays_unmeasured test_watcher_surfaces_new_contribution_once test_home_summary_coverage test_unreadable_pending_is_not_empty test_budget_refusal_between_calls test_budget_bounded_call_timeout test_budget_too_small_for_one_observation_is_reported test_unset_budget_takes_the_whole_watcher_bound test_call_timeout_above_budget_is_the_deadlines_outcome test_per_call_timeout_is_unavailable test_genuine_failure_near_deadline_is_unavailable test_shared_url_observed_once test_terminal_contribution_settles test_late_owner_inherits_terminal_observation test_done_task_open_pr_still_observed test_failure_wakes_once_per_episode test_late_owner_keeps_failure_episode_suppressed; do
   ( "$test_name" ) || failures=$((failures + 1))
 done
 [ "$failures" -eq 0 ] || fail "$failures contribution regressions"
