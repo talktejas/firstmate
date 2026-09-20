@@ -1049,21 +1049,34 @@ function renderMain(){
   });
 }
 
-// ONE OWNER OF THE PANE'S HTML. Whatever rebuilds it, his typing survives: the
-// box, its text (from cc.draft), its focus and its caret. So no caller ever has
-// to choose between showing him the truth and letting him type - which is the
-// choice that took his cursor on one path and left the pane stale on another.
+// ONE OWNER OF THE PANE'S HTML. Whatever rebuilds it, his place survives: the
+// pane's scroll offset, and the box with its text (from cc.draft), its focus
+// and its caret. So no caller ever has to choose between showing him the truth
+// and letting him read or type - which is the choice that took his cursor on
+// one path and left the pane stale on another. #main is the scroll container
+// (.main{overflow-y:auto}), and assigning its innerHTML drops that offset to
+// the top, which mid-sentence is the page moving under him.
 function paintMain(html){
+  const pane = $('#main');
+  const where = pane.scrollTop;
   const box = $('#reply');
   const typing = box && document.activeElement === box
     ? {start: box.selectionStart, end: box.selectionEnd, scroll: box.scrollTop}
     : null;
-  $('#main').innerHTML = html;
+  pane.innerHTML = html;
+  pane.scrollTop = where;
   const next = $('#reply');
   if (!typing || !next) return;
   next.focus({preventScroll: true});
   next.setSelectionRange(typing.start, typing.end);
   next.scrollTop = typing.scroll;
+  // Restored to where he was, the caret can still be off screen if the rebuild
+  // changed the pane's height, and typing where he cannot see is the same
+  // complaint by another name.
+  const seen = next.getBoundingClientRect();
+  const view = pane.getBoundingClientRect();
+  if (seen.bottom > view.bottom || seen.top < view.top)
+    next.scrollIntoView({block: 'nearest'});
 }
 
 function render(){
@@ -1230,10 +1243,15 @@ function applyOutcomes(){
       // about a delivery the record has since confirmed. `kept` is where the
       // words themselves are now, because on the `leave` branch the box holds
       // something he typed since and only the record still has what he sent.
+      // `kept` is a fact about the box the READER is looking at, and only the
+      // surface he typed in has a box holding those words: for a reply that
+      // steered an item, that item's own box never held them, so there the only
+      // copy really is the record.
       for (const k of surfaces){
         if (r.outcome === 'sent') delete state.failed[k];
         else state.failed[k] = {outcome: r.outcome, detail: r.detail || '',
-                                kept: fate === 'leave' ? 'record' : 'box'};
+                                kept: k === held.key && fate !== 'leave'
+                                  ? 'box' : 'record'};
       }
       save('cc.draft', state.draft);
       save('cc.pending', state.pending);
@@ -1305,11 +1323,12 @@ function reconcilePending(read){
     // A reply that took the answer route was a steer at an ITEM as well, and
     // the warning has to stand on both surfaces: otherwise the waiting list
     // offers Send with nothing said, and the same worker is steered twice.
-    const warning = {outcome: 'unknown',
-      detail: 'nothing ever reported what became of it: the page or the server '
-            + 'stopped before the command answered',
-      kept: empty || sameWords(inBox, held.text) ? 'box' : 'record'};
-    for (const k of sendKeys(held.key, held.item)) state.failed[k] = warning;
+    const detail = 'nothing ever reported what became of it: the page or the '
+                 + 'server stopped before the command answered';
+    const inHisBox = empty || sameWords(inBox, held.text);
+    for (const k of sendKeys(held.key, held.item))
+      state.failed[k] = {outcome: 'unknown', detail: detail,
+                         kept: k === held.key && inHisBox ? 'box' : 'record'};
     changed = true;
   }
   if (changed){
@@ -1471,12 +1490,19 @@ document.addEventListener('click', async e => {
   if (e.target.id === 'sendreply'){ await sendReply(); return; }
   if (e.target.id === 'defer'){ state.open = null; render(); return; }
   if (e.target.id === 'sendanyway'){
-    delete state.outcome[state.open]; save('cc.outcome', state.outcome);
-    // And the record of the send it was held against, so the next load cannot
-    // read it as a send still going out and lock the box again.
+    // heldWith comes from bin/command-center-state.js: one deliberate decision
+    // to send again releases that send on every surface it was held against,
+    // so he never dismisses the same send twice.
+    for (const k of heldWith(state.open, state.said, state.pending)){
+      delete state.outcome[k];
+      delete state.failed[k];
+    }
+    // And the record of the send itself, so the next load cannot read it as a
+    // send still going out and lock the box again.
     for (const [sid, held] of Object.entries(state.pending))
-      if (held.key === state.open) delete state.pending[sid];
-    delete state.failed[state.open];
+      if (held.key === state.open || held.item === state.open)
+        delete state.pending[sid];
+    save('cc.outcome', state.outcome);
     save('cc.pending', state.pending); save('cc.failed', state.failed);
     renderMain(); return;
   }
@@ -1549,7 +1575,10 @@ setInterval(poll, POLL_MS);
 // The message log is a local file read, so it is polled on the same cadence and
 // re-rendered only when a message actually arrived - his typing survives the
 // re-render either way, because paintMain owns that.
-setInterval(async () => { if (await loadMessages()) render(); }, POLL_MS);
+// Only the LIST is redrawn: a recorded message never changes, and the open pane
+// is built from the message it already holds and the said thread, so rebuilding
+// it earns nothing and can only cost him his place.
+setInterval(async () => { if (await loadMessages()) renderList(); }, POLL_MS);
 // The outcome of a send is written to the record by the thread carrying the
 // delivery out, so the record is polled on the same cadence and behind the same
 // change check. An unchanged record costs a stat.

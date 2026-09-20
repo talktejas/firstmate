@@ -9,6 +9,7 @@ const {
   pollFacts, tense, transportFailure, verdictFor, releaseVerdicts, itemKey,
   shapeMessage, orderRows, replyTarget, foldSaid, wordsAfter,
   listSignature, mayRelease, logRead, sendState, sendKeys, spokenFor, sameWords,
+  heldWith,
 } = require(path.join(__dirname, '..', 'bin', 'command-center-state.js'));
 
 // Quiet on success: tests/command-center.test.sh runs this and reports the
@@ -438,6 +439,28 @@ test('a trailing newline is the same words', () => {
   assert.strictEqual(spokenFor({ a: { key: 'msg/m1', text: 'Go blue.' } },
                                'msg/m1', 'Go blue.\n'),
     true, 'one send must not read as a second unsent draft over a newline');
+});
+
+// --- one decision to send again ------------------------------------------------
+// A reply that took the answer route is locked on the message he typed it in
+// and on the item it steered, so releasing it from one surface has to release
+// it from the other: dismissing the same send twice is the split this closes.
+test('a send is released on every surface it was held against', () => {
+  const rows = [{ sid: 'a', msg: 'm1', item_key: 'main/status/t1/k' },
+                { sid: 'b', item_key: 'main/hold/t9/t9' }];
+  assert.deepStrictEqual(heldWith('msg/m1', rows, {}).sort(),
+    ['main/status/t1/k', 'msg/m1']);
+  assert.deepStrictEqual(heldWith('main/status/t1/k', rows, {}).sort(),
+    ['main/status/t1/k', 'msg/m1'],
+    'the item he answered from releases the message too');
+  assert.deepStrictEqual(heldWith('main/hold/t9/t9', rows, {}),
+    ['main/hold/t9/t9'], 'an answer sent from the item has one surface');
+  assert.deepStrictEqual(
+    heldWith('msg/m2', [], { s: { key: 'msg/m2', item: 'main/hold/t2/t2' } }).sort(),
+    ['main/hold/t2/t2', 'msg/m2'],
+    'a send still recorded as pending names its surfaces too');
+  assert.deepStrictEqual(heldWith('msg/zz', rows, {}), ['msg/zz'],
+    'a surface no send touched releases only itself');
 });
 
 process.exit(failures ? 1 : 0);

@@ -155,6 +155,23 @@ function sendKeys(box, item) {
     .filter((k, i, all) => all.indexOf(k) === i);
 }
 
+// --- every surface one send was held against ------------------------------------
+// Found from the surface he is looking at, through the record of the send: a
+// reply that took the answer route was locked on the message he typed it in AND
+// on the item it steered. One deliberate decision to send again releases it
+// everywhere, rather than making him dismiss the same send twice on two
+// surfaces.
+function heldWith(key, rows, pending) {
+  const found = new Set([key]);
+  const add = (box, item) => {
+    const surfaces = sendKeys(box, item);
+    if (surfaces.includes(key)) surfaces.forEach(k => found.add(k));
+  };
+  for (const r of rows || []) add(r.msg ? 'msg/' + r.msg : '', r.item_key);
+  for (const p of Object.values(pending || {})) add(p.key, p.item);
+  return [...found];
+}
+
 // --- what one send is, taking the page's own surrender into account --------------
 // The record is written when the click is accepted and again when the command
 // answers, so a row still reading `sending` is a send with no answer yet. But
@@ -281,4 +298,5 @@ if (typeof module === 'object' && module.exports)
                      releaseVerdicts, itemKey, shapeMessage, orderRows,
                      replyTarget, foldSaid, wordsAfter,
                      listSignature, mayRelease, logRead,
-                     sendState, sendKeys, spokenFor, sameWords };
+                     sendState, sendKeys, spokenFor, sameWords,
+                     heldWith };
