@@ -239,6 +239,31 @@ test_server_serves_the_page_and_the_records() {
   pass "the page and the records are served, and an unchanged poll costs nothing"
 }
 
+# Send one refused cross-site POST whose body is itself a complete, innocent-
+# looking request, then count the notes firstmate actually received. A server
+# that answers the refusal without draining the body parses that body as the
+# next request on the same connection.
+smuggle_notes() {  # <port> <home>
+  local port=$1 home=$2 inner smuggled
+  inner=$(printf 'POST /api/note HTTP/1.1\r\nHost: 127.0.0.1:%s\r\nContent-Type: application/json\r\nContent-Length: 24\r\n\r\n{"text":"smuggled note"}' "$port")
+  smuggled=$(printf 'POST /api/note HTTP/1.1\r\nHost: 127.0.0.1:%s\r\nOrigin: http://evil.example\r\nContent-Type: text/plain\r\nContent-Length: %s\r\n\r\n%s' \
+    "$port" "${#inner}" "$inner")
+  printf '%s' "$smuggled" | timeout 10 python3 -c '
+import socket, sys
+data = sys.stdin.buffer.read()
+s = socket.create_connection(("127.0.0.1", int(sys.argv[1])), 5)
+s.sendall(data)
+s.settimeout(3)
+try:
+    while s.recv(65536):
+        pass
+except OSError:
+    pass
+s.close()
+' "$port" >/dev/null 2>&1 || true
+  grep -rl 'smuggled note' "$home" 2>/dev/null | wc -l | tr -d ' '
+}
+
 # The one free-text field reaches firstmate's own scripts, so it is checked
 # before anything is run, and an unknown item can never select a command.
 test_server_refuses_bad_input_before_running_anything() {
@@ -262,14 +287,28 @@ test_server_refuses_bad_input_before_running_anything() {
         -d 'not json' "http://127.0.0.1:$port/api/answer")" \
     "an unreadable request body was not refused"
   # The trust boundary is loopback, so a page the captain happens to have open
-  # must not be able to steer a worker as him.
+  # must not be able to steer a worker as him. Each signal is refused on its
+  # own, so no one guard can be dropped behind the others.
+  local body='{"home":"main","id":"cc-live","source":"hold","key":"cc-live","text":"x"}'
   assert_equals "403" \
     "$(curl -s -o /dev/null -w '%{http_code}' -X POST \
-        -H 'Content-Type: text/plain' -H 'Origin: http://evil.example' \
-        -H 'Sec-Fetch-Site: cross-site' \
-        -d '{"home":"main","id":"cc-live","source":"hold","key":"cc-live","text":"x"}' \
+        -H 'Content-Type: text/plain' -d "$body" \
         "http://127.0.0.1:$port/api/answer")" \
-    "a cross-site POST reached a firstmate command"
+    "a form-submittable content type reached a firstmate command"
+  assert_equals "403" \
+    "$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+        -H 'Content-Type: application/json' -H 'Origin: http://evil.example' \
+        -d "$body" "http://127.0.0.1:$port/api/answer")" \
+    "a foreign Origin reached a firstmate command"
+  assert_equals "403" \
+    "$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+        -H 'Content-Type: application/json' -H 'Sec-Fetch-Site: cross-site' \
+        -d "$body" "http://127.0.0.1:$port/api/answer")" \
+    "a cross-site fetch reached a firstmate command"
+  # A refused request must leave nothing on the kept-alive connection for the
+  # next one to be read out of: the note here is smuggled behind the refusal.
+  assert_equals "0" "$(smuggle_notes "$port" "$home")" \
+    "a request smuggled behind a refused one reached firstmate"
   assert_equals "403" \
     "$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: attacker.example' \
         "http://127.0.0.1:$port/api/items")" \

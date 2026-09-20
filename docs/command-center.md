@@ -59,8 +59,8 @@ The doorbell ring that `fm-send.sh` types into a pane is best effort and is neve
 The lamp beside each row is `bin/fm-busy-lib.sh`'s classification of whether anyone is listening: **working**, **waiting**, **cannot tell**, **not running**, or **no worker** for a question firstmate itself owns.
 A missing or stale signal classifies as *cannot tell* and is never shown as healthy.
 
-A message that has not been picked up is called stuck on firstmate's own retry ladder: `FM_TASK_INBOX_GRACE_SECS` (default 90) between rings and `FM_TASK_INBOX_RING_MAX` (default 3) rings before firstmate escalates.
-Set either variable to change firstmate's behaviour and this page together.
+A message that has not been picked up is called stuck after 270 seconds, the page's own threshold, chosen to match firstmate's retry ladder: `FM_TASK_INBOX_GRACE_SECS` (default 90) between rings times `FM_TASK_INBOX_RING_MAX` (default 3) rings.
+Nothing serves that environment to the browser, so setting either variable changes firstmate's ringing and not this page; to keep the two in step, edit `GRACE_SECS` and `RING_MAX` in `bin/command-center.html` as well.
 
 Above the list, one line reports whether firstmate is still watching each home, read from `state/.last-watcher-beat`.
 If it has gone quiet, an answer you send is still recorded but nothing will ring it, and the page says so rather than looking normal.

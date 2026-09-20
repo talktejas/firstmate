@@ -266,14 +266,26 @@ class Handler(BaseHTTPRequestHandler):
         self._send(code, dump(obj))
 
     def _body(self):
+        """Read the declared body first, on every path including a refusal.
+
+        The connection is kept alive, so bytes left unread become the head of
+        the next request: a refusal that skips the body hands the sender a way
+        to smuggle a request that looks same-origin in behind the refused one.
+        Anything that cannot be drained exactly closes the connection instead.
+        """
         try:
             length = int(self.headers.get("Content-Length", "0"))
         except ValueError:
+            length = -1
+        if length < 0 or length > 1 << 20 or self.headers.get("Transfer-Encoding"):
+            self.close_connection = True
             return None
-        if length <= 0 or length > 1 << 20:
+        raw = self.rfile.read(length) if length else b""
+        if len(raw) != length:
+            self.close_connection = True
             return None
         try:
-            return json.loads(self.rfile.read(length))
+            return json.loads(raw)
         except (json.JSONDecodeError, UnicodeDecodeError):
             return None
 
@@ -348,11 +360,11 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = self.path.split("?", 1)[0]
+        payload = self._body()
         ctype = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
         if not self._local_request() or ctype != "application/json":
             self._json(403, {"ok": False, "error": "refused: not this page"})
             return
-        payload = self._body()
         if payload is None or not isinstance(payload, dict):
             self._json(400, {"ok": False, "error": "unreadable request"})
             return

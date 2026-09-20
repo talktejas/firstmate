@@ -728,7 +728,11 @@ async function poll(){
     const res = await fetch('/api/items', {
       headers: state.etag ? {'If-None-Match': state.etag} : {} });
     if (!res.ok && res.status !== 304) throw new Error('HTTP ' + res.status);
-    $('#live').innerHTML = '<span class="beat"></span>Live';
+    if (state.connected === false){
+      state.connected = true;
+      $('#live').innerHTML = '<span class="beat"></span>Live';
+    }
+    if (state.error){ state.error = null; renderWatcher(); }
     if (res.status === 304) return;
     state.etag = res.headers.get('ETag');
     const next = await res.json();
@@ -741,6 +745,7 @@ async function poll(){
     if (state.flash) setTimeout(() => { state.flash = null; renderList(); }, 2000);
   } catch (err) {
     state.error = String(err.message || err);
+    state.connected = false;
     $('#live').innerHTML = '<span class="lamp dead"></span>Not connected';
     renderWatcher();
   }
@@ -773,6 +778,7 @@ async function sendAnswer(){
     $('#sendnote').innerHTML = `<b style="color:var(--hot)">Not sent.</b> ${
       esc(data.error || data.detail || 'the command failed')} — your words are still here.`;
     $('#send').disabled = false;
+    $('#send').textContent = 'Send to firstmate';
     return;
   }
   delete state.draft[itemKey(it)]; save('cc.draft', state.draft);
