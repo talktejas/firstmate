@@ -2000,6 +2000,35 @@ test_teardown_missing_busy_sidecar_completes() {
   pass "teardown completes when an exact busy-state sidecar is already absent"
 }
 
+# A cleanup step that fails after the destructive half (agent kill, worktree
+# return) is already done must say what failed and what it leaves behind -
+# otherwise a task whose real cleanup finished looks in flight forever with no
+# clue why. This forces status_retire_presentation_task to fail (a malformed
+# row in its shared manifest) and checks the resulting stderr names the step
+# and the survivor, rather than teardown exiting silently.
+test_teardown_names_a_failed_cleanup_step() {
+  local case_dir rc
+  case_dir=$(make_case failed-cleanup-step)
+  write_meta "$case_dir" local-only ship
+  wt_commit "$case_dir" "fix the thing"
+  add_fork_with_pushed_branch "$case_dir"
+  printf 'other-task\tident\tBADOFFSET\t0\n' > "$case_dir/state/.status-presentation-cursor"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  [ "$rc" -ne 0 ] || fail "failed-cleanup-step: teardown should have failed on the corrupt presentation manifest"
+  assert_grep 'presentation-cursor retirement failed' "$case_dir/stderr" \
+    "failed-cleanup-step: stderr did not name the failed step"
+  assert_grep "$case_dir/state/task-x1.meta was not removed" "$case_dir/stderr" \
+    "failed-cleanup-step: stderr did not name what the failure leaves behind"
+  [ -f "$case_dir/state/task-x1.meta" ] \
+    || fail "failed-cleanup-step: the task record was removed despite the failure"
+  pass "teardown names a failed cleanup step and what it leaves behind on stderr"
+}
+
 test_herdr_teardown_clears_escalation_marker() {
   local case_dir marker
   case_dir=$(make_case herdr-marker-cleanup)
@@ -3711,6 +3740,7 @@ test_local_only_force_overrides_unpushed
 test_secondmate_pr_registration_publishes_ready_line
 test_secondmate_home_teardown_delivers_final_line_or_refuses
 test_teardown_missing_busy_sidecar_completes
+test_teardown_names_a_failed_cleanup_step
 test_herdr_teardown_clears_escalation_marker
 test_herdr_flat_teardown_refuses_orphaning_records_then_retry_completes
 test_herdr_flat_teardown_refuses_records_on_unparseable_presence
