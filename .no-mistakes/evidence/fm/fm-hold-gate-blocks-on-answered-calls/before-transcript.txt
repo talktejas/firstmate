@@ -1,0 +1,48 @@
+== 1. scout attests its five captain calls
+$ fm-captain-hold.sh complete jt-mfg-module-plan jt-mfg-karigar-wage-metal jt-mfg-mould-in-house jt-mfg-mould-ownership jt-mfg-open-one jt-mfg-open-two
+complete: jt-mfg-module-plan captain-call inventory reviewed (jt-mfg-karigar-wage-metal,jt-mfg-mould-in-house,jt-mfg-mould-ownership,jt-mfg-open-one,jt-mfg-open-two)
+[exit 0]
+  meta: decision_keys=jt-mfg-karigar-wage-metal,jt-mfg-mould-in-house,jt-mfg-mould-ownership,jt-mfg-open-one,jt-mfg-open-two
+== 2. captain answers three of them
+[exit 0]
+[exit 0]
+[exit 0]
+== 3. verify with three answered + two still held
+$ fm-captain-hold.sh verify jt-mfg-module-plan
+verified: jt-mfg-module-plan captain-call inventory
+[exit 0]
+== 4. ADVERSARIAL: corrective complete that silently drops a still-open call
+$ fm-captain-hold.sh complete jt-mfg-module-plan jt-mfg-open-one
+complete: jt-mfg-module-plan captain-call inventory reviewed (jt-mfg-karigar-wage-metal,jt-mfg-mould-in-house,jt-mfg-mould-ownership,jt-mfg-open-one,jt-mfg-open-two)
+[exit 0]
+  meta: decision_keys=jt-mfg-karigar-wage-metal,jt-mfg-mould-in-house,jt-mfg-mould-ownership,jt-mfg-open-one,jt-mfg-open-two
+== 5. ADVERSARIAL: --none while two calls still unanswered
+$ fm-captain-hold.sh complete jt-mfg-module-plan --none
+complete: jt-mfg-module-plan captain-call inventory reviewed (jt-mfg-karigar-wage-metal,jt-mfg-mould-in-house,jt-mfg-mould-ownership,jt-mfg-open-one,jt-mfg-open-two)
+[exit 0]
+  meta: decision_keys=jt-mfg-karigar-wage-metal,jt-mfg-mould-in-house,jt-mfg-mould-ownership,jt-mfg-open-one,jt-mfg-open-two
+== 6. corrective complete with only the still-open ids
+$ fm-captain-hold.sh complete jt-mfg-module-plan jt-mfg-open-one jt-mfg-open-two
+complete: jt-mfg-module-plan captain-call inventory reviewed (jt-mfg-karigar-wage-metal,jt-mfg-mould-in-house,jt-mfg-mould-ownership,jt-mfg-open-one,jt-mfg-open-two)
+[exit 0]
+  meta: decision_keys=jt-mfg-karigar-wage-metal,jt-mfg-mould-in-house,jt-mfg-mould-ownership,jt-mfg-open-one,jt-mfg-open-two
+== 7. verify after replacement
+$ fm-captain-hold.sh verify jt-mfg-module-plan
+verified: jt-mfg-module-plan captain-call inventory
+[exit 0]
+== 8. teardown of the finished scout
+[exit 0]
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+teardown jt-mfg-module-plan complete (window firstmate:fm-jt-mfg-module-plan, worktree /tmp/fm-live-answered.SOrTmY/projects/missing-jt-mfg-module-plan)
+Backlog: jt-mfg-module-plan is closed in /tmp/fm-live-answered.SOrTmY/data/backlog.md. Run bin/fm-tasks-axi.sh ready for dependency-cleared candidates, check date gates, and dispatch only work whose blockers are gone and date is due.
+== 9. held calls survive teardown, still captain-held in backlog
+task:
+  id: jt-mfg-open-one
+  title: Decide jt-mfg-open-one
+  state: queued
+  blocked: no
+  blocked_by: none
+  held: yes
+  hold_reason: captain must decide
