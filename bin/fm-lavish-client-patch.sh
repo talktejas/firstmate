@@ -19,7 +19,7 @@ if grep -q "fm-lavish-client-patch: release SSE on hide" "$CLIENT"; then
 fi
 
 node --input-type=module -e '
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, renameSync, writeFileSync } from "node:fs";
 const path = process.argv[1];
 const src = readFileSync(path, "utf8");
 
@@ -94,7 +94,9 @@ document.addEventListener("visibilitychange", () => {
   }
 });`;
 
-writeFileSync(path, src.slice(0, idx) + replacement + src.slice(idx + needle.length));
+const tmp = path + ".fm-tmp";
+writeFileSync(tmp, src.slice(0, idx) + replacement + src.slice(idx + needle.length));
+renameSync(tmp, path);
 console.log("fm-lavish-client-patch: patched " + path);
 ' "$CLIENT"
 

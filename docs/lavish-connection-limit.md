@@ -36,8 +36,9 @@ A server restart is required for a freshly applied patch to take effect in alrea
 Upgrading lavish-axi silently reverts the patch: an upgrade reinstalls `dist/chrome-client.js` from the new package, unpatched.
 Re-run the script after every `lavish-axi update`.
 
-Verification for this patch was static (syntax check, presence of the new code, three idempotency cases against throwaway copies, and an HTTP check against a disposable Lavish instance on a private port) rather than a live six-plus-tab browser proof.
-`tests/fm-lavish-client-patch.test.sh` owns that evidence and additionally runs the patched code against a fake `EventSource`/`document` harness to prove the stream closes on hide and reopens on show.
+Verification for this patch was static rather than a live six-plus-tab browser proof.
+`tests/fm-lavish-client-patch.test.sh` owns the repeatable part: against a fixture it writes itself, it proves the script applies once, is a no-op on a second run, and refuses without touching the file when the target code has moved, then runs the patched code against a fake `EventSource`/`document` harness to prove the stream closes on hide and reopens on show.
+The remaining checks were one-off manual verification during the task and are not re-run by that test: `node --check` and the three idempotency cases against throwaway copies of the installed lavish-axi 0.1.63 client fetched via `npm pack`, and an HTTP check against a disposable Lavish instance on a private port confirming the served client was the patched one.
 This machine's only browsers are the captain's own, so proving the fix live needs opening more than six real tabs and no browser here can do that without it being his.
 The real proof will be the captain simply no longer seeing pages stall.
 
