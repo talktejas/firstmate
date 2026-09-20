@@ -659,7 +659,12 @@ function itemRow(it){
 // act that closed the decision, so nothing here is inferred.
 function wordOutcome(r){
   if (r.kind === 'draft') return 'Not sent. Kept here so it is not lost.';
-  switch (r.outcome){
+  // sendState comes from bin/command-center-state.js: a row still reading
+  // `sending` that the page has already given up on is not a send on its way.
+  switch (sendState(r, state.pending)){
+    case 'given-up':
+      return 'Given up on. Nothing ever reported what became of it, so it may or '
+           + 'may not have arrived';
     // Written down and on its way. The command has not answered yet, so
     // nothing is claimed about delivery until it does.
     case 'sending': return 'Recorded here. Going out now — the outcome appears when the command answers';
@@ -1256,9 +1261,14 @@ function reconcilePending(read){
     state.pending[sid] = Object.assign({}, held, {released: true});
     if (held.key === 'note') noteText(held.text);
     else state.draft[held.key] = held.text;
-    state.failed[held.key] = {outcome: 'unknown',
+    // A reply that took the answer route was a steer at an ITEM as well, and
+    // the warning has to stand on both surfaces: otherwise the waiting list
+    // offers Send with nothing said, and the same worker is steered twice.
+    const warning = {outcome: 'unknown',
       detail: 'nothing ever reported what became of it: the page or the server '
             + 'stopped before the command answered'};
+    for (const k of [held.key, held.item].filter(Boolean))
+      state.failed[k] = warning;
     changed = true;
   }
   if (changed){
@@ -1499,7 +1509,14 @@ setInterval(async () => { if (await loadMessages()) renderList(); }, POLL_MS);
 // change check. An unchanged record costs a stat.
 setInterval(async () => {
   const said = await loadSaid();
-  if (reconcilePending(said.read) || said.changed) render();
+  if (!(reconcilePending(said.read) || said.changed)) return;
+  // Everything around him is updated, but the pane is left alone while he is
+  // typing in it: the same rule the message poll above follows, because every
+  // send he makes produces exactly this change a few seconds later.
+  renderList();
+  const box = $('#reply');
+  if (box && document.activeElement === box) return;
+  render();
 }, POLL_MS);
 setInterval(renderList, 30000);   // keep the ages and stuck flags honest
 </script>

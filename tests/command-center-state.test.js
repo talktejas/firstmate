@@ -8,7 +8,7 @@ const path = require('path');
 const {
   pollFacts, tense, transportFailure, verdictFor, releaseVerdicts, itemKey,
   shapeMessage, orderRows, replyTarget, foldSaid, wordsAfter,
-  listSignature, mayRelease, logRead,
+  listSignature, mayRelease, logRead, sendState,
 } = require(path.join(__dirname, '..', 'bin', 'command-center-state.js'));
 
 // Quiet on success: tests/command-center.test.sh runs this and reports the
@@ -354,6 +354,22 @@ test('a body with rows and no error is a read', () => {
   assert.strictEqual(got.dropped, 3, 'what the limit cut must survive the read');
   assert.deepStrictEqual(logRead({}, 'said').rows, [],
     'a log with nothing in it yet is an empty read, not a failed one');
+});
+
+// --- a send the page gave up on ------------------------------------------------
+// The acceptance row keeps saying `sending` forever when no outcome row is ever
+// written, so once the page has given up on that send nothing may still read it
+// as a delivery on its way: one send described two ways is the contradiction.
+test('a released send is never still going out', () => {
+  const row = { sid: 'a', outcome: 'sending' };
+  assert.strictEqual(sendState(row, {}), 'sending');
+  assert.strictEqual(sendState(row, { a: { key: 'k', released: true } }), 'given-up');
+  assert.strictEqual(sendState(row, { a: { key: 'k' } }), 'sending',
+    'a send still in flight is still in flight');
+  assert.strictEqual(sendState({ sid: 'a', outcome: 'sent' },
+                               { a: { key: 'k', released: true } }), 'sent',
+    'an outcome that arrived late supersedes the page giving up');
+  assert.strictEqual(sendState(undefined, undefined), undefined);
 });
 
 process.exit(failures ? 1 : 0);

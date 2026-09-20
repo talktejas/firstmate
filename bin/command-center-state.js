@@ -144,6 +144,19 @@ function foldSaid(rows) {
   return kept;
 }
 
+// --- what one send is, taking the page's own surrender into account --------------
+// The record is written when the click is accepted and again when the command
+// answers, so a row still reading `sending` is a send with no answer yet. But
+// once the page has given up on that send (mayRelease below), no surface may
+// still say it is on its way: the row and the warning beside it would be
+// describing one send two contradictory ways.
+function sendState(row, pending) {
+  const outcome = (row || {}).outcome;
+  if (outcome !== 'sending') return outcome;
+  const held = (pending || {})[(row || {}).sid];
+  return held && held.released ? 'given-up' : 'sending';
+}
+
 // --- was the record actually READ? ----------------------------------------------
 // The server answers 200 with no rows and an `error` when it could not read one
 // of the logs (_log_response in bin/command-center.py). That is not a read: it
@@ -229,4 +242,5 @@ if (typeof module === 'object' && module.exports)
   module.exports = { pollFacts, tense, transportFailure, verdictFor,
                      releaseVerdicts, itemKey, shapeMessage, orderRows,
                      replyTarget, foldSaid, wordsAfter,
-                     listSignature, mayRelease, logRead };
+                     listSignature, mayRelease, logRead,
+                     sendState };
