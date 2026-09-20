@@ -124,6 +124,7 @@ A reply naming a message this home never recorded is refused, and a task id is o
 A reply to a recorded question is refused outright while no scan has been read, because a reply that cannot rule out the answer route must not quietly become a note.
 A reply to a message that is not a question is not refused then: no scan can change where it goes, so a backlog that will not parse has nothing to say about it.
 A reply carries the same do-not-resend protection an answer does: on an unconfirmed delivery it keeps your words, stops offering Reply, and waits until you say to send it anyway.
+When the reply steers a worker still waiting, that protection covers the item too, so the same worker cannot be reached a second time by answering it from the waiting list instead.
 
 ## What it stores
 
@@ -142,6 +143,7 @@ On **unknown** the page keeps your text, says plainly that delivery could not be
 On any other non-success it keeps your text too, so nothing you typed is cleared by a send that did not land.
 Your words stay in the box until the outcome row says the send landed; when it says failed or unknown they are put back where you typed them, the row you sent from is flagged `not sent`, and a note that did not land says so on its own button.
 If no outcome ever arrives, because the server or the page stopped while the command was still running, the page releases that send itself once the send window has passed: your words come back, the controls work again, and the row says plainly that nothing ever reported what became of it.
+It releases nothing while it cannot read that log, and a read the server reports as failed is not a read, so an outcome already written is never buried under an outcome the page invented.
 
 An open item shows one line derived from this record: the last thing you sent about it and what became of it, and a message shows every reply you sent to it.
 Both logs are served whole, and if either is ever shortened the page says so and says how many rows are missing, because a reply missing from a thread reads as a message you never answered.
