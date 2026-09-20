@@ -1259,10 +1259,10 @@ spawn_abort_cleanup() {
     # itself, so the release is skipped: handing that copy back to the pool is
     # the reassignment this claim exists to prevent.
     SPAWN_TREEHOUSE_LEASE_PENDING=0
-    ( cd "$PROJ_ABS" && treehouse return --force \
+    SPAWN_LEASE_RELEASE_OUT=$( cd "$PROJ_ABS" && treehouse return --force \
         --if-lease-holder "$SPAWN_TREEHOUSE_LEASE_HOLDER" \
-        "$SPAWN_TREEHOUSE_LEASE_PATH" >/dev/null 2>&1 ) \
-      || echo "warning: could not release the treehouse lease on $SPAWN_TREEHOUSE_LEASE_PATH held as $SPAWN_TREEHOUSE_LEASE_HOLDER; release it with: treehouse return --force --if-lease-holder '$SPAWN_TREEHOUSE_LEASE_HOLDER' '$SPAWN_TREEHOUSE_LEASE_PATH'" >&2
+        "$SPAWN_TREEHOUSE_LEASE_PATH" 2>&1 ) \
+      || echo "warning: could not release the treehouse lease on $SPAWN_TREEHOUSE_LEASE_PATH held as $SPAWN_TREEHOUSE_LEASE_HOLDER (treehouse said: ${SPAWN_LEASE_RELEASE_OUT:-nothing}); release it with: treehouse return --force --if-lease-holder '$SPAWN_TREEHOUSE_LEASE_HOLDER' '$SPAWN_TREEHOUSE_LEASE_PATH'" >&2
   fi
   if [ "$SPAWN_TREEHOUSE_PROJECT_LOCK_HELD" = 1 ]; then
     SPAWN_TREEHOUSE_PROJECT_LOCK_HELD=0
@@ -2742,14 +2742,13 @@ real_path_or_raw() { # <path>
 # left holding the worktree root the check read, and SPAWN_WT_REASON a short
 # phrase naming why a rejected path failed, both for the refusal messages.
 #
-# The worktree-discovery poll below reads this same predicate, so it can never
-# adopt a path the guard would then refuse. That matters because a pane's cwd
-# read is a snapshot of whatever process is in the foreground: while `treehouse
-# get` is still fetching and checking a slot out, it reports the REPOSITORY's
-# primary checkout as its own cwd. That path differs from a linked spawning
-# project, so a poll comparing only against the project accepted it, and the
-# guard then refused a launch whose slot treehouse went on to create normally.
-# A read like that is a transient, not a destination: the poll keeps waiting.
+# Its callers are the two validate_spawn_worktree sites: the fresh path screens
+# the copy the pool leased BEFORE the pane is told to enter it, so a path that
+# is not this project's own isolated worktree is refused while nothing but the
+# lease has happened yet, and a relaunch screens the copy its record already
+# names. Nothing reads a pane's cwd to decide which
+# copy a task owns any more - the lease does that - so this predicate no longer
+# has to tell a worktree apart from a transient foreground cwd.
 SPAWN_WT_TOP=
 SPAWN_WT_REASON=
 spawn_worktree_isolated() { # <path>
@@ -4761,7 +4760,11 @@ fi
 if [ "$SPAWN_BACKLOG_COMMIT_STATUS" -ne 0 ]; then
   if [ "$RELAUNCH" -eq 0 ]; then
     if spawn_fresh_commit_rollback; then
-      echo "error: task $ID's backlog item could not be moved to In flight ($FM_BACKLOG_TRANSITION_ERROR); its record was removed so no worker is left that the backlog does not own - close out endpoint $T and local copy $WT by hand, then re-run the spawn" >&2
+      SPAWN_LEASE_RECOVERY=
+      if [ -n "$SPAWN_TREEHOUSE_LEASE_HOLDER" ]; then
+        SPAWN_LEASE_RECOVERY="; the removed record was what named this task's pool claim, so release it with: treehouse return --force --if-lease-holder '$SPAWN_TREEHOUSE_LEASE_HOLDER' '$WT'"
+      fi
+      echo "error: task $ID's backlog item could not be moved to In flight ($FM_BACKLOG_TRANSITION_ERROR); its record was removed so no worker is left that the backlog does not own - close out endpoint $T and local copy $WT by hand, then re-run the spawn$SPAWN_LEASE_RECOVERY" >&2
     else
       echo "error: task $ID's backlog item could not be moved to In flight ($FM_BACKLOG_TRANSITION_ERROR), and failed-dispatch cleanup is incomplete; the provisional record may remain at $STATE/$ID.meta - close out endpoint $T and local copy $WT by hand, then remove the record and busy state before retrying" >&2
     fi

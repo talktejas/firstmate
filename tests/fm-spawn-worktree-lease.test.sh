@@ -84,6 +84,9 @@ test_aborted_spawn_returns_its_claim() {
   assert_contains "$log" \
     "treehouse${SEP}return${SEP}--force${SEP}--if-lease-holder${SEP}fm:$id@$LEASE_HOME/state${SEP}$LEASE_WT" \
     "an aborted spawn left its pool claim behind"
+  [ ! -e "$LEASE_LOG.holder" ] || fail "the pool still holds the claim, so the release the spawn ran was refused"
+  assert_not_contains "$out" "could not release the treehouse lease" \
+    "the release failed and the spawn reported it"
   pass "an aborted spawn returns its claim, matched on the holder that took it"
 }
 
@@ -155,6 +158,19 @@ test_real_pool_does_not_hand_out_a_leased_slot() {
   [ -n "$handed" ] || fail "real treehouse handed out no worktree at all"
   [ "$handed" != "$leased" ] || fail "real treehouse handed out the leased, idle slot"
   pass "the real pool does not hand out a leased slot that has no process inside it"
+
+  # The release side of the same contract: every claim this fix takes is given
+  # back with a holder-matched return, so it must exist on the real build, must
+  # refuse a holder that is not the one holding the claim, and must free the
+  # slot for the holder that is.
+  ( cd "$repo" && treehouse return --force --if-lease-holder 'fm:someone-else@state' "$leased" >/dev/null 2>&1 ) \
+    && fail "real treehouse returned a leased slot to a holder that does not hold it"
+  ( cd "$repo" && treehouse return --force --if-lease-holder 'fm:pool-guarantee@state' "$leased" >/dev/null 2>&1 ) \
+    || fail "real treehouse could not release the claim its own holder label took"
+  assert_not_contains "$(cd "$repo" && treehouse status --json 2>/dev/null)" \
+    'fm:pool-guarantee@state' \
+    "the pool still records the released claim, so the slot is not back in the pool"
+  pass "a claim is released only by the holder that took it, and the slot returns to the pool"
 }
 
 test_spawn_claims_the_slot_with_a_labelled_lease

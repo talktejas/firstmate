@@ -1541,6 +1541,24 @@ Observed output, with the pool root shortened:
 ```
 
 The leased slot carries no process and is still not handed to the later plain `get`, which allocates a different slot, and the holder label is readable back from the pool's own status.
+
+The release every claim depends on is holder-matched, verified on 2026-09-20 with the same build against the slot leased above.
+
+```sh
+treehouse return --force --if-lease-holder 'fm:other@/home/fm/state' .../1/repo
+treehouse return --force --if-lease-holder 'fm:demo-task@/home/fm/state' .../1/repo
+treehouse status --json
+```
+
+Observed output, with the pool root shortened:
+
+```text
+failed to return worktree: lease precondition failed: lease holder does not match worktree .../1/repo
+🌳 Worktree returned to pool.
+[{"name":"1","path":".../1/repo","status":"available","lease_id":"","lease_holder":"","leased_at":null,"processes":[]}]
+```
+
+A holder that does not match leaves the lease in place and exits 1, so a release can never take back a slot some later allocation already owns; the matching holder returns the slot and clears the label. `bin/fm-bootstrap.sh` gates on this flag alongside `get --lease`, so a build without it is reported as a treehouse upgrade rather than leaving claims nothing can release.
 [`tests/fm-spawn-worktree-lease.test.sh`](../../tests/fm-spawn-worktree-lease.test.sh) is the command that refreshes this record; it skips when treehouse is not installed.
 
 ## Zellij
