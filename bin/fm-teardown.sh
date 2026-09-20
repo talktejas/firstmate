@@ -86,7 +86,11 @@
 # cleanup step, teardown verifies record exclusivity: no OTHER task record in
 # this home or any locally registered Firstmate home may name the same live path
 # in its worktree= or home=. One live path with two task records is the reuse
-# collision itself, whichever record is stale.
+# collision itself, whichever record is stale. That refusal would otherwise run
+# in both directions and strand the pair, so when the slot's own owner claim
+# names a DIFFERENT task, this record is provably not the owner: it is retired
+# through the reassigned path below instead of refusing, which leaves one
+# record on the slot and frees the owner's own teardown.
 # That scan alone cannot prove THIS record is the current owner, because the task
 # that took the slot next may leave no record it can reach - its own worker may
 # have exited and its record been cleaned up, or it may live in a home this
@@ -2242,9 +2246,27 @@ require_exclusive_worktree_slot_record() {
         [ -n "$other_path" ] || continue
         other_slot=$(canonical_existing_dir "$other_path") || continue
         [ "$other_slot" = "$slot" ] || continue
+        # Two records naming one slot refuse each other in both directions, so
+        # neither can be retired and the pair deadlocks until one record is
+        # removed by hand (observed 2026-09-20). The slot's own claim breaks
+        # that tie when it can: it names the task that actually took the slot,
+        # so a claim naming SOMEONE ELSE proves this record is not the owner.
+        # That record is then retirable through the ordinary reassigned path -
+        # require_owned_worktree_slot_record warns, every step that touches the
+        # slot is skipped, and only this record's own cleanup runs - which
+        # leaves the collision with exactly one record and frees the owner's
+        # own teardown. Refuse only while this record could still be the owner.
+        fm_treehouse_slot_owner_state "$slot" "$record_id"
+        if [ "$FM_TREEHOUSE_SLOT_OWNER" = other ]; then
+          return 0
+        fi
         echo "REFUSED: task $record_id's recorded worktree $slot is also task $other_id's recorded $field." >&2
         echo "Returning that pool slot would kill $other_id's processes and reset its copy, so nothing was changed - not even with --force." >&2
-        echo "Reconcile whichever record is wrong (bin/fm-crew-state.sh $record_id; bin/fm-crew-state.sh $other_id), then re-run teardown." >&2
+        if [ "$FM_TREEHOUSE_SLOT_OWNER" = mine ] && [ "$state_dir" = "$record_state" ]; then
+          echo "That slot's own claim names $record_id, so $other_id's record is the stale one: tear that one down first (bin/fm-teardown.sh $other_id), which retires its record without touching this copy, then re-run this teardown." >&2
+        else
+          echo "Reconcile whichever record is wrong (bin/fm-crew-state.sh $record_id; bin/fm-crew-state.sh $other_id), then re-run teardown." >&2
+        fi
         return 1
       done
     done

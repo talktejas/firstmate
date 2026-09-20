@@ -152,11 +152,13 @@ test_copy_another_task_record_claims_is_refused_by_name() {
   pass "a copy another task record claims is refused by name, and stays claimed"
 }
 
-# The record's own claim is also what says it does not need this defence: a task
-# holding a lease cannot have had its copy offered, so its record must not block
-# a spawn the pool did allocate.
-test_a_record_holding_its_own_claim_does_not_block_a_spawn() {
-  local id out status
+# A record carrying its own worktree_lease= is NOT exempt from that refusal.
+# The pool having offered the copy at all is proof the claim is gone - every
+# recovery command this script prints can force-release a live one, and a
+# cleanup that returns the slot and then dies before removing its record leaves
+# the same state - so the record still names a copy about to be reset under it.
+test_a_record_whose_claim_was_released_still_blocks_a_spawn() {
+  local id out status log
   id=lease-claimed-neighbour-w4
   make_lease_case lease-claimed-neighbour "$id"
   fm_write_meta "$LEASE_HOME/state/other-task-w4.meta" \
@@ -165,10 +167,14 @@ test_a_record_holding_its_own_claim_does_not_block_a_spawn() {
 
   out=$(run_lease_spawn "$id" "$LEASE_WT")
   status=$?
-  expect_code 0 "$status" "spawn was blocked by a record that holds its own claim"$'\n'"$out"
-  assert_grep "worktree_lease=fm:$id@$LEASE_HOME/state" "$LEASE_HOME/state/$id.meta" \
-    "meta did not record the claim this task holds on its copy"
-  pass "a record holding its own claim does not block a spawn the pool allocated"
+  [ "$status" -ne 0 ] || fail "spawn launched into a copy whose record's claim had been released"$'\n'"$out"
+  assert_contains "$out" "task other-task-w4's own record still names as its working copy" \
+    "the refusal did not name the task holding the copy"
+  [ ! -e "$LEASE_HOME/state/$id.meta" ] || fail "refused spawn published task metadata"
+  log=$(cat "$LEASE_LOG")
+  assert_not_contains "$log" "return" \
+    "the refusal returned the claim, so the next spawn would be offered the same copy again"
+  pass "a record whose claim was released still blocks a spawn into its copy"
 }
 
 # The guarantee the whole fix rests on, checked against the real pool rather
@@ -214,7 +220,7 @@ test_spawn_claims_the_slot_with_a_labelled_lease
 test_stalled_allocation_refuses_and_frees_the_project_lock
 test_aborted_spawn_returns_its_claim
 test_copy_another_task_record_claims_is_refused_by_name
-test_a_record_holding_its_own_claim_does_not_block_a_spawn
+test_a_record_whose_claim_was_released_still_blocks_a_spawn
 test_real_pool_does_not_hand_out_a_leased_slot
 
 echo "# all fm-spawn-worktree-lease tests passed"

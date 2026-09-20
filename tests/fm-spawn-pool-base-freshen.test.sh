@@ -184,6 +184,11 @@ test_stale_pool_base_refreshes_before_branching() {
       "$branch_head" "$current" "$(cat "$POOL_DIR/advanced-main.txt")"
   fi
 
+  # The fixture pool hands out the same copy every time, so retire the first
+  # task's record before the repeat: a live record naming the copy the pool is
+  # offering is the slot-reuse collision fm-spawn refuses by name, and this case
+  # is about the base refresh, not about that refusal.
+  rm -f "$HOME_DIR/state/pool-current-base-r1.meta"
   id='pool-current-base-repeat-r1'
   fm_test_spawn_brief "$HOME_DIR" "$id"
   out=$(run_spawn "$id" --mode no-mistakes --yolo off)
@@ -529,6 +534,11 @@ strand_submodule_pin_via_spawn() {  # <seed-id>
     || fail "the first spawn did not move the pooled base across the moved submodule pin"
   [ "$(git -C "$POOL_DIR/ui" rev-parse HEAD)" = "$SUBPIN1" ] \
     || fail "the first spawn did not strand the submodule on the pin the old base recorded"
+  # Retire the seeding task's record: the fixture pool hands the same copy to
+  # the next spawn, and a live record still naming it is the slot-reuse
+  # collision fm-spawn refuses by name, which would mask the submodule verdict
+  # each caller is actually checking.
+  rm -f "$HOME_DIR/state/$id.meta"
 }
 
 test_stale_submodule_pin_explains_itself() {

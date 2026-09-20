@@ -147,6 +147,7 @@ A backend spawn refusal from a missing dependency, version gate, or unauthentica
 Task meta records `backend=` only for a non-default backend; an absent `backend=` means `tmux`, preserving existing default-path meta files.
 Every new task records `endpoint_task_id=` as the cleanup binding between the metadata filename and its opaque runtime endpoint.
 A ship or scout task in a Treehouse pool worktree also records `worktree_lease=fm:<task-id>@<state-dir>`, the holder label of the durable pool claim `fm-spawn.sh` takes on that copy so it is never handed to another spawn; ordinary teardown's return releases it, and a claim that outlives its task is released with `(cd '<project>' && treehouse return --force --if-lease-holder '<worktree_lease>' '<worktree>')`.
+That release is for a claim whose task is gone: running it while the task is still live returns that copy to the pool, and the next spawn offered it refuses by name rather than launching into a copy another record still holds.
 A herdr task additionally records `herdr_session=`, `herdr_workspace_id=`, `herdr_tab_id=`, and `herdr_pane_id=`.
 A zellij task additionally records `zellij_session=`, `zellij_tab_id=`, and `zellij_pane_id=`.
 An Orca task additionally records `orca_worktree_id=` and `terminal=`, with `window=fm-<id>` kept as the shared firstmate alias.

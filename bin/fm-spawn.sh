@@ -213,6 +213,11 @@
 #   the end of that wait, naming the leased copy and the last path seen.
 #   An aborted spawn returns the lease before any record can name it; otherwise
 #   the published record owns it and bin/fm-teardown.sh's return releases it.
+#   A leased copy that any other live task record in this home still names is
+#   refused by name rather than launched into, whether or not that record holds
+#   a lease of its own: the pool offering the copy is itself proof that no claim
+#   protects it any more, which is what a force-released lease or a cleanup that
+#   returned the slot and died before removing its record leaves behind.
 #   That placement is proven only at launch. Every ship or scout pane therefore
 #   also receives `export FM_TASK_ID=<task-id>` before the launch command, on
 #   the same channel as GOTMPDIR, and bin/fm-test-run.sh refuses to execute the
@@ -3765,14 +3770,17 @@ elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
   SPAWN_TREEHOUSE_LEASE_PENDING=1
   validate_spawn_worktree "treehouse get --lease" "$T"
 
-  # Second line of defence, for a copy the pool offered that a live task record
-  # in this home still names WITHOUT a claim of its own: a task spawned before
-  # leases existed holds its slot with nothing but its processes, and that is
-  # exactly the copy the pool cannot see a claim on. Refuse rather than launch
-  # into it, and name the task that holds it so the operator knows who to ask
-  # instead of going hunting. A record that does carry its own worktree_lease=
-  # is not that case - the pool would not have offered its copy - so it is left
-  # to the ordinary slot-ownership reconciliation rather than blocking a spawn.
+  # Second line of defence, for any copy the pool offered that a live task
+  # record in this home still names. The pool having offered it is itself the
+  # evidence that no claim is protecting it any more, whatever the record says:
+  # a task spawned before leases existed never had one, every recovery command
+  # this script prints can force-release a live one, and a cleanup that returns
+  # the slot and then dies before removing its record leaves the same state.
+  # So a record carrying its own worktree_lease= is checked exactly like one
+  # without: the record names this copy and the copy is being handed away, and
+  # that is the 2026-08-19 reset arriving through a different door. Refuse
+  # rather than launch into it, and name the task that holds it so the operator
+  # knows who to ask instead of going hunting.
   # The lease is deliberately NOT returned here: releasing it would hand the
   # same copy to the next spawn, which would refuse again, and the pool would
   # deadlock on it forever. Holding it quarantines that one slot instead - the
@@ -3785,7 +3793,6 @@ elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
     [ "$spawn_other_id" != "$ID" ] || continue
     spawn_other_wt=$(fm_meta_get "$spawn_other_meta" worktree)
     [ -n "$spawn_other_wt" ] || continue
-    [ -z "$(fm_meta_get "$spawn_other_meta" worktree_lease)" ] || continue
     [ "$(real_path_or_raw "$spawn_other_wt")" = "$spawn_wt_claim" ] || continue
     SPAWN_TREEHOUSE_LEASE_PENDING=0
     echo "error: the pool offered '$WT', which task $spawn_other_id's own record still names as its working copy; refusing to launch task $ID into it and reset another worker's work" >&2
