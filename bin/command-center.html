@@ -312,7 +312,7 @@
         </select>
         <!-- Approved proposal section 4: a state filter, so things are findable without scrolling. -->
         <select id="statefilter" title="Filter by state">
-          <option value="">Any state</option>
+          <option value="">Waiting now</option>
           <option value="stuck">Stuck</option>
           <option value="sent">Sent, not acted on</option>
           <option value="dead">Nobody listening</option>
@@ -513,9 +513,20 @@ function renderWatcher(){
     el.innerHTML = `<span class="lamp dead"></span><span><b>Cannot read the records.</b> ${esc(state.error)}</span>`;
     return;
   }
+  // A home on a non-markdown backend contributes no held rows at all, so the
+  // list is SHORT rather than empty - and short with no notice reads as "nothing
+  // is waiting on you", the one claim this page never makes without evidence.
+  const unread = (state.view.homes || []).filter(h => h.backlog_readable === false);
+  el.style.background = '';
+  if (unread.length){
+    el.className = 'watcher'; el.style.background = 'var(--hot-soft)';
+    el.innerHTML = `<span class="lamp dead"></span><span><b>The backlog of
+      ${unread.map(h => esc(h.name)).join(', ')} could not be read.</b> Anything held
+      for you there is missing from this list — this is not the whole of it.</span>`;
+    return;
+  }
   const stale = (state.view.homes || []).filter(h =>
     !h.watcher_beat_epoch || nowSecs() - h.watcher_beat_epoch > 300);
-  el.style.background = '';
   if (stale.length){
     el.style.background = 'var(--warn-soft)';
     el.innerHTML = `<span class="lamp unknown"></span><span><b>Firstmate is not watching

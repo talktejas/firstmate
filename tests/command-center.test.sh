@@ -236,6 +236,27 @@ test_only_captain_kind_holds_are_his_to_answer() {
   pass "only a hold marked for the captain reaches his list"
 }
 
+# A home on a non-markdown backend holds no readable backlog, so its captain
+# calls are simply absent from the list. Short is not empty, and the page can
+# only say so if the scan reports the difference.
+test_an_unreadable_backlog_is_reported_not_shown_as_empty() {
+  local home root out
+  home="$TMP_ROOT/beads"
+  seed_home "$home"
+  root="$TMP_ROOT/beads-root"
+  mkdir -p "$root"
+  printf '[markdown]\npath = "data/backlog.md"\n\n[backend]\nbackend = "beads"\n' \
+    > "$root/.tasks.toml"
+
+  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$root" "$SCAN")
+  assert_equals "false" \
+    "$(printf '%s' "$out" | jq -r '.homes[] | select(.id == "main") | .backlog_readable')" \
+    "a home whose backlog could not be read was not reported as unreadable"
+  assert_equals "0" "$(printf '%s' "$out" | jq -r '[.items[] | select(.source == "hold")] | length')" \
+    "the fixture no longer proves the held rows go missing when the backlog is unreadable"
+  pass "an unreadable backlog is reported rather than shown as empty"
+}
+
 test_fingerprint_changes_only_when_a_record_moves() {
   local home first second third
   home="$TMP_ROOT/fingerprint"
@@ -390,9 +411,12 @@ test_answering_a_hold_records_the_captains_words_and_clears_the_item() {
   mkdir -p "$home/data" "$home/state"
   FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
     "$ROOT/bin/fm-tasks-axi.sh" add cc-answer "Blue or green?" --kind captain --repo demo \
-    >/dev/null 2>&1 || { pass "tasks-axi unavailable; skipped the live answer round trip"; return; }
+    >/dev/null 2>"$TMP_ROOT/axi.err" \
+    || fail "tasks-axi could not add the fixture task, so this test never ran: $(cat "$TMP_ROOT/axi.err")"
   FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
-    "$ROOT/bin/fm-captain-hold.sh" hold cc-answer --reason "The colour call" >/dev/null 2>&1
+    "$ROOT/bin/fm-captain-hold.sh" hold cc-answer --reason "The colour call" \
+    >/dev/null 2>"$TMP_ROOT/axi.err" \
+    || fail "the fixture task could not be held for the captain: $(cat "$TMP_ROOT/axi.err")"
 
   start_server "$home" || fail "the server did not start"
   port=$SERVER_PORT
@@ -429,9 +453,12 @@ test_answering_held_work_releases_it_instead_of_closing_it() {
   mkdir -p "$home/data" "$home/state"
   FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
     "$ROOT/bin/fm-tasks-axi.sh" add cc-work "Ship the palette" --kind ship --repo demo \
-    >/dev/null 2>&1 || { pass "tasks-axi unavailable; skipped the release round trip"; return; }
+    >/dev/null 2>"$TMP_ROOT/axi.err" \
+    || fail "tasks-axi could not add the fixture task, so this test never ran: $(cat "$TMP_ROOT/axi.err")"
   FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
-    "$ROOT/bin/fm-captain-hold.sh" hold cc-work --reason "Which palette?" >/dev/null 2>&1
+    "$ROOT/bin/fm-captain-hold.sh" hold cc-work --reason "Which palette?" \
+    >/dev/null 2>"$TMP_ROOT/axi.err" \
+    || fail "the fixture work item could not be held for the captain: $(cat "$TMP_ROOT/axi.err")"
 
   start_server "$home" || fail "the server did not start"
   port=$SERVER_PORT
@@ -649,6 +676,7 @@ test_only_live_captain_holds_are_carded
 test_body_survives_the_record_separator
 test_a_title_keeps_a_trailing_parenthetical
 test_only_captain_kind_holds_are_his_to_answer
+test_an_unreadable_backlog_is_reported_not_shown_as_empty
 test_deferred_hold_reports_its_date
 test_branch_states_are_honest
 test_status_decisions_are_carded_with_their_verb
