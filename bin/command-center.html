@@ -387,6 +387,7 @@ const state = {
   open:null, view:{homes:[],items:[]}, said:[], etag:null,
   sending:false, flash:null, error:null, seen:load('cc.seen',{}), draft:load('cc.draft',{}),
   note:load('cc.note',''), outcome:load('cc.outcome',{}), scanned:false, saidError:null,
+  offline:null,
 };
 
 // Browser storage, wrapped: a private window or cleared site data must degrade
@@ -404,6 +405,12 @@ function save(key, value){
 // a guessed position or a made-up age; it says so instead.
 const nowSecs = () => Math.floor(Date.now() / 1000);
 const agoWords = s => s < 60 ? Math.max(0, s) + ' seconds' : Math.round(s / 60) + ' minutes';
+// Records stay UTC; every time this page SHOWS is his own clock, because that
+// is the clock he reasons against. Half a page in each is worse than either.
+const localTime = iso => {
+  const t = Date.parse(iso || '');
+  return isNaN(t) ? '' : new Date(t).toLocaleString();
+};
 function ageLabel(it){
   if (!it.since_epoch) return 'no recorded time';
   const s = Math.max(0, nowSecs() - it.since_epoch);
@@ -516,21 +523,29 @@ function renderWatcher(){
     `<div class="watcher" style="background:var(--${tone})"><span class="lamp ${lamp}"></span>
      <span>${html}</span></div>`;
   const homes = state.view.homes || [];
-  // While the records cannot be re-read, every fact derived from the last scan
-  // is history: it still gets said, but it stops claiming anything about now.
-  const past = !!state.error;
+  // Two different states. OFFLINE means the fetch itself failed, so nothing can
+  // be sent; a failed SCAN means the server answered and a send still works, so
+  // it may say the list is incomplete and nothing more. Either way the view is
+  // stale, so every fact derived from it is history rather than a claim about now.
+  const offline = state.connected === false;
+  const past = offline || !!state.error;
   // Ages and the stale split are measured against the read itself once it is
   // history, so a band cannot silently reclassify a home while time passes.
   const readAt = past && state.view.generated
     ? Math.floor(Date.parse(state.view.generated) / 1000) : nowSecs();
   const asOf = past
     ? ` As at the last read${state.view.generated
-        ? ', ' + esc(state.view.generated.replace('T', ' ').replace('Z', '')) : ''}.`
+        ? ', ' + esc(localTime(state.view.generated)) : ''}.`
     : '';
 
+  if (offline)
+    notices.push(band('hot-soft', 'dead',
+      `<b>Cannot reach the server.</b> ${esc(state.offline || '')} Nothing can be sent
+       until it is back.`));
   if (state.error)
     notices.push(band('hot-soft', 'dead',
-      `<b>Cannot read the records.</b> ${esc(state.error)}`));
+      `<b>The last read of the records failed.</b> ${esc(state.error)} This list may be
+       incomplete — what is on it can still be answered.`));
 
   // Holds HIDDEN from him - an unsupported backend, or a backlog that is there
   // and cannot be read. A home with no backlog file yet simply holds nothing.
@@ -546,8 +561,8 @@ function renderWatcher(){
   if (stale.length)
     notices.push(band('warn-soft', 'unknown',
       `<b>Firstmate ${past ? 'was' : 'is'} not watching ${
-        stale.map(h => esc(h.name)).join(', ')}.</b> ${past
-        ? 'Nothing can be sent anywhere until this page can reach the records again.'
+        stale.map(h => esc(h.name)).join(', ')}.</b> ${offline
+        ? 'Nothing can be sent anywhere until this page can reach the server again.'
         : 'An answer you send there is saved, but nothing will ring it until firstmate is back.'
       }${asOf}`));
 
@@ -643,7 +658,7 @@ function renderWords(){
     const out = wordOutcome(r);
     return `<button class="word" data-key="${esc(r.item_key || r.key || '')}">
       <span class="word-top">
-        <span class="word-when">${esc(draft ? 'unsent' : (r.at || '').replace('T',' ').replace('Z',''))}</span>
+        <span class="word-when">${esc(draft ? 'unsent' : localTime(r.at))}</span>
         <span class="word-where">${where}</span>
         ${draft ? '<span class="flag f-stuck">unsent draft</span>'
                 : r.kind === 'note' ? '<span class="kind k-decision">note</span>' : ''}
@@ -713,7 +728,7 @@ function trackHtml(m){
       when ? `<span class="when">${esc(when)}</span>` : ''}</span>`;
   const waited = m.at ? nowSecs() - Math.floor(Date.parse(m.at) / 1000) : 0;
   const stuck = !m.handled && waited >= STUCK_SECS;
-  let html = step('done', '✓', 'Delivered', (m.at || '').replace('T', ' ').replace('Z', ''));
+  let html = step('done', '✓', 'Delivered', localTime(m.at));
   html += m.handled ? step('done', '✓', 'Picked up', '')
         : stuck     ? step('bad', '!', 'Not picked up', '')
                     : step('wait', '○', 'Not picked up yet', '');
@@ -731,7 +746,7 @@ function threadHtml(it){
     const stuck = !m.handled && waited >= STUCK_SECS;
     const mins = Math.round(waited / 60);
     return `<div class="msg you">
-        <div class="msg-who">You<span class="t">${esc((m.at || '').replace('T',' ').replace('Z',''))}</span></div>
+        <div class="msg-who">You<span class="t">${esc(localTime(m.at))}</span></div>
         <div class="msg-text">${esc(m.text)}</div>${trackHtml(m)}
       </div>` + (stuck ? `<div class="stuck-bar">
         <b>This has not been picked up for ${mins} minutes.</b>
@@ -842,7 +857,7 @@ async function poll(){
     }
     if (!res.ok && res.status !== 304) throw new Error('HTTP ' + res.status);
     if (state.connected === false){
-      state.connected = true;
+      state.connected = true; state.offline = null;
       $('#live').innerHTML = '<span class="beat"></span>Live';
     }
     if (state.error){ state.error = null; renderWatcher(); }
@@ -870,7 +885,7 @@ async function poll(){
     render();
     if (state.flash) setTimeout(() => { state.flash = null; renderList(); }, 2000);
   } catch (err) {
-    state.error = String(err.message || err);
+    state.offline = String(err.message || err);
     state.connected = false;
     $('#live').innerHTML = '<span class="lamp dead"></span>Not connected';
     renderWatcher();
