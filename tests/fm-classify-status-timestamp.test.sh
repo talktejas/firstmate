@@ -1,0 +1,140 @@
+#!/usr/bin/env bash
+# tests/fm-classify-status-timestamp.test.sh - a worker append now carries a
+# UTC timestamp bracket ("[YYYY-MM-DDTHH:MM:SSZ]") as the first thing after
+# the verb's colon, so "how long has this been waiting" can be answered from
+# the log itself instead of the file's last-write mtime. This drives the real
+# status_line_note/status_line_timestamp/status_open_decisions functions
+# (bin/fm-classify-lib.sh) to pin two things: a timestamped line still folds
+# and reads exactly like its pre-timestamp shape (an old log keeps parsing),
+# and the timestamp itself comes back out cleanly in both the keyed and
+# keyless positions.
+set -u
+
+# shellcheck source=tests/lib.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+
+# shellcheck source=bin/fm-classify-lib.sh
+. "$ROOT/bin/fm-classify-lib.sh"
+
+TMP_ROOT=$(fm_test_tmproot fm-classify-status-timestamp-tests)
+
+case_dir() {  # <name>
+  local d="$TMP_ROOT/$1"
+  mkdir -p "$d"
+  printf '%s' "$d"
+}
+
+test_timestamp_round_trips_and_note_stays_clean() {
+  local line ts note theverb
+  line='done: [2026-09-20T14:32:05Z] fixed the bug'
+  ts=$(status_line_timestamp "$line")
+  [ "$ts" = "2026-09-20T14:32:05Z" ] || fail "timestamp not recovered: got '$ts'"
+  note=$(status_line_note "$line")
+  [ "$note" = "fixed the bug" ] || fail "timestamp bracket leaked into the note: got '$note'"
+  status_line_verb "$line" theverb
+  [ "$theverb" = "done" ] || fail "verb corrupted by a timestamped note: got '$theverb'"
+  pass "a timestamped line yields the bare verb, the clean note, and the timestamp"
+}
+
+test_timestamp_after_a_before_colon_key() {
+  local line ts note
+  line='working [key=fix]: [2026-09-20T14:32:05Z] material phase'
+  ts=$(status_line_timestamp "$line")
+  [ "$ts" = "2026-09-20T14:32:05Z" ] || fail "timestamp not recovered with a keyed line: got '$ts'"
+  note=$(status_line_note "$line")
+  [ "$note" = "material phase" ] || fail "note not cleaned with a keyed line: got '$note'"
+  pass "a timestamp after a before-colon key strips cleanly, leaving the key's own note"
+}
+
+test_timestamp_before_a_note_head_key() {
+  local line ts note dir got
+  line='needs-decision: [2026-09-21T10:00:00Z] [key=api-shape] pick REST or RPC'
+  ts=$(status_line_timestamp "$line")
+  [ "$ts" = "2026-09-21T10:00:00Z" ] || fail "timestamp not recovered ahead of a note-head key: got '$ts'"
+  note=$(status_line_note "$line")
+  [ "$note" = "pick REST or RPC" ] || fail "note-head key leaked into the note: got '$note'"
+
+  dir=$(case_dir ts-before-note-head-key)
+  printf '%s\n' "$line" > "$dir/t.status"
+  got=$(status_open_decisions "$dir/t.status")
+  [ "$got" = "$(printf 'api-shape\tneeds-decision\tpick REST or RPC\n')" ] || \
+    fail "a timestamp ahead of the note-head key collapsed the decision key: got '$got'"
+
+  printf 'resolved [key=api-shape]: [2026-09-21T10:05:00Z] answered: REST\n' >> "$dir/t.status"
+  got=$(status_open_decisions "$dir/t.status")
+  [ "$got" = "" ] || fail "the keyed resolution failed to close the decision: got '$got'"
+  pass "a timestamp written ahead of a note-head key still yields that key, note and timestamp"
+}
+
+test_pre_timestamp_line_still_parses() {
+  local line ts note
+  line='done: fixed the bug'
+  ts=$(status_line_timestamp "$line")
+  [ "$ts" = "" ] || fail "an old, untimestamped line reported a timestamp: got '$ts'"
+  note=$(status_line_note "$line")
+  [ "$note" = "fixed the bug" ] || fail "an old line's note changed: got '$note'"
+  pass "a pre-timestamp status line keeps parsing exactly as before"
+}
+
+test_bracket_shaped_prose_is_not_mistaken_for_a_timestamp() {
+  local line ts note
+  line='done: [not-a-timestamp] shipped it'
+  ts=$(status_line_timestamp "$line")
+  [ "$ts" = "" ] || fail "prose in brackets was read as a timestamp: got '$ts'"
+  note=$(status_line_note "$line")
+  [ "$note" = "[not-a-timestamp] shipped it" ] || fail "non-timestamp bracket prose was stripped: got '$note'"
+  pass "a bracket that is not a UTC timestamp is left as ordinary note prose"
+}
+
+test_open_decisions_fold_is_unaffected_by_a_timestamp() {
+  local dir expected got
+  dir=$(case_dir open-decisions)
+  printf 'needs-decision [key=api]: [2026-09-20T14:32:05Z] pick REST or RPC\n' > "$dir/t.status"
+  expected=$(printf 'api\tneeds-decision\tpick REST or RPC\n')
+  got=$(status_open_decisions "$dir/t.status")
+  [ "$got" = "$expected" ] || fail "timestamped needs-decision folded wrong: got '$got' want '$expected'"
+
+  printf 'resolved [key=api]: [2026-09-20T14:40:00Z] answered: REST\n' >> "$dir/t.status"
+  got=$(status_open_decisions "$dir/t.status")
+  [ "$got" = "" ] || fail "timestamped resolution failed to close the decision: got '$got'"
+  pass "a timestamp on a decision-opening or -closing line changes nothing about the open-decisions fold"
+}
+
+# status_key_opened_at is the accessor a consumer (command-center-scan.sh)
+# uses to report how long a decision has actually been waiting: the timestamp
+# on the line that opened it, never the status file's last-write mtime, which
+# only reflects whatever was appended most recently and may be unrelated.
+test_key_opened_at_tracks_the_actual_opening_line() {
+  local dir got
+  dir=$(case_dir opened-at)
+
+  printf 'needs-decision [key=api]: [2026-09-21T10:00:00Z] pick REST or RPC\n' > "$dir/t.status"
+  printf 'working: [2026-09-21T10:00:05Z] still thinking about api\n' >> "$dir/t.status"
+  got=$(status_key_opened_at "$dir/t.status" api)
+  [ "$got" = "2026-09-21T10:00:00Z" ] || \
+    fail "a later unrelated append changed the reported opening time: got '$got'"
+
+  printf 'resolved [key=api]: [2026-09-21T10:05:00Z] answered: REST\n' >> "$dir/t.status"
+  printf 'needs-decision [key=api]: [2026-09-21T10:10:00Z] actually, what about GraphQL too?\n' \
+    >> "$dir/t.status"
+  got=$(status_key_opened_at "$dir/t.status" api)
+  [ "$got" = "2026-09-21T10:10:00Z" ] || \
+    fail "a reopened decision still reported its first opening time: got '$got'"
+
+  got=$(status_key_opened_at "$dir/t.status" no-such-key)
+  [ "$got" = "" ] || fail "a key that was never opened reported a timestamp: got '$got'"
+
+  printf 'needs-decision [key=legacy]: pick a colour\n' > "$dir/legacy.status"
+  got=$(status_key_opened_at "$dir/legacy.status" legacy)
+  [ "$got" = "" ] || fail "a pre-timestamp opening line reported a timestamp it never carried: got '$got'"
+
+  pass "status_key_opened_at reports the current opening line's own timestamp, not a stale or absent one"
+}
+
+test_timestamp_round_trips_and_note_stays_clean
+test_timestamp_after_a_before_colon_key
+test_timestamp_before_a_note_head_key
+test_pre_timestamp_line_still_parses
+test_bracket_shaped_prose_is_not_mistaken_for_a_timestamp
+test_open_decisions_fold_is_unaffected_by_a_timestamp
+test_key_opened_at_tracks_the_actual_opening_line
