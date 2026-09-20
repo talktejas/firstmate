@@ -142,8 +142,11 @@ The outcome is read from the exit code of the command that ran and nothing else:
 On **unknown** the page keeps your text, says plainly that delivery could not be confirmed, and does not offer Send again until the steering record appears — or until you say so yourself, knowing it may be a second copy.
 On any other non-success it keeps your text too, so nothing you typed is cleared by a send that did not land.
 Your words stay in the box until the outcome row says the send landed; when it says failed or unknown they are put back where you typed them, the row you sent from is flagged `not sent`, and a note that did not land says so on its own button.
-If no outcome ever arrives, because the server or the page stopped while the command was still running, the page releases that send itself once the send window has passed: your words come back, the controls work again, and the row says plainly that nothing ever reported what became of it.
+An outcome only ever acts on the words it was about: if the box has moved on to something you typed since, that newer text is left alone and the notice says what you sent is kept under **My words** instead.
+Each surface says where your words are for its own box, so a reply that steered a worker never claims they are still in a box that never held them.
+If no outcome ever arrives, because the server or the page stopped while the command was still running, the page releases that send itself once the send window has passed: your words come back unless the box already holds something you typed since, the controls work again, and the row says plainly that nothing ever reported what became of it.
 It releases nothing while it cannot read that log, and a read the server reports as failed is not a read, so an outcome already written is never buried under an outcome the page invented.
+Saying to send it anyway releases that send on every surface it was held against, so the same send is never dismissed twice, and it releases the lock without rewriting what happened, so a send the page gave up on goes on reading as given up on under **My words**.
 
 An open item shows one line derived from this record: the last thing you sent about it and what became of it, and a message shows every reply you sent to it.
 Both logs are served whole, and if either is ever shortened the page says so and says how many rows are missing, because a reply missing from a thread reads as a message you never answered.
