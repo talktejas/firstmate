@@ -387,7 +387,7 @@ const state = {
   open:null, view:{homes:[],items:[]}, said:[], etag:null,
   sending:false, flash:null, error:null, seen:load('cc.seen',{}), draft:load('cc.draft',{}),
   note:load('cc.note',''), outcome:load('cc.outcome',{}), scanned:false, saidError:null,
-  offline:null, unread:null,
+  offline:null, unread:null, confirmed:false,
 };
 
 // Browser storage, wrapped: a private window or cleared site data must degrade
@@ -530,9 +530,12 @@ function renderWatcher(){
   // but everything on it still answers. The last two leave the view stale, so
   // facts derived from it are history rather than claims about now.
   const offline = state.connected === false;
-  const past = offline || !!state.error;
-  // Ages and the stale split are measured against the read itself once it is
-  // history, so a band cannot silently reclassify a home while time passes.
+  // One question decides the tense: did the last poll confirm the view on
+  // screen? Any state that leaves it unconfirmed - these three or a later one -
+  // inherits the historical labelling without being listed here.
+  const past = !state.confirmed;
+  // Ages and the stale split are then measured against that read, never against
+  // now, so a band cannot silently reclassify a home while nothing is read.
   const readAt = past && state.view.generated
     ? Math.floor(Date.parse(state.view.generated) / 1000) : nowSecs();
   const asOf = past
@@ -852,6 +855,10 @@ function open(key){
 
 // --- talking to the server ---------------------------------------------------
 async function poll(){
+  // Cleared at the top and set only where a good view actually lands, so a poll
+  // that returns early anywhere below leaves the view on screen marked as
+  // unconfirmed rather than having to remember to say so.
+  state.confirmed = false;
   try {
     const res = await fetch('/api/items', {
       headers: state.etag ? {'If-None-Match': state.etag} : {} });
@@ -875,12 +882,13 @@ async function poll(){
     if (state.unread || state.error){
       state.unread = null; state.error = null; renderWatcher();
     }
-    if (res.status === 304) return;
+    if (res.status === 304){ state.confirmed = true; return; }
     state.etag = res.headers.get('ETag');
     const next = await res.json();
     const before = new Set((state.view.items || []).map(itemKey));
     const arrived = (next.items || []).map(itemKey).filter(k => !before.has(k));
     state.error = next.error || null;
+    state.confirmed = !next.error;
     state.view = next;
     state.scanned = true;
     // A verdict forbids a resend, so it is dropped only against a scan that
