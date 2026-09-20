@@ -217,10 +217,10 @@ def send_answer(home_path, item, text):
     never guesses. Both record the captain's words durably as part of the same
     act that closes the decision.
 
-    Returns (closed, delivered, route, detail). bin/fm-send.sh exits nonzero
-    AFTER a successful delivery when only the decision close failed, and says so
-    in its own words: "do not resend the answer". Collapsing that into one
-    failure would invite the resend it forbids, so it is carried separately.
+    Returns (outcome, route, detail). bin/fm-send.sh exits nonzero AFTER a
+    successful delivery when only the decision close failed, and says so in its
+    own words: "do not resend the answer". Collapsing that into a plain failure
+    would invite the resend it forbids, so each outcome keeps its own name.
     """
     env = dict(os.environ, FM_HOME=home_path)
     if item["source"] == "hold":
@@ -248,9 +248,13 @@ def send_answer(home_path, item, text):
         )
         route = f"fm-send.sh {item['id']}"
     detail = (proc.stdout + proc.stderr).strip()
-    closed = proc.returncode == 0
-    delivered = closed or "do not resend the answer" in detail
-    return closed, delivered, route, detail[:600]
+    if proc.returncode == 0:
+        outcome = "sent"
+    elif "do not resend the answer" in detail:
+        outcome = "delivered-not-closed"
+    else:
+        outcome = "failed"
+    return outcome, route, detail[:600]
 
 
 def send_note(home_path, text):
@@ -263,7 +267,7 @@ def send_note(home_path, text):
         stdin=subprocess.DEVNULL, check=False,
     )
     detail = (proc.stdout + proc.stderr).strip()[:600]
-    return proc.returncode == 0, "fm-inbox.sh note", detail
+    return ("sent" if proc.returncode == 0 else "failed"), "fm-inbox.sh note", detail
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -404,16 +408,17 @@ class Handler(BaseHTTPRequestHandler):
             # Approved proposal section 3: a note attached to no item still goes
             # in the captain's log, so this endpoint is part of that promise.
             try:
-                ok, route, detail = send_note(self.records.home, text)
+                outcome, route, detail = send_note(self.records.home, text)
             except subprocess.SubprocessError as exc:
-                self._json(502, {"ok": False, "error": f"delivery failed: {exc}"})
-                return
+                outcome, route, detail = "unknown", "fm-inbox.sh note", str(exc)
+            ok = outcome == "sent"
             warn = record_said(self.records.home, {
                 "at": utc_now(), "kind": "note", "home": "main",
-                "text": text, "route": route, "delivered": ok, "detail": detail,
+                "text": text, "route": route, "outcome": outcome, "detail": detail,
             })
             self._json(200 if ok else 502,
-                       {"ok": ok, "route": route, "detail": detail, "warning": warn})
+                       {"ok": ok, "outcome": outcome, "route": route,
+                        "detail": detail, "warning": warn})
             return
 
         if path == "/api/answer":
@@ -434,21 +439,23 @@ class Handler(BaseHTTPRequestHandler):
                                  "error": "that item is no longer waiting for you"})
                 return
             try:
-                ok, delivered, route, detail = send_answer(home_path, item, text)
+                outcome, route, detail = send_answer(home_path, item, text)
             except subprocess.SubprocessError as exc:
-                self._json(502, {"ok": False, "error": f"delivery failed: {exc}"})
-                return
+                # The child was killed mid-flight, so the steer may already sit
+                # on the worker's inbox: unknown is not failed, and saying
+                # "not sent" here is what invites a second delivery.
+                outcome, route, detail = "unknown", "fm-send.sh", str(exc)
+            ok = outcome == "sent"
             warn = record_said(self.records.home, {
                 "at": utc_now(), "kind": "answer", "home": home_id, "item": task_id,
                 "source": item["source"], "key": item.get("key"),
                 "item_key": item_key(item), "title": item.get("title"),
-                "text": text, "route": route, "delivered": delivered,
-                "closed": ok, "detail": detail,
+                "text": text, "route": route, "outcome": outcome, "detail": detail,
             })
-            if delivered:
+            if outcome != "failed":
                 self.records.invalidate()     # force a rescan on the next poll
             self._json(200 if ok else 502,
-                       {"ok": ok, "delivered": delivered, "route": route,
+                       {"ok": ok, "outcome": outcome, "route": route,
                         "detail": detail, "warning": warn})
             return
 

@@ -51,9 +51,10 @@ The page never shows a state the records cannot support.
 |---|---|
 | Delivered | the steering record exists under `state/<id>.inbox/` |
 | Picked up | the worker moved that record into `handled/`, which is the acknowledgement itself |
-| Acted on | the decision closed in the status log, or the held task closed with its recorded answer |
+| Acted on | the send that closed the decision, reported under **My words** |
 
 Nothing is reported between delivered and picked up, because nothing between them is observable.
+An item is in the waiting list only while its decision is still open, so the live track carries the first two facts only; the closure appears under **My words**, written by the act that closed it.
 The doorbell ring that `fm-send.sh` types into a pane is best effort and is never treated as proof that anything was read.
 
 The lamp beside each row is `bin/fm-busy-lib.sh`'s classification of whether anyone is listening: **working**, **waiting**, **cannot tell**, **not running**, or **no worker** for a question firstmate itself owns.
@@ -77,7 +78,8 @@ The server reuses those commands rather than writing records itself, so every gu
 
 ## What it stores
 
-One file: `<home>/data/command-center/said.jsonl`, an append-only log of what you typed and where it went, whether the send succeeded or failed.
+One file: `<home>/data/command-center/said.jsonl`, an append-only log of what you typed and where it went, with the outcome of the send: **sent** (delivered and the decision closed), **delivered-not-closed** (it reached the worker but the record did not close), **unknown** (the command was stopped before it reported, so it may already have arrived) or **failed**.
+On either of the middle two the page keeps your text, says plainly what happened, and does not offer Send again — firstmate reconciles it, and resending would deliver twice.
 
 That exists because firstmate keeps an answer that closes a decision but does not keep the rest of your words: a steer to a worker is removed with the task's steering inbox at cleanup, and an unsent draft was never recorded anywhere.
 Everything else on the page is read fresh from firstmate's records, so there is no second copy to drift.

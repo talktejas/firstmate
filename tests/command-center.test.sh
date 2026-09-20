@@ -171,38 +171,6 @@ test_steering_records_report_delivered_and_picked_up() {
   pass "a steering record reports delivered and picked up from the acknowledgement move"
 }
 
-# Picked up and acted on are different facts with different evidence. Acted on
-# is the decision closing in the status log, which belongs to the decision the
-# item IS - never to a steering record, however it reads.
-test_acted_on_is_reported_only_when_the_decision_log_records_a_close() {
-  local home items
-  home="$TMP_ROOT/closed"
-  mkdir -p "$home/data" "$home/state/t-closed.inbox/handled" "$home/state/t-open.inbox"
-  printf '# Backlog\n' > "$home/data/backlog.md"
-  {
-    printf 'blocked [key=one]: waiting on the colour\n'
-    printf 'resolved [key=one]: answered: Green, blue reads as disabled\n'
-    printf 'blocked [key=one]: the palette changed, deciding again\n'
-  } > "$home/state/t-closed.status"
-  printf 'blocked [key=two]: waiting on the copy\n' > "$home/state/t-open.status"
-  printf 'schema=fm-task-inbox.v1\nat=2026-09-01T10:00:00Z\n--\nGreen, blue reads as disabled\n' \
-    > "$home/state/t-closed.inbox/handled/001.msg"
-  printf 'schema=fm-task-inbox.v1\nat=2026-09-01T11:00:00Z\n--\nGreen, blue reads as disabled\n' \
-    > "$home/state/t-open.inbox/001.msg"
-
-  items=$(printf '%s' "$(scan "$home")" | jq -c '.items')
-  assert_equals "true" \
-    "$(printf '%s' "$items" | jq -r '.[] | select(.id == "t-closed") | .decision_closed')" \
-    "a decision the status log records as closed was not reported closed"
-  assert_equals "false" \
-    "$(printf '%s' "$items" | jq -r '.[] | select(.id == "t-open") | .decision_closed')" \
-    "a decision with no close line was reported closed from the steer text alone"
-  assert_equals "true" \
-    "$(printf '%s' "$items" | jq -r '.[] | select(.id == "t-closed") | .sent[0].handled')" \
-    "picked up and acted on were not reported as separate facts"
-  pass "acted on is reported only from a close recorded in the status log"
-}
-
 test_fingerprint_changes_only_when_a_record_moves() {
   local home first second third
   home="$TMP_ROOT/fingerprint"
@@ -373,6 +341,12 @@ test_answering_a_hold_records_the_captains_words_and_clears_the_item() {
     "the captain's exact words did not reach the durable task record"
   assert_grep 'cc-answer' "$home/data/command-center/said.jsonl" \
     "the answer was not appended to the captain's own record of what he said"
+  # The closure is carried where it can be proved: the log line the server wrote
+  # as part of the act that closed the decision.
+  assert_equals "sent" \
+    "$(curl -s -m 30 "http://127.0.0.1:$port/api/said" \
+        | jq -r '[.said[] | select(.item == "cc-answer")][0].outcome')" \
+    "a delivered and closed answer was not reported as closed under My words"
   assert_not_contains "$(curl -s -m 120 "http://127.0.0.1:$port/api/items")" '"id":"cc-answer"' \
     "an answered decision stayed in the waiting list"
   stop_server
@@ -416,7 +390,6 @@ test_deferred_hold_reports_its_date
 test_branch_states_are_honest
 test_status_decisions_are_carded_with_their_verb
 test_steering_records_report_delivered_and_picked_up
-test_acted_on_is_reported_only_when_the_decision_log_records_a_close
 test_fingerprint_changes_only_when_a_record_moves
 test_server_serves_the_page_and_the_records
 test_server_refuses_bad_input_before_running_anything

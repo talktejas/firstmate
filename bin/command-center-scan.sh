@@ -36,7 +36,6 @@
 #     project, worktree, branch, branch_state (branch|detached|not-started),
 #     listen (busy|idle|unknown|dead|none), listen_source,
 #     since_epoch, since_kind (created|status-mtime|none),
-#     decision_closed  true only when the status log records this item's key closed,
 #     sent[]   the captain's steering records still in flight:
 #              seq, at, delivered, handled, text
 #   generated, schema
@@ -215,17 +214,6 @@ sent_records() {  # <state-dir> <id>  -> JSON array
   } | jq -cs 'sort_by(.seq)'
 }
 
-# Approved proposal section 7: acted on is the DECISION closing, which firstmate
-# records where pickup is not recorded - a `resolved [key=<k>]:` line in the
-# task's status log, written by bin/fm-send.sh. It belongs to the decision this
-# item IS, not to any one steering record, so it is reported per item.
-decision_closed() {  # <status-file> <key>
-  [ -n "$2" ] && [ -f "$1" ] && [ -r "$1" ] || return 1
-  awk -v k="[key=$2]:" '
-    /^resolved / { if (index($0, k)) { found = 1; exit } }
-    END { exit(found ? 0 : 1) }' "$1"
-}
-
 epoch_of() {  # <file>
   [ -e "$1" ] && stat -c '%Y' "$1" 2>/dev/null || printf ''
 }
@@ -235,7 +223,6 @@ epoch_of() {  # <file>
 emit_item() {  # <home-id> <state-dir> <id> <source> <key> <title> <detail> <repo> <kind>
   local home=$1 state=$2 id=$3 source=$4 key=$5 title=$6 detail=$7 repo=$8 kind=$9
   local meta=$state/$id.meta project worktree listen bstate branch since since_kind sent
-  local closed
   project=$(meta_get "$meta" project)
   worktree=$(meta_get "$meta" worktree)
   [ -n "$kind" ] || kind=$(meta_get "$meta" kind)
@@ -263,7 +250,6 @@ emit_item() {  # <home-id> <state-dir> <id> <source> <key> <title> <detail> <rep
   fi
   [ -n "$since" ] || since_kind=none
   sent=$(sent_records "$state" "$id")
-  if decision_closed "$state/$id.status" "$key"; then closed=true; else closed=false; fi
   jq -cn \
     --arg home "$home" --arg id "$id" --arg source "$source" --arg key "$key" \
     --arg title "$title" --arg detail "$detail" --arg repo "$repo" --arg kind "$kind" \
@@ -272,14 +258,14 @@ emit_item() {  # <home-id> <state-dir> <id> <source> <key> <title> <detail> <rep
     --arg listen "${listen%% *}" --arg lsource "${listen#* }" \
     --arg since "$since" --arg sincekind "$since_kind" \
     --arg until "${HOLD_UNTIL-}" --arg verb "${STATUS_VERB-}" \
-    --argjson sent "$sent" --argjson closed "$closed" \
+    --argjson sent "$sent" \
     '{home:$home,id:$id,source:$source,key:$key,title:$title,detail:$detail,
       repo:$repo,kind:$kind,project:$project,
       worktree:(if $worktree == "" then null else $worktree end),
       branch:(if $branch == "" then null else $branch end),
       branch_state:$bstate,listen:$listen,listen_source:$lsource,
       since_epoch:(if $since == "" then null else ($since|tonumber) end),
-      since_kind:$sincekind,decision_closed:$closed,
+      since_kind:$sincekind,
       deferred_until:(if $until == "" then null else $until end),
       status_verb:(if $verb == "" then null else $verb end),
       sent:$sent}'
