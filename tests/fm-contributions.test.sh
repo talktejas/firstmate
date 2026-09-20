@@ -605,16 +605,27 @@ test_per_call_timeout_is_unavailable() {
   home=$(new_home per-call-timeout)
   forge_home "$home"
   wrap_forge "$home"
+  # The hanging PR is observed first; a healthy issue follows it in the same poll.
   mutate_record "$home" delivery '.records[0].checked_at="2026-09-15T08:00:00Z"'
-  cp "$home/data/delivery/contributions.json" "$home/prior.json"
+  mkdir -p "$home/data/filed"
+  printf -- '- [ ] filed - Measured defect https://github.com/o/r/issues/9 (repo: sample) (kind: ship)\n' \
+    >> "$home/data/backlog.md"
+  jq -n '{schema:"fm-contributions.v1",task:"filed",records:[{url:"https://github.com/o/r/issues/9",
+    kind:"issue",checked_at:"2026-09-15T09:00:00Z",error:null,observation:null,verdict:null,
+    pending:[],seen:[],notified:[]}]}' > "$home/data/filed/contributions.json"
   printf 'hang\n' > "$home/forge/fault"
   out=$(with_home "$home" env FM_CONTRIBUTIONS_BUDGET=20 FM_CONTRIBUTIONS_CALL_TIMEOUT=1 "$ROOT/bin/fm-contributions.sh" poll) \
     || fail 'poll failed when its per-call timeout elapsed'
-  [ -z "$out" ] || fail "per-call timeout printed a forge-failure wake: $out"
-  cmp -s "$home/prior.json" "$home/data/delivery/contributions.json" \
-    || fail 'per-call timeout rewrote the prior record'
-  [ ! -s "$home/state/.wake-queue" ] || fail 'per-call timeout enqueued a wake'
-  pass 'a configurable per-call timeout keeps the prior record and stays silent'
+  [ "$out" = 'contributions: observation unavailable for https://github.com/o/r/pull/8' ] \
+    || fail "a per-call timeout did not report the URL as unavailable exactly once: $out"
+  jq -e --arg now "$NOW" '.records[0].checked_at == $now
+    and .records[0].error == "forge observation unavailable or changed during read"' \
+    "$home/data/delivery/contributions.json" >/dev/null \
+    || fail 'a per-call timeout left the slow URL unchecked instead of recording it'
+  jq -e --arg now "$NOW" '.records[0].checked_at == $now and .records[0].error == null
+    and .records[0].observation != null' "$home/data/filed/contributions.json" >/dev/null \
+    || fail 'a per-call timeout on the first URL starved the next URL of its observation'
+  pass 'a per-call timeout records one URL unavailable and still observes the next'
 }
 
 test_genuine_failure_near_deadline_is_unavailable() {

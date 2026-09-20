@@ -32,15 +32,20 @@
 #
 # poll consumes fm-fleet-snapshot.sh --contribution-input, a local-only read,
 # and spends at most FM_CONTRIBUTIONS_BUDGET seconds on forge reads (default 20,
-# 1..25). Each gh call is bounded by the remaining budget and
+# 1..200). Each gh call is bounded by the remaining budget and
 # FM_CONTRIBUTIONS_CALL_TIMEOUT seconds (default 15, 1..25). The 15-second
 # default leaves headroom over the 12.2-second slow-link forge call observed in
-# the contributions-poll incident.
+# the contributions-poll incident. A PR costs eight sequential calls, so
+# observing one on a slow link needs 8 x FM_CONTRIBUTIONS_CALL_TIMEOUT seconds:
+# 120 at the 15-second default, and the 200-second ceiling covers the
+# 25-second per-call maximum. The watcher kills a check at FM_CHECK_TIMEOUT
+# (default 30) seconds, so a raised budget needs that raised with it.
 # Oldest observations go first, so a large corpus progresses across polls.
 # Each distinct URL is observed once per poll and applied to every owner. A
 # final observation applies to every owner without another forge read. When
 # the budget runs out mid-observation, the poll ends with that URL's records
-# untouched; only a genuine forge failure or head change records an error.
+# untouched; a genuine forge failure, a per-call timeout or a head change
+# records an error and the poll continues with the next URL.
 # API failure leaves error evidence; an expired or absent observation is not
 # silence. FM_CONTRIBUTIONS_MAX_AGE (default 900 seconds) bounds freshness.
 # A URL whose last good observation is merged or closed is final: it is
@@ -89,7 +94,7 @@ CALL_TIMEOUT=${FM_CONTRIBUTIONS_CALL_TIMEOUT:-15}
 case "$MAX_AGE" in ''|*[!0-9]*) fail 'invalid freshness bound' ;; esac
 case "$BUDGET" in ''|*[!0-9]*) fail 'invalid poll budget' ;; esac
 case "$CALL_TIMEOUT" in ''|*[!0-9]*) fail 'invalid per-call timeout' ;; esac
-[ "$BUDGET" -ge 1 ] && [ "$BUDGET" -le 25 ] || fail 'poll budget must be 1..25 seconds'
+[ "$BUDGET" -ge 1 ] && [ "$BUDGET" -le 200 ] || fail 'poll budget must be 1..200 seconds'
 [ "$CALL_TIMEOUT" -ge 1 ] && [ "$CALL_TIMEOUT" -le 25 ] || fail 'per-call timeout must be 1..25 seconds'
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/fm-contributions.XXXXXX")
 LOCK_HELD=0
@@ -182,16 +187,16 @@ write_record() { # task record-json-file
 }
 
 forge() {
-  local remaining rc=0
+  local remaining bounded=0 rc=0
   remaining=$((DEADLINE - $(date +%s)))
   # The budget, not the forge, refused this read.
   [ "$remaining" -gt 0 ] || { BUDGET_EXHAUSTED=1; return 1; }
-  [ "$remaining" -le "$CALL_TIMEOUT" ] || remaining=$CALL_TIMEOUT
+  if [ "$remaining" -le "$CALL_TIMEOUT" ]; then bounded=1; else remaining=$CALL_TIMEOUT; fi
   fm_run_timed "$remaining" env GH_PROMPT_DISABLED=1 GH_NO_UPDATE_NOTIFIER=1 \
     gh "$@" 2> "$TMP/forge.err" || rc=$?
-  # A timed-out read is unavailable, whether the total budget or the per-call
-  # bound stopped it. Keep the prior observation and retry it next poll.
-  [ "$rc" -ne 124 ] || BUDGET_EXHAUSTED=1
+  # A read killed at the budget's own deadline is budget exhaustion too. A read
+  # killed at the per-call bound is only this URL's unavailable outcome.
+  [ "$rc" -ne 124 ] || [ "$bounded" -eq 0 ] || BUDGET_EXHAUSTED=1
   return "$rc"
 }
 
