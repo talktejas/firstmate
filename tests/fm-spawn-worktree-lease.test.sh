@@ -45,6 +45,41 @@ run_lease_spawn() {  # <id> <pane-path>
     "$id" "$LEASE_PROJ" --mode no-mistakes --yolo off
 }
 
+# Allocation happens under the shared Treehouse project lock, so a `treehouse
+# get` that never returns - a stalled fetch, a hung credential helper - would
+# wedge every other spawn for the project behind a lock nothing releases. The
+# bound must refuse, name what the stall may have left behind, and give the lock
+# back: a second spawn hits the same bound rather than "another Treehouse slot
+# allocation or return is in progress".
+test_stalled_allocation_refuses_and_frees_the_project_lock() {
+  local id out status again
+  id=lease-stall-w5
+  make_lease_case lease-stall "$id"
+  cat > "$LEASE_FAKEBIN/treehouse" <<'SH'
+#!/usr/bin/env bash
+set -u
+case "${1:-}:${2:-}" in
+  get:--lease) exec /bin/sleep 60 ;;
+esac
+exit 0
+SH
+  chmod +x "$LEASE_FAKEBIN/treehouse"
+
+  out=$(FM_TREEHOUSE_GET_TIMEOUT=1 run_lease_spawn "$id" "$LEASE_WT")
+  status=$?
+  [ "$status" -ne 0 ] || fail "spawn accepted an allocation that never returned"$'\n'"$out"
+  assert_contains "$out" "did not allocate a worktree for project '$LEASE_PROJ' within 1s" \
+    "the refusal did not say the allocation bound expired"
+  assert_contains "$out" "--if-lease-holder 'fm:$id@$LEASE_HOME/state'" \
+    "the refusal did not name the holder a half-created slot would carry"
+  [ ! -e "$LEASE_HOME/state/$id.meta" ] || fail "a refused allocation published task metadata"
+
+  again=$(FM_TREEHOUSE_GET_TIMEOUT=1 run_lease_spawn "$id" "$LEASE_WT" 2>&1)
+  assert_not_contains "$again" "another Treehouse slot allocation or return is in progress" \
+    "the timed-out spawn kept the shared project lock, so the next spawn cannot allocate at all"
+  pass "a stalled allocation refuses within its bound and gives the project lock back"
+}
+
 # The claim itself: a durable lease, labelled with the task record that owns it
 # so the label alone says which record to look for when a lease outlives its
 # task.
@@ -174,6 +209,7 @@ test_real_pool_does_not_hand_out_a_leased_slot() {
 }
 
 test_spawn_claims_the_slot_with_a_labelled_lease
+test_stalled_allocation_refuses_and_frees_the_project_lock
 test_aborted_spawn_returns_its_claim
 test_copy_another_task_record_claims_is_refused_by_name
 test_a_record_holding_its_own_claim_does_not_block_a_spawn

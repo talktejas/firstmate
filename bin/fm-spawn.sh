@@ -1224,7 +1224,11 @@ spawn_abort_cleanup() {
     fm_lock_release "$SPAWN_TASK_LOCK" || true
   fi
   if [ "$SPAWN_FRESH_COMMIT_PENDING" = 1 ]; then
-    if ! spawn_fresh_commit_rollback; then
+    if spawn_fresh_commit_rollback; then
+      if [ "$SPAWN_TREEHOUSE_LEASE_PENDING" != 1 ] && [ -n "$SPAWN_TREEHOUSE_LEASE_HOLDER" ]; then
+        echo "warning: the record removed by failed-dispatch cleanup was what named task $ID's pool claim on $SPAWN_TREEHOUSE_LEASE_PATH; a worker may already be live in that copy, so inspect it first, then release the claim with: treehouse return --force --if-lease-holder '$SPAWN_TREEHOUSE_LEASE_HOLDER' '$SPAWN_TREEHOUSE_LEASE_PATH'" >&2
+      fi
+    else
       status=1
     fi
   fi
@@ -3732,10 +3736,27 @@ elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
   #     lease costs one pool slot until then; it can never wedge a spawn,
   #     because treehouse creates another slot rather than refusing.
   SPAWN_TREEHOUSE_LEASE_HOLDER="fm:$ID@$STATE"
-  WT=$(cd "$PROJ_ABS" && treehouse get --lease --lease-holder "$SPAWN_TREEHOUSE_LEASE_HOLDER") || {
-    echo "error: treehouse get --lease could not lease a worktree for project '$PROJ_ABS'; nothing was launched" >&2
+  # Allocation runs under the shared Treehouse project lock, and it creates a
+  # slot by fetching and adding a git worktree, so a stalled fetch would hold
+  # that lock - and every other spawn for this project - open ended. Bound it
+  # the way the backlog commit is bounded (fm_run_bounded), with the deadline
+  # the pane's discovery poll used to give this step. A timed-out allocation
+  # refuses: the EXIT trap releases the project lock, and the refusal names the
+  # holder label a half-created slot would carry, because a slot that may hold
+  # work is the operator's to inspect rather than this script's to tidy away.
+  SPAWN_TREEHOUSE_GET_STATUS=0
+  WT=$(cd "$PROJ_ABS" && fm_run_bounded "${FM_TREEHOUSE_GET_TIMEOUT:-60}" \
+    treehouse get --lease --lease-holder "$SPAWN_TREEHOUSE_LEASE_HOLDER") ||
+    SPAWN_TREEHOUSE_GET_STATUS=$?
+  if [ "$SPAWN_TREEHOUSE_GET_STATUS" -ne 0 ]; then
+    if fm_run_bounded_timed_out "$SPAWN_TREEHOUSE_GET_STATUS"; then
+      echo "error: treehouse get --lease did not allocate a worktree for project '$PROJ_ABS' within ${FM_TREEHOUSE_GET_TIMEOUT:-60}s; nothing was launched" >&2
+      echo "A slot may have been half created under holder '$SPAWN_TREEHOUSE_LEASE_HOLDER'; inspect it with: (cd '$PROJ_ABS' && treehouse status --json), and release it once you are satisfied it holds no work with: (cd '$PROJ_ABS' && treehouse return --force --if-lease-holder '$SPAWN_TREEHOUSE_LEASE_HOLDER' <path>)" >&2
+    else
+      echo "error: treehouse get --lease could not lease a worktree for project '$PROJ_ABS'; nothing was launched" >&2
+    fi
     exit 1
-  }
+  fi
   if [ -z "$WT" ]; then
     echo "error: treehouse get --lease reported no worktree for project '$PROJ_ABS'; nothing was launched" >&2
     exit 1
