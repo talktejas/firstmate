@@ -5,12 +5,12 @@
 # tool_name, tool_input.file_path, and cwd fields, the anchored matcher, and
 # Claude honoring an exit-2 deny with empty stdout. A stub can only confirm the
 # assumption already written into it, so this guard drives the INSTALLED claude
-# end to end: a primary-shaped home must deny a project read whose identity
-# check is already spent, and a crewmate-shaped linked worktree carrying the
-# identical tracked registration bytes must stay inert.
+# end to end: a primary-shaped home must deny a project read outright, and a
+# crewmate-shaped linked worktree carrying the identical tracked registration
+# bytes must stay inert.
 #
-# Both cases seed the identity-check budget and use exactly ONE Read call, so
-# an operator's own global duplicate-read hooks cannot contaminate the verdict.
+# Both cases use exactly ONE Read call, so an operator's own global
+# duplicate-read hooks cannot contaminate the verdict.
 # It submits prompts and therefore spends model tokens: opt-in.
 set -u
 
@@ -60,16 +60,10 @@ git -C "$HOME_DIR" commit -qm fixture
 git -C "$HOME_DIR" worktree add -q -b live-crew "$CREW"
 mkdir -p "$CREW/state"
 
-PROJ_REAL=$(CDPATH='' cd -- "$PROJ" && pwd -P)
 PROMPT="Use the Read tool exactly once to read $PROJ/src/config.php. If the call is blocked by a hook, quote the block message verbatim and stop. If it succeeds, print the file content and stop. Make no other tool calls."
 
-spend_budget() {
-  printf '%s %s\n' "$(date +%s)" "$PROJ_REAL" > "$1/state/.delegate-guard-window"
-}
-
-test_primary_home_denies_a_spent_project_read_live() {
+test_primary_home_denies_a_project_read_live() {
   local out
-  spend_budget "$HOME_DIR"
   out=$(cd "$HOME_DIR" && claude -p "$PROMPT" --dangerously-skip-permissions --output-format text </dev/null 2>&1) \
     || fail "claude $CLAUDE_VERSION: primary-home live run failed: $out"
   case "$out" in
@@ -84,7 +78,6 @@ test_primary_home_denies_a_spent_project_read_live() {
 
 test_crewmate_worktree_stays_inert_live() {
   local out
-  spend_budget "$CREW"
   out=$(cd "$CREW" && claude -p "$PROMPT" --dangerously-skip-permissions --output-format text </dev/null 2>&1) \
     || fail "claude $CLAUDE_VERSION: crew-worktree live run failed: $out"
   case "$out" in
@@ -97,5 +90,5 @@ test_crewmate_worktree_stays_inert_live() {
   pass "claude $CLAUDE_VERSION leaves a crewmate-shaped worktree unguarded with the identical tracked bytes"
 }
 
-test_primary_home_denies_a_spent_project_read_live
+test_primary_home_denies_a_project_read_live
 test_crewmate_worktree_stays_inert_live

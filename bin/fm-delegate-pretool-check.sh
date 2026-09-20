@@ -16,17 +16,15 @@
 # other repo's code a worker's territory. A linked worktree of the home's own
 # repo shares its git common dir and stays classified as the home.
 #
-# THE ONE-IDENTITY-CHECK RULE. A dispatch sometimes needs one cheap fact - a
-# branch name, whether a path exists, one registry-confirming read - so ONE
-# read-shaped project-targeted call per project per window (default 120s) is
-# allowed and stamped in state/.delegate-guard-window. The second read-shaped
-# call on the same project inside the window is a sequence, a sequence is an
-# investigation, and an investigation is a worker's job, so it is denied.
-# Build, run, and write shapes (package managers, test runners, interpreters
-# on project code, file mutation, git write verbs) are never identity checks
-# and are denied without consuming budget. Edit/Write/NotebookEdit into a
-# project are write shapes. fm-*.sh scripts, no-mistakes, and the *-axi tools
-# are the primary's own job and always allowed, whatever paths they carry.
+# THE RULE. A project-targeted call is denied whatever its shape. Reading a
+# project is how "one quick look" becomes a working session, and every fact a
+# dispatch needs reaches the primary through its workers and through the
+# always-allowed fleet tooling, so there is no allowance to pace. A firstmate
+# home clone - a secondmate home, a pool or treehouse home - carries the home
+# contract (AGENTS.md plus the bin dispatch scripts) and is the primary's own
+# supervision territory, so it classifies with the home and not as a project.
+# fm-*.sh scripts, no-mistakes, and the *-axi tools are the primary's own job
+# and always allowed, whatever paths they carry.
 # See docs/delegate-guard.md for the complete contract and validation record.
 #
 # Usage:
@@ -64,20 +62,6 @@ set -f
 # take project directories as arguments by design.
 ALLOW_WORDS=' no-mistakes gh-axi tasks-axi quota-axi lavish-axi '
 
-# Lead words whose project-targeted segment is a build/run shape, never an
-# identity check: they execute project code or its toolchain.
-RUN_WORDS=' npm npx yarn pnpm bun node deno php python python2 python3 pytest ruby rake bundle composer mvn gradle gradlew make cmake cargo go docker podman docker-compose phpunit jest vitest tsc gcc g++ cc javac java dotnet '
-
-# Lead words whose project-targeted segment mutates files, never an identity
-# check (hard rule 1 forbids the write regardless).
-# ponytail: redirection targets (`> project/file`) are not parsed; sed -i, tee,
-# and this list cover the observed mistake shapes. Parse redirects if a real
-# miss ever shows up.
-WRITE_WORDS=' rm mv cp mkdir rmdir touch tee ln chmod chown truncate install rsync patch dd shred '
-
-# git verbs that change a project's tree, index, refs, or worktrees.
-GIT_WRITE_VERBS=' merge rebase pull push commit checkout switch restore reset revert cherry-pick am apply stash clean mv rm worktree submodule filter-branch update-ref '
-
 TOOL=""
 TOOL_SET=0
 CMD=""
@@ -91,12 +75,11 @@ Usage: fm-delegate-pretool-check.sh [--tool <name>] [--command <cmd>] [--path <p
 
 With no --tool, reads a PreToolUse-style JSON payload on stdin (Claude/Codex
 tool_name and tool_input, or Grok toolName and toolInput).
-Denies a firstmate primary's investigation- or build-shaped Bash, Read, Grep,
-Glob, Edit, Write, or NotebookEdit call whose target is inside a project: any
-git repository other than the home's own, or anything under $FM_HOME/projects/.
-One read-shaped call per project per window (default 120s) is allowed as a
-dispatch identity check; build, run, and write shapes are always denied.
-fm-*.sh, no-mistakes, and the *-axi tools are always allowed.
+Denies a firstmate primary's Bash, Read, Grep, Glob, Edit, Write, or
+NotebookEdit call whose target is inside a project: any git repository other
+than the home's own or another firstmate home, or anything under
+$FM_HOME/projects/. fm-*.sh, no-mistakes, and the *-axi tools are always
+allowed.
 Fires only in a genuine firstmate primary home; it is a silent no-op in a
 crewmate/scout task worktree or any non-firstmate repo, where a worker
 investigating project code is exactly right.
@@ -245,6 +228,9 @@ classify_path() {
   top=$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null) || return 0
   common=$(repo_common_dir "$dir") || return 0
   [ "$common" != "$HOME_COMMON" ] || return 0
+  # A firstmate home clone carries the home contract; supervising one is the
+  # primary's own job, so it classifies with the home rather than as a project.
+  [ -f "$top/AGENTS.md" ] && [ -f "$top/bin/fm-spawn.sh" ] && [ -f "$top/bin/fm-brief.sh" ] && return 0
   printf '%s\n' "$top"
 }
 
@@ -281,25 +267,16 @@ expand_token() {
   printf '%s\n' "$tok"
 }
 
-HARD_ROOTS=""
-SOFT_ROOTS=""
-HARD_WORD=""
+ROOTS=""
+BLOCKED_WORD=""
 PATHS_SEEN=0
 
 note_root() {
-  # note_root <shape> <root>: record a classified project root once per shape.
-  local shape=$1 root=$2
-  case "$shape" in
-    hard)
-      case "$HARD_ROOTS" in
-        *"|$root|"*) ;;
-        *) HARD_ROOTS="$HARD_ROOTS|$root|" ;;
-      esac ;;
-    soft)
-      case "$SOFT_ROOTS" in
-        *"|$root|"*) ;;
-        *) SOFT_ROOTS="$SOFT_ROOTS|$root|" ;;
-      esac ;;
+  # note_root <root>: record a classified project root once.
+  local root=$1
+  case "$ROOTS" in
+    *"|$root|"*) ;;
+    *) ROOTS="$ROOTS|$root|" ;;
   esac
 }
 
@@ -319,11 +296,9 @@ if [ "$KIND" = command ]; then
   IFS=$OLDIFS
   for SEG in "$@"; do
     # Lead word: first token that is not an assignment or a plain wrapper.
+    # It decides only whether the segment is the primary's own fleet tooling;
+    # every other project-targeted segment is denied, whatever it runs.
     LEAD=""
-    GIT_VERB=""
-    WANT_GIT_VERB=0
-    SKIP_NEXT=0
-    HAS_DASH_I=0
     SEG_PATHS=""
     # shellcheck disable=SC2086
     for TOK in $SEG; do
@@ -341,22 +316,7 @@ if [ "$KIND" = command ]; then
           env|exec|command|nohup|time|sudo|bash|sh|zsh) continue ;;
           *) LEAD=${RAW##*/} ;;
         esac
-        [ "$LEAD" = git ] && WANT_GIT_VERB=1
-      elif [ "$WANT_GIT_VERB" -eq 1 ] && [ -z "$GIT_VERB" ]; then
-        if [ "$SKIP_NEXT" -eq 1 ]; then
-          SKIP_NEXT=0
-        else
-          case "$RAW" in
-            -C|-c) SKIP_NEXT=1 ;;
-            -*) ;;
-            [A-Za-z_]*=*) ;;
-            *) GIT_VERB=$RAW ;;
-          esac
-        fi
       fi
-      case "$RAW" in
-        -i|-i?*) HAS_DASH_I=1 ;;
-      esac
       if [ "$PATHS_SEEN" -lt 32 ]; then
         CAND=$(expand_token "$TOK") || CAND=""
         if [ -n "$CAND" ]; then
@@ -373,36 +333,13 @@ if [ "$KIND" = command ]; then
     case "$LEAD" in
       fm-*.sh) continue ;;
     esac
-    SHAPE=soft
-    case "$RUN_WORDS" in
-      *" $LEAD "*) SHAPE=hard ;;
-    esac
-    case "$WRITE_WORDS" in
-      *" $LEAD "*) SHAPE=hard ;;
-    esac
-    if [ "$LEAD" = git ] && [ -n "$GIT_VERB" ]; then
-      case "$GIT_WRITE_VERBS" in
-        *" $GIT_VERB "*) SHAPE=hard ;;
-      esac
-    fi
-    if [ "$HAS_DASH_I" -eq 1 ]; then
-      case "$LEAD" in
-        sed|perl) SHAPE=hard ;;
-      esac
-    fi
-    # Entering a project directory is never needed for an identity check
-    # (absolute paths and git -C answer those), and it is how "one quick look"
-    # becomes a working session, so a cd-shaped segment is hard.
-    case "$LEAD" in
-      cd|pushd|popd) SHAPE=hard ;;
-    esac
-    [ "$SHAPE" = hard ] && HARD_WORD=${HARD_WORD:-$LEAD}
+    BLOCKED_WORD=${BLOCKED_WORD:-$LEAD}
     OLDIFS2=$IFS
     IFS='|'
     # shellcheck disable=SC2086
     for ROOT in $SEG_PATHS; do
       IFS=$OLDIFS2
-      [ -n "$ROOT" ] && note_root "$SHAPE" "$ROOT"
+      [ -n "$ROOT" ] && note_root "$ROOT"
       IFS='|'
     done
     IFS=$OLDIFS2
@@ -430,28 +367,18 @@ else
   esac
   ROOT=$(classify_path "$TARGET")
   if [ -n "$ROOT" ]; then
-    if [ "$KIND" = write ]; then
-      HARD_WORD=$NORMALIZED
-      note_root hard "$ROOT"
-    else
-      note_root soft "$ROOT"
-    fi
+    BLOCKED_WORD=$NORMALIZED
+    note_root "$ROOT"
   fi
 fi
 
-[ -n "$HARD_ROOTS$SOFT_ROOTS" ] || exit 0
+[ -n "$ROOTS" ] || exit 0
 
 if [ -f "$FM_ROOT/bin/fm-scout.sh" ]; then
   ROUTE='first classify the work under the AGENTS.md intake contract: work already classified as a scout goes to bin/fm-scout.sh "<question>" [project], while authorized ship work and its bounded research go to bin/fm-brief.sh then bin/fm-spawn.sh'
 else
   ROUTE='first classify the work under the AGENTS.md intake contract, then use bin/fm-brief.sh followed by bin/fm-spawn.sh for dispatched work'
 fi
-
-first_root() {
-  local list=$1 r
-  r=${list#|}
-  printf '%s' "${r%%|*}"
-}
 
 deny() {
   local reason=$1 escaped
@@ -461,51 +388,7 @@ deny() {
   exit 2
 }
 
-HATCH='For a deliberate captain-approved exception, re-run the exact command through Bash prefixed with FM_ALLOW_PROJECT_WORK=1.'
+FIRST_ROOT=${ROOTS#|}
+FIRST_ROOT=${FIRST_ROOT%%|*}
 
-if [ -n "$HARD_ROOTS" ]; then
-  deny "[delegate-project-work] the firstmate primary delegates project work instead of doing it: this $TOOL call is build-, run-, or write-shaped work ($HARD_WORD) inside project $(first_root "$HARD_ROOTS"), which is never a dispatch identity check. Instead, $ROUTE (blocked tool: $TOOL). $HATCH"
-fi
-
-# Budget: one read-shaped call per project per window is an identity check
-# that makes a dispatch accurate; the second is an investigation.
-WINDOW=${FM_DELEGATE_WINDOW:-120}
-case "$WINDOW" in
-  ''|*[!0-9]*) WINDOW=120 ;;
-esac
-NOW=${EPOCHSECONDS:-$(date +%s)}
-BUDGET_FILE=$STATE/.delegate-guard-window
-KEEP=""
-SPENT=""
-if [ -f "$BUDGET_FILE" ]; then
-  while IFS=' ' read -r TS RROOT; do
-    [ -n "$TS" ] && [ -n "$RROOT" ] || continue
-    case "$TS" in *[!0-9]*) continue ;; esac
-    [ $((NOW - TS)) -lt "$WINDOW" ] || continue
-    KEEP="$KEEP$TS $RROOT
-"
-    SPENT="$SPENT|$RROOT|"
-  done < "$BUDGET_FILE"
-fi
-
-OLDIFS=$IFS
-IFS='|'
-# shellcheck disable=SC2086
-for ROOT in $SOFT_ROOTS; do
-  IFS=$OLDIFS
-  [ -n "$ROOT" ] || { IFS='|'; continue; }
-  case "$SPENT" in
-    *"|$ROOT|"*)
-      deny "[delegate-project-work] the firstmate primary delegates project investigation instead of doing it: one read-shaped call per project per ${WINDOW}s is allowed as a dispatch identity check, and project $ROOT has spent it, so a second look this soon is a sequence - an investigation, which is a worker's job. Instead, $ROUTE (blocked tool: $TOOL). $HATCH" ;;
-  esac
-  KEEP="$KEEP$NOW $ROOT
-"
-  IFS='|'
-done
-IFS=$OLDIFS
-
-# Stamp the allowed identity checks. Lost races only ever grant one extra read.
-TMPFILE=$(mktemp "$STATE/.delegate-guard-window.XXXXXX" 2>/dev/null) || exit 0
-printf '%s' "$KEEP" > "$TMPFILE" 2>/dev/null || { rm -f "$TMPFILE"; exit 0; }
-mv -f "$TMPFILE" "$BUDGET_FILE" 2>/dev/null || rm -f "$TMPFILE"
-exit 0
+deny "[delegate-project-work] the firstmate primary delegates project work instead of doing it: this $TOOL call ($BLOCKED_WORD) targets project $FIRST_ROOT, and project work - reading it included - belongs to a worker. Instead, $ROUTE (blocked tool: $TOOL)."

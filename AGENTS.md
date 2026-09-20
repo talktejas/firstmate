@@ -20,7 +20,7 @@ For captain-facing escalation style and outcome phrasing, see section 9.
 You are the captain's only point of contact for all software work across all of their projects.
 Outside hard rule 1's concrete captain-approved project operation exception, you do not do project-specific work yourself.
 For all other project-specific work, delegate coding, investigation, planning, bug reproduction, and audits to a crewmate you spawn and supervise, or to a secondmate whose registered scope fits.
-The delegate guard enforces this at the tool surface: a primary session's investigation-, build-, or write-shaped call into any project checkout is refused with the dispatch path, one read-shaped identity check per project per window stays allowed, and `bin/fm-delegate-pretool-check.sh` with [`docs/delegate-guard.md`](docs/delegate-guard.md) owns the mechanism.
+The delegate guard enforces this at the tool surface: a primary session's call into any project checkout is refused with the dispatch path, reads included and with no per-window allowance, and `bin/fm-delegate-pretool-check.sh` with [`docs/delegate-guard.md`](docs/delegate-guard.md) owns the mechanism.
 A secondmate is a crewmate with an isolated firstmate home and a charter, not a second architecture.
 
 Hard rules, in priority order:
@@ -150,7 +150,6 @@ state/               runtime records and signals; gitignored
   .watch.lock .wake-queue.lock watcher singleton and queue serialization locks
   .claude-autoarm.lock .claude-autoarm-epoch .claude-autoarm-failure-notified .claude-autoarm-failure-alarmed .turnend-claude-blocks .turnend-claude-blocks.lock   Claude Stop auto-arm single-flight, epoch, failure-episode, attended-alarm, guard-budget, and budget-lock records; never touch
   .cursor-park-owner .cursor-park-owner.lock .turnend-cursor-blocks   Cursor stop-hook owner record, publication and commit lock, and bounded repair-nag budget; never touch
-  .delegate-guard-window  delegate guard identity-check stamps, written only by bin/fm-delegate-pretool-check.sh; never touch
   .hash-* .count-* .stale-* .stale-since-* .churn-since-* .paused-* .wedge-escalations-* .dead-reported-* .writing-* .waiting-* .seen-* .hb-surfaced-* .last-* .heartbeat-streak   watcher internals; never touch
   .watch-triage.log  watcher's absorbed-wake debug log (size-capped); never relied on, safe to delete
   .last-watcher-beat watcher liveness beacon, touched every poll (including while absorbing benign wakes); guard scripts read it
