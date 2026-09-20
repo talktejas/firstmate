@@ -294,6 +294,15 @@ cat $PROJ/src/app.php"
   expect_deny "a quoted heredoc mention does not swallow the next line" \
     --tool Bash --command "bin/fm-send.sh task-1 \"use cat <<EOF to write it\"
 grep -rn seeded $PROJ/src"
+  expect_deny "a heredoc mention inside a multi-line message does not swallow later lines" \
+    --tool Bash --command "bin/fm-send.sh task-1 \"step one
+then cat <<EOF into it
+step three\"
+grep -rn seeded $PROJ/src"
+  expect_deny "a quoted span closing on a later line still ends there" \
+    --tool Bash --command "bin/fm-send.sh task-1 \"some brief
+text << EOF more\"
+grep -rn seeded $PROJ/src"
   # A herestring is not a heredoc opener: the lines after it must still be read.
   expect_deny "a herestring does not swallow the next line" \
     --tool Bash --command "jq -r .a <<< \"\$payload\"

@@ -324,15 +324,15 @@ note_root() {
 }
 
 # quoted_scan <mode> <text>: walk <text> once, treating a single- or
-# double-quoted span as data. Mode "strip" drops the quote characters and
-# neutralizes separators inside the span, so a quoted argument - a steer
-# message, a brief line - is never re-read as a new command while its words
-# stay in their own segment. Mode "mask" replaces the span, quotes included,
-# with the same number of spaces, so an operator written as prose inside a
-# quoted argument is not an operator, while every offset outside the span still
-# lines up with the original text.
+# double-quoted span as data. Quote state carries across newlines, because a
+# quoted argument - a steer message, a brief line - is routinely multi-line.
+# Mode "strip" drops the quote characters and neutralizes separators inside the
+# span so its words stay in their own segment. Mode "mask" blanks the span,
+# quotes included, keeping its length and its newlines, so an operator written
+# as prose inside a quoted argument is not an operator while every line and
+# offset outside the span still lines up with the original text.
 quoted_scan() {
-  local mode=$1 rest=$2 out='' pre q body pad
+  local mode=$1 rest=$2 out='' pre q body span
   while :; do
     case "$rest" in
       *[\'\"]*) ;;
@@ -344,12 +344,11 @@ quoted_scan() {
     q=${rest%"${rest#?}"}
     rest=${rest#?}
     case "$rest" in
-      *"$q"*) body=${rest%%"$q"*}; rest=${rest#"$body$q"}; pad=$((${#body} + 2)) ;;
-      *) body=$rest; rest=''; pad=$((${#body} + 1)) ;;
+      *"$q"*) body=${rest%%"$q"*}; rest=${rest#"$body$q"}; span=$q$body$q ;;
+      *) body=$rest; rest=''; span=$q$body ;;
     esac
     if [ "$mode" = mask ]; then
-      printf -v body '%*s' "$pad" ''
-      out=$out$body
+      out=$out${span//[!$'\n']/ }
     else
       out=$out${body//[$'\n\r;|&']/ }
     fi
@@ -357,13 +356,13 @@ quoted_scan() {
   printf '%s' "$out"
 }
 
-# heredoc_delim <line>: the terminator a heredoc redirection on <line> opens,
-# or nothing when the line opens none. The opener is located in the masked copy
-# of the line, so a "<<EOF" inside a quoted message is prose; the terminator is
-# then read from the original line, so cat <<'EOF' still works.
+# heredoc_delim <line> <masked-line>: the terminator a heredoc redirection on
+# <line> opens, or nothing when the line opens none. The opener is located in
+# the masked line, so a "<<EOF" inside a quoted message is prose wherever that
+# message began; the terminator is then read from the original line, so
+# cat <<'EOF' still works.
 heredoc_delim() {
-  local line=$1 masked pre t
-  masked=$(quoted_scan mask "$line")
+  local line=$1 masked=$2 pre t
   case "$masked" in
     *'<<'*) ;;
     *) return 0 ;;
@@ -385,17 +384,24 @@ heredoc_delim() {
 # into the primary's own home carries project paths in its body, and that body
 # is data, not a command sequence.
 strip_heredocs() {
-  local rest=$1 line delim='' out=''
+  local rest=$1 masked line mline delim='' out=''
+  masked=$(quoted_scan mask "$rest")
   while [ -n "$rest" ]; do
     line=${rest%%$'\n'*}
-    if [ "$line" = "$rest" ]; then rest=''; else rest=${rest#*$'\n'}; fi
+    mline=${masked%%$'\n'*}
+    if [ "$line" = "$rest" ]; then
+      rest=''
+    else
+      rest=${rest#*$'\n'}
+      masked=${masked#*$'\n'}
+    fi
     if [ -n "$delim" ]; then
       [ "${line#"${line%%[![:space:]]*}"}" = "$delim" ] && delim=''
       continue
     fi
     out=$out$line$'\n'
-    case "$line" in
-      *'<<'*) delim=$(heredoc_delim "$line") ;;
+    case "$mline" in
+      *'<<'*) delim=$(heredoc_delim "$line" "$mline") ;;
     esac
   done
   printf '%s' "$out"
@@ -409,7 +415,6 @@ if [ "$KIND" = command ]; then
   # classified on its own.
   SEGSTR=$(quoted_scan strip "$(strip_heredocs "$CMD")")
   SEGSTR=${SEGSTR//\\$'\n'/ }
-  SEGSTR=${SEGSTR//\\$'\r'/ }
   SEGSTR=${SEGSTR//&&/;}
   SEGSTR=${SEGSTR//\|\|/;}
   SEGSTR=${SEGSTR//\|/;}
