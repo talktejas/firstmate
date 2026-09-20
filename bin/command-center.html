@@ -403,6 +403,7 @@ function save(key, value){
 // since_kind says which clock a row actually has. A row with none is never given
 // a guessed position or a made-up age; it says so instead.
 const nowSecs = () => Math.floor(Date.now() / 1000);
+const agoWords = s => s < 60 ? Math.max(0, s) + ' seconds' : Math.round(s / 60) + ' minutes';
 function ageLabel(it){
   if (!it.since_epoch) return 'no recorded time';
   const s = Math.max(0, nowSecs() - it.since_epoch);
@@ -515,6 +516,17 @@ function renderWatcher(){
     `<div class="watcher" style="background:var(--${tone})"><span class="lamp ${lamp}"></span>
      <span>${html}</span></div>`;
   const homes = state.view.homes || [];
+  // While the records cannot be re-read, every fact derived from the last scan
+  // is history: it still gets said, but it stops claiming anything about now.
+  const past = !!state.error;
+  // Ages and the stale split are measured against the read itself once it is
+  // history, so a band cannot silently reclassify a home while time passes.
+  const readAt = past && state.view.generated
+    ? Math.floor(Date.parse(state.view.generated) / 1000) : nowSecs();
+  const asOf = past
+    ? ` As at the last read${state.view.generated
+        ? ', ' + esc(state.view.generated.replace('T', ' ').replace('Z', '')) : ''}.`
+    : '';
 
   if (state.error)
     notices.push(band('hot-soft', 'dead',
@@ -526,26 +538,32 @@ function renderWatcher(){
   if (unread.length)
     notices.push(band('hot-soft', 'dead',
       `<b>The backlog of ${unread.map(h => esc(h.name)).join(', ')} could not be read.</b>
-       Anything held for you there is missing from this list — this is not the whole of it.`));
+       Anything held for you there is missing from this list — this is not the whole
+       of it.${asOf}`));
 
   const stale = homes.filter(h =>
-    !h.watcher_beat_epoch || nowSecs() - h.watcher_beat_epoch > 300);
+    !h.watcher_beat_epoch || readAt - h.watcher_beat_epoch > 300);
   if (stale.length)
     notices.push(band('warn-soft', 'unknown',
-      `<b>Firstmate is not watching ${stale.map(h => esc(h.name)).join(', ')}.</b>
-       An answer you send there is saved, but nothing will ring it until firstmate is back.`));
+      `<b>Firstmate ${past ? 'was' : 'is'} not watching ${
+        stale.map(h => esc(h.name)).join(', ')}.</b> ${past
+        ? 'Nothing can be sent anywhere until this page can reach the records again.'
+        : 'An answer you send there is saved, but nothing will ring it until firstmate is back.'
+      }${asOf}`));
 
   if (!homes.length){
     notices.push(band('warn-soft', 'unknown',
       `<b>No homes read yet.</b> Nothing here is a statement about firstmate's health.`));
   } else {
+    // Named per home with its own age: the healthiest home's beat is not a
+    // figure for the fleet, and this band can now sit beside a stale one.
     const fresh = homes.filter(h => !stale.includes(h));
-    if (fresh.length){
-      const ago = nowSecs() - Math.max(...fresh.map(h => h.watcher_beat_epoch));
-      notices.push(`<div class="watcher"><span class="beat"></span><span><b>Firstmate is up.</b>
-        Last heard from ${ago < 60 ? ago + ' seconds' : Math.round(ago/60) + ' minutes'}
-        ago.</span></div>`);
-    }
+    if (fresh.length)
+      notices.push(`<div class="watcher"${past ? ' style="background:var(--warn-soft)"' : ''}>
+        <span class="${past ? 'lamp unknown' : 'beat'}"></span><span><b>Firstmate ${
+          past ? 'was' : 'is'} watching ${fresh.map(h =>
+          esc(h.name) + ' (heard ' + agoWords(readAt - h.watcher_beat_epoch) + ' ago)'
+        ).join(', ')}.</b>${asOf}</span></div>`);
   }
   $('#watcher').innerHTML = notices.join('');
 }
