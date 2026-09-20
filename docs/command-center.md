@@ -37,6 +37,7 @@ The left list has three tabs.
 
 **Messages** is the default and is what firstmate said to you: one row per message, newest first, each with its title, its time, and its project, worktree and branch.
 Click one and the whole message opens with a box to reply in.
+If the list is ever shortened it says so and says how many rows are missing, so a quiet list is always the whole of it.
 A reply goes where your answer would have gone had you been at the terminal: to the worker still waiting on that task if there is one, and to firstmate itself if there is not.
 Your replies appear under the message, so the exchange reads as a conversation.
 
@@ -109,11 +110,12 @@ A held row that records no kind at all cannot be told apart, so the command cent
 | a task that is no longer waiting, or no task at all | `bin/fm-inbox.sh note`, queued for firstmate's next turn |
 
 The server decides which from the recorded message and the current scan, never from the browser.
-A reply naming a message this home never recorded is refused.
+A reply naming a message this home never recorded is refused, and a task id is only ever matched against the home this page was started on, because two homes on one machine can hold the same one.
+A reply carries the same do-not-resend protection an answer does: on an unconfirmed delivery it keeps your words, stops offering Reply, and waits until you say to send it anyway.
 
 ## What it stores
 
-`<home>/data/captain-messages.jsonl`, an append-only log of what firstmate said to you: when, the title, the text, and the project, worktree, branch, task and PR it named, each recorded as unknown rather than guessed when nothing knows it.
+`<home>/data/captain-messages.jsonl`, an append-only log of what firstmate said to you: when, the title, the text, and the project, worktree, branch and task it named, each recorded as unknown rather than guessed when nothing knows it.
 `bin/fm-captain-message.sh` is its only writer, and `--task` fills the project, worktree and branch from that task's own record so all three are one flag rather than three chances to leave one out.
 `<home>/data/command-center/said.jsonl`, an append-only log of what you typed and where it went, with the outcome of the send, read from the exit code of the command that ran and nothing else: **sent**, **failed** (a captain hold refused the record and nothing left this machine — answering it again is safe, and `fm-captain-hold.sh` documents an exact retry as idempotent), or **unknown** (the command reported neither, so the page never guesses which: the page reads only a confirmed `fm-send.sh` exit as sent, and every other exit is unknown to it — including the one that says the answer was delivered but its decision close failed, which the page does not yet report as a state of its own; and `fm-inbox.sh` saves a note before it wakes firstmate, so its failure may mean only that the wake did not land).
 On **unknown** the page keeps your text, says plainly that delivery could not be confirmed, and does not offer Send again until the steering record appears — or until you say so yourself, knowing it may be a second copy. On any other non-success it keeps your text too, so nothing you typed is cleared by a send that did not land.

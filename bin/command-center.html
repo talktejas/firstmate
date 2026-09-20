@@ -402,6 +402,7 @@ const esc = s => String(s == null ? '' : s)
 const state = {
   tab:'messages', group:'project', sfilter:'', q:'', homes:new Set(),
   open:null, view:{homes:[],items:[]}, said:[], messages:[], msgError:null,
+  msgDropped:0,
   msgRead:false, etag:null,
   sending:false, flash:null, error:null, seen:load('cc.seen',{}), draft:load('cc.draft',{}),
   note:load('cc.note',''), outcome:load('cc.outcome',{}), scanned:false, saidError:null,
@@ -479,7 +480,7 @@ const homeColour = id => HOME_COLOURS[
   Math.max(0, state.view.homes.findIndex(h => h.id === id)) % HOME_COLOURS.length];
 
 function msgHaystack(m){
-  return [m.title, m.text, m.project, m.worktree, m.branch, m.task, m.pr,
+  return [m.title, m.text, m.project, m.worktree, m.branch, m.task,
           ...repliesTo(m).map(r => r.text)]
     .filter(Boolean).join(' ').toLowerCase();
 }
@@ -743,7 +744,12 @@ function renderMessages(){
   const note = state.msgError
     ? `<div class="archive-note" style="background:var(--warn-soft)"><b>What firstmate
        said to you could not be read.</b> ${esc(state.msgError)} This is not the whole
-       of it.</div>` : '';
+       of it.</div>`
+    : state.msgDropped
+    ? `<div class="archive-note" style="background:var(--warn-soft)"><b>This list is
+       shortened.</b> ${state.msgDropped} older message${state.msgDropped === 1 ? '' : 's'}
+       ${state.msgDropped === 1 ? 'is' : 'are'} not shown. All of them are still in
+       <span class="mono">data/captain-messages.jsonl</span>.</div>` : '';
   const empty = state.q ? 'Nothing matches.'
     : state.msgError ? 'The record could not be read.'
     : !state.msgRead ? 'The record has not been read yet.'
@@ -853,6 +859,9 @@ function threadHtml(it){
 function renderMessagePane(m){
   const key = msgKey(m);
   const draft = state.draft[key] || '';
+  // The same verdict an answer gets, on the same route: a reply to a waiting
+  // task IS a steer, so an unconfirmed delivery forbids a second one here too.
+  const verdict = SEND_VERDICT[(state.outcome[key] || {}).outcome];
   const replies = repliesTo(m).slice().reverse();   // the log is newest first
   const cell = (label, value, na) =>
     `<div><dt>${label}</dt><dd class="${value ? '' : 'na'}">${esc(value || na)}</dd></div>`;
@@ -876,18 +885,22 @@ function renderMessagePane(m){
       ${cell('Branch', m.branch, 'Not recorded')}
     </div>
     <div class="body">${para(m.text) || '<p class="quiet">No text recorded.</p>'}</div>
-    ${m.pr ? `<div class="hits"><a href="${esc(m.pr)}">${esc(m.pr)}</a></div>` : ''}
     ${thread ? `<div class="thread"><h3>What you said back</h3>${thread}</div>` : ''}
     <div class="reply">
       <label for="reply">Your reply — in your own words</label>
       <textarea id="reply" placeholder="Type here…">${esc(draft)}</textarea>
       <div class="reply-foot">
         <button class="send" id="sendreply" ${
-          draft.trim() && !state.sending ? '' : 'disabled'}>${
-          state.sending ? 'Sending…' : 'Reply to firstmate'}</button>
+          draft.trim() && !state.sending && !verdict ? '' : 'disabled'}>${
+          verdict ? esc(verdict.label)
+                  : state.sending ? 'Sending…' : 'Reply to firstmate'}</button>
+        ${verdict
+          ? '<button class="defer" id="sendanyway">Send anyway — this may be a second copy</button>'
+          : ''}
         ${draft.trim() ? '<span class="draft-flag">Draft kept</span>' : ''}
-        <span class="send-note" id="sendnote">Goes to the worker still waiting on this
-          task, or to firstmate itself when nothing is.</span>
+        <span class="send-note" id="sendnote">${verdict
+          ? verdict.note + ' <span class="mono">' + esc(state.outcome[key].detail || '') + '</span>'
+          : 'Goes to the worker still waiting on this task, or to firstmate itself when nothing is.'}</span>
       </div>
     </div>
   </div>`;
@@ -895,7 +908,7 @@ function renderMessagePane(m){
   ta.addEventListener('input', () => {
     state.draft[key] = ta.value;
     save('cc.draft', state.draft);
-    $('#sendreply').disabled = !ta.value.trim() || state.sending;
+    $('#sendreply').disabled = !ta.value.trim() || state.sending || !!verdict;
     renderList();
   });
 }
@@ -1055,6 +1068,7 @@ async function loadMessages(){
     const before = state.messages.length + '/' + (state.messages[0] || {}).id;
     state.messages = rows;
     state.msgError = body.error || null;
+    state.msgDropped = body.dropped || 0;
     state.msgRead = true;
     return before !== rows.length + '/' + (rows[0] || {}).id;
   } catch (e) {
@@ -1145,9 +1159,9 @@ async function sendReply(){
   } catch (err) {
     // The request never came back, so delivery is genuinely unknown: the steer
     // may already sit on the worker's inbox and the note may already be saved.
-    // His words stay in the box either way - retyping them is how he sends the
-    // same thing twice, and clearing them is the loss this page exists to end.
-    data = { outcome:'unknown', detail:String(err.message || err) };
+    // Which route ran is unknown too, so this takes the locking outcome - the
+    // reply that may have been delivered is not offered a second time.
+    data = transportFailure('status', String(err.message || err));
   } finally {
     state.sending = false;
   }
@@ -1156,19 +1170,26 @@ async function sendReply(){
     delete state.draft[key]; save('cc.draft', state.draft);
     state.etag = null;
     await poll();
+    render();
+    const sent = $('#sendnote');
+    if (sent) sent.innerHTML = 'Delivered through ' + esc(data.route) + '.';
+    return;
+  }
+  // An unconfirmed reply forbids a resend for exactly the reason an
+  // unconfirmed answer does, so it leaves the same standing verdict rather
+  // than a line of text the next render wipes. His words stay in the box.
+  const verdict = verdictFor(data.source || 'status', data.outcome, data.detail,
+                             repliesTo(m).length);
+  if (verdict){
+    state.outcome[key] = verdict;
+    save('cc.outcome', state.outcome);
+    render();
+    return;
   }
   render();
   const note = $('#sendnote');
-  if (!note) return;
-  if (ok && data.ok)
-    note.innerHTML = 'Delivered through ' + esc(data.route) + '.';
-  else if (data.outcome === 'unknown')
-    note.innerHTML = `<b>Delivery could not be confirmed.</b> ${esc(data.detail || '')}
-      — it may already have arrived, so check before sending it again. Your words
-      are still here.`;
-  else
-    note.innerHTML = `<b style="color:var(--hot)">Not sent.</b> ${
-      esc(data.error || data.detail || 'the command failed')} — your words are still here.`;
+  if (note) note.innerHTML = `<b style="color:var(--hot)">Not sent.</b> ${
+    esc(data.error || data.detail || 'the command failed')} — your words are still here.`;
 }
 
 // --- events ------------------------------------------------------------------
@@ -1240,8 +1261,10 @@ $('#note-dlg').addEventListener('close', async function(){
 Promise.all([loadSaid(), loadMessages()]).then(poll);
 setInterval(poll, POLL_MS);
 // The message log is a local file read, so it is polled on the same cadence and
-// re-rendered only when a message actually arrived.
-setInterval(async () => { if (await loadMessages()) render(); }, POLL_MS);
+// re-rendered only when a message actually arrived. Only the LIST is redrawn: a
+// recorded message never changes, so rebuilding the pane would take his cursor
+// out of the reply he is typing for nothing.
+setInterval(async () => { if (await loadMessages()) renderList(); }, POLL_MS);
 setInterval(renderList, 30000);   // keep the ages and stuck flags honest
 </script>
 </body>

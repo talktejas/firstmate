@@ -186,12 +186,20 @@ class Records:
         A message names a task; whether that task is still stopped on a decision
         is the scan's answer, not the browser's. A task waiting twice at once
         resolves to its status record, which is the one a worker is sitting on.
+
+        Only THIS home's items can answer it. The message log belongs to the
+        home this server was started on, and two homes on one machine can hold
+        the same task id (bin/fm-backend-hometag-lib.sh), so matching across
+        them would deliver his words to an unrelated worker.
         """
         if not task_id or not ID_RE.match(task_id):
             return None
+        view = self.view()
+        mine = {h["id"] for h in view.get("homes", [])
+                if os.path.realpath(h["path"]) == os.path.realpath(self.home)}
         found = None
-        for it in self.view().get("items", []):
-            if it["id"] != task_id:
+        for it in view.get("items", []):
+            if it["id"] != task_id or it["home"] not in mine:
                 continue
             if it["source"] == "status":
                 return it
@@ -246,11 +254,14 @@ def record_said(home, entry):
 
 
 def read_log(path, limit=500):
-    """Returns (rows, error), newest first.
+    """Returns (rows, error, dropped), newest first.
 
     A log that is not there yet is honestly empty; one that cannot be READ is a
     different state, and reporting it as empty would tell the captain he has
     never typed anything - or that firstmate never said anything to him.
+
+    `dropped` is how many older rows the limit cut, because a list shortened
+    without saying so is the same silent loss this page exists to end.
     """
     rows = []
     try:
@@ -264,17 +275,23 @@ def read_log(path, limit=500):
                 except json.JSONDecodeError:
                     continue
     except FileNotFoundError:
-        return [], None
+        return [], None, 0
     except OSError as exc:
-        return [], f"the record could not be read: {exc}"
-    return rows[-limit:][::-1], None
+        return [], f"the record could not be read: {exc}", 0
+    return rows[-limit:][::-1], None, max(0, len(rows) - limit)
 
 
 def read_said(home, limit=500):
     return read_log(said_log(home), limit)
 
 
-def read_messages(home, limit=500):
+# He reads his own messages, so the whole log is served rather than a page of
+# it; the cap is only there so an unbounded file cannot exhaust this process,
+# and whatever it cuts is reported.
+MESSAGE_LIMIT = 20000
+
+
+def read_messages(home, limit=MESSAGE_LIMIT):
     return read_log(message_log(home), limit)
 
 
@@ -284,7 +301,7 @@ def find_message(home, msg_id):
     The whole log is read because the reply is rare and the log is one line per
     message; a reply to a message this home never recorded is refused.
     """
-    rows, error = read_messages(home, limit=10 ** 6)
+    rows, error, _ = read_messages(home)
     if error:
         return None, error
     for row in rows:
@@ -514,12 +531,13 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if path == "/api/messages":
-            rows, error = read_messages(self.records.home)
-            self._json(200, {"messages": rows, "error": error})
+            rows, error, dropped = read_messages(self.records.home)
+            self._json(200, {"messages": rows, "error": error,
+                             "dropped": dropped})
             return
 
         if path == "/api/said":
-            rows, error = read_said(self.records.home)
+            rows, error, _ = read_said(self.records.home)
             self._json(200, {"said": rows, "error": error})
             return
 
@@ -601,7 +619,7 @@ class Handler(BaseHTTPRequestHandler):
                 route=route, outcome=outcome, detail=detail))
             self._json(200 if ok else 502,
                        {"ok": ok, "outcome": outcome, "route": route,
-                        "detail": detail})
+                        "detail": detail, "source": said.get("source", "note")})
             return
 
         if path == "/api/answer":

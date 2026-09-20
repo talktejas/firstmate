@@ -947,6 +947,62 @@ test_a_reply_to_a_message_this_home_never_recorded_is_refused() {
   pass "a reply names a recorded message or it is refused"
 }
 
+# A task id is not unique across homes (bin/fm-backend-hometag-lib.sh), and a
+# message record does not say which home it came from - the log does. A reply
+# resolved against ANOTHER home's waiting task would steer a worker in an
+# installation he was never talking about.
+test_a_reply_never_resolves_its_task_against_another_home() {
+  local home mate port id body
+  home="$TMP_ROOT/reply-crosshome"
+  mate="$TMP_ROOT/reply-crosshome-mate"
+  seed_home "$home"
+  seed_home "$mate"
+  # cc-live is waiting in the OTHER home only: this home's copy is plain work.
+  sed -i 's/^- \[ \] cc-live .*$/- [ ] cc-live - Blue or green? (repo: demo) (kind: ship) (since 2026-09-01)/' \
+    "$home/data/backlog.md"
+  printf -- '- mate - synthetic scope (home: %s; scope: reviews; projects: demo; added 2026-07-14)\n' \
+    "$mate" > "$home/data/secondmates.md"
+  id=$(say "$home" "Blue or green?" "The colour call is yours." --task cc-live) \
+    || fail "the recorder refused the message"
+  start_server "$home" || fail "the server did not start"
+  port=$SERVER_PORT
+  body=$(post "$port" /api/reply "$(jq -cn --arg m "$id" '{msg:$m,text:"Go blue."}')")
+  stop_server
+
+  assert_contains "$body" 'fm-inbox.sh note' \
+    "a reply was resolved against a task waiting in another home"
+  assert_not_contains "$(cat "$mate/data/backlog.md")" 'Go blue.' \
+    "his words were delivered into an unrelated installation"
+  pass "a reply never resolves its task against another home"
+}
+
+# "Every one" is the whole requirement: the list he opens is not allowed to stop
+# at the old 500-line cap and say nothing about the messages it left out.
+test_every_message_is_served_past_the_old_cap() {
+  local home port body i
+  home="$TMP_ROOT/msgmany"
+  seed_home "$home"
+  mkdir -p "$home/data"
+  for i in $(seq 1 600); do
+    jq -cn --arg id "m$i" --arg t "Message $i" \
+      '{id:$id, at:"2026-09-01T10:00:00Z", title:$t, text:$t,
+        task:null, project:null, worktree:null, branch:null}'
+  done > "$home/data/captain-messages.jsonl"
+  start_server "$home" || fail "the server did not start"
+  port=$SERVER_PORT
+  body=$(curl -s -m 30 "http://127.0.0.1:$port/api/messages")
+  stop_server
+
+  assert_equals 600 "$(jq '.messages | length' <<<"$body")" \
+    "messages past the old cap were dropped from the list"
+  assert_equals 0 "$(jq '.dropped' <<<"$body")" \
+    "a complete list claimed rows were dropped"
+  assert_equals "Message 1" \
+    "$(jq -r '.messages[-1].title' <<<"$body")" \
+    "the oldest message was not served"
+  pass "every message is served, and a shortened list would say how many are missing"
+}
+
 test_an_unreadable_message_log_is_reported_not_shown_as_empty() {
   local home port body
   if [ "$(id -u)" = 0 ]; then
@@ -1002,3 +1058,5 @@ test_a_reply_takes_the_answer_route_when_the_task_is_still_waiting
 test_a_reply_with_nothing_waiting_is_queued_for_firstmate
 test_a_reply_to_a_message_this_home_never_recorded_is_refused
 test_an_unreadable_message_log_is_reported_not_shown_as_empty
+test_a_reply_never_resolves_its_task_against_another_home
+test_every_message_is_served_past_the_old_cap

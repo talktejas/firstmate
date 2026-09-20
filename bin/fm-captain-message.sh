@@ -19,7 +19,7 @@
 #   --title <t>     the short line the captain sees in the list. required.
 #   --task <id>     a task in this home; fills project, worktree and branch from
 #                   its own record unless the flags below override them.
-#   --project <p>   --worktree <path>   --branch <b>   --pr <url>
+#   --project <p>   --worktree <path>   --branch <b>
 #
 # The captain's standing rule is that every item names its project, its worktree
 # and its branch, so --task exists to make supplying all three one flag rather
@@ -47,7 +47,7 @@ fail() {
 
 command -v jq >/dev/null 2>&1 || fail "jq is required"
 
-title='' task='' project='' worktree='' branch='' pr=''
+title='' task='' project='' worktree='' branch=''
 while [ $# -gt 0 ]; do
   case "$1" in
     --title)    title=${2-}; shift 2 ;;
@@ -55,7 +55,6 @@ while [ $# -gt 0 ]; do
     --project)  project=${2-}; shift 2 ;;
     --worktree) worktree=${2-}; shift 2 ;;
     --branch)   branch=${2-}; shift 2 ;;
-    --pr)       pr=${2-}; shift 2 ;;
     -h|--help|help) usage; exit 0 ;;
     --) shift; break ;;
     -)  break ;;
@@ -80,9 +79,11 @@ fi
 if [ -n "$task" ]; then
   meta="$FM_HOME/state/$task.meta"
   if [ -f "$meta" ]; then
-    [ -n "$project" ]  || project=$(sed -n 's/^project=//p' "$meta" | head -1)
+    if [ -z "$project" ]; then
+      project=$(sed -n 's/^project=//p' "$meta" | head -1)
+      project=${project##*/}
+    fi
     [ -n "$worktree" ] || worktree=$(sed -n 's/^worktree=//p' "$meta" | head -1)
-    project=${project##*/}
   fi
 fi
 if [ -z "$branch" ] && [ -n "$worktree" ] && [ -d "$worktree" ]; then
@@ -98,10 +99,10 @@ line=$(jq -cn \
   --arg id "$id" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   --arg title "$title" --arg text "$text" --arg task "$task" \
   --arg project "$project" --arg worktree "$worktree" \
-  --arg branch "$branch" --arg pr "$pr" '
+  --arg branch "$branch" '
   def n: if . == "" then null else . end;
   {id:$id, at:$at, title:$title, text:$text,
    task:($task|n), project:($project|n), worktree:($worktree|n),
-   branch:($branch|n), pr:($pr|n)}')
+   branch:($branch|n)}')
 printf '%s\n' "$line" >> "$LOG"
 printf '%s\n' "$id"

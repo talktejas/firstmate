@@ -212,4 +212,13 @@ test('a row with no usable time is never given a position among the dated', () =
   assert.strictEqual(ids(orderRows(rows, 'oldest', true)), 'm1,m2,mx');
 });
 
+// A reply's verdict is not an item's to release: the message log is append-only,
+// so a scan of the work records is no evidence that his reply did not land.
+test('a scan never re-offers a reply whose delivery was unconfirmed', () => {
+  const verdicts = { 'msg/m1': { outcome: 'unknown', detail: 'x', sent: 0 } };
+  const kept = releaseVerdicts(verdicts, { items: [] });
+  assert.deepStrictEqual(kept, verdicts,
+    'a message verdict was released by a scan that knows nothing about it');
+});
+
 process.exit(failures ? 1 : 0);

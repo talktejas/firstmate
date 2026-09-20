@@ -80,11 +80,17 @@ function verdictFor(source, outcome, detail, sentCount) {
 // Released on EVIDENCE, never on a clock: the item has left the list, or the
 // steering record the send was unsure of has since appeared. A view the scan
 // did not actually publish knows no items, so it releases nothing.
+//
+// A verdict against a MESSAGE is not an item's to release. The message log is
+// append-only, so nothing in a scan of the work records is evidence about it,
+// and a scan is not allowed to quietly re-offer a reply that may already have
+// been delivered: that one ends when he says it does.
 function releaseVerdicts(verdicts, view) {
   if (view.error || !Array.isArray(view.items)) return verdicts;
   const live = new Map(view.items.map(i => [itemKey(i), i]));
   const kept = {};
   for (const [key, verdict] of Object.entries(verdicts)) {
+    if (key.startsWith('msg/')) { kept[key] = verdict; continue; }
     const item = live.get(key);
     if (item && (item.sent || []).length <= verdict.sent) kept[key] = verdict;
   }
