@@ -8,7 +8,7 @@ const path = require('path');
 const {
   pollFacts, tense, transportFailure, verdictFor, releaseVerdicts, itemKey,
   shapeMessage, orderRows, replyTarget, foldSaid, wordsAfter,
-  listSignature, mayRelease, logRead, sendState, sendKeys, spokenFor,
+  listSignature, mayRelease, logRead, sendState, sendKeys, spokenFor, sameWords,
 } = require(path.join(__dirname, '..', 'bin', 'command-center-state.js'));
 
 // Quiet on success: tests/command-center.test.sh runs this and reports the
@@ -417,6 +417,27 @@ test('a send is said on every surface it touches, once each', () => {
     ['main/hold/t1/t1'], 'one surface named twice is still one surface');
   assert.deepStrictEqual(sendKeys('', ''), [],
     'a note hangs off nothing, so there is no surface to hold state against');
+});
+
+// --- the same words, typed by a person -----------------------------------------
+// A send stores what was sent, trimmed; the box stores what he typed. Ending a
+// paragraph with Enter or pasting text with a trailing newline is ordinary, and
+// it must not make the two look like different thoughts: that would leave every
+// arrived outcome unable to act on the send it is about, so a delivered send
+// would sit in the box with Send live over it.
+test('a trailing newline is the same words', () => {
+  assert.strictEqual(sameWords('Go blue.\n', 'Go blue.'), true);
+  assert.strictEqual(sameWords('  Go blue. ', 'Go blue.'), true);
+  assert.strictEqual(sameWords('Go blue. Also, ship Friday.', 'Go blue.'), false);
+  assert.strictEqual(sameWords('   ', ''), true,
+    'a box holding only whitespace holds nothing he typed');
+  assert.strictEqual(sameWords(undefined, ''), true);
+
+  assert.strictEqual(wordsAfter({ sid: 'a', outcome: 'sent' }, 'Go blue.\n', 'Go blue.'),
+    'clear', 'a delivered send must still be able to empty the box he typed in');
+  assert.strictEqual(spokenFor({ a: { key: 'msg/m1', text: 'Go blue.' } },
+                               'msg/m1', 'Go blue.\n'),
+    true, 'one send must not read as a second unsent draft over a newline');
 });
 
 process.exit(failures ? 1 : 0);

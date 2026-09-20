@@ -226,8 +226,18 @@ function listSignature(rows) {
 // holds exactly what was sent, his words are left alone.
 function wordsAfter(row, inBox, sent) {
   if (!row || !row.sid || row.outcome === 'sending') return null;
-  if (inBox !== sent) return 'leave';
+  if (!sameWords(inBox, sent)) return 'leave';
   return row.outcome === 'sent' ? 'clear' : 'restore';
+}
+
+// One owner of "are these the same words he typed". The box holds what he
+// typed and a send holds what was sent, and a send is trimmed, so comparing
+// them raw makes an ordinary trailing newline in a textarea look like a
+// different thought - which would leave every arrived outcome unable to act on
+// the send it is about. It answers "is the box empty" too, for the same reason:
+// a box holding only whitespace holds nothing he typed.
+function sameWords(a, b) {
+  return String(a == null ? '' : a).trim() === String(b == null ? '' : b).trim();
 }
 
 // --- whose words are in the box? ------------------------------------------------
@@ -238,7 +248,7 @@ function wordsAfter(row, inBox, sent) {
 // row saying it may already have arrived, and a draft row saying "not sent".
 function spokenFor(pending, key, text) {
   return Object.values(pending || {})
-    .some(p => (p.key === key || p.item === key) && p.text === text);
+    .some(p => (p.key === key || p.item === key) && sameWords(p.text, text));
 }
 
 // --- where a reply is about to go -----------------------------------------------
@@ -271,4 +281,4 @@ if (typeof module === 'object' && module.exports)
                      releaseVerdicts, itemKey, shapeMessage, orderRows,
                      replyTarget, foldSaid, wordsAfter,
                      listSignature, mayRelease, logRead,
-                     sendState, sendKeys, spokenFor };
+                     sendState, sendKeys, spokenFor, sameWords };

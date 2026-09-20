@@ -1212,7 +1212,8 @@ function applyOutcomes(){
       // said on. `leave` is the box holding something he has typed since.
       const surfaces = sendKeys(held.key, held.item);
       const inBox = held.key === 'note' ? state.note : state.draft[held.key];
-      switch (wordsAfter(r, inBox, held.text)){
+      const fate = wordsAfter(r, inBox, held.text);
+      switch (fate){
         case 'clear':
           // It landed, and only now may those words leave the box.
           if (held.key === 'note') noteText('');
@@ -1226,10 +1227,13 @@ function applyOutcomes(){
       }
       // What became of the send is about the send, not about the box, so it is
       // said on every surface either way - and no surface goes on warning
-      // about a delivery the record has since confirmed.
+      // about a delivery the record has since confirmed. `kept` is where the
+      // words themselves are now, because on the `leave` branch the box holds
+      // something he typed since and only the record still has what he sent.
       for (const k of surfaces){
         if (r.outcome === 'sent') delete state.failed[k];
-        else state.failed[k] = {outcome: r.outcome, detail: r.detail || ''};
+        else state.failed[k] = {outcome: r.outcome, detail: r.detail || '',
+                                kept: fate === 'leave' ? 'record' : 'box'};
       }
       save('cc.draft', state.draft);
       save('cc.pending', state.pending);
@@ -1289,10 +1293,12 @@ function reconcilePending(read){
     if (!mayRelease(read, held, state.said.find(r => r.sid === sid),
                     Date.now(), SEND_WINDOW_MS)) continue;
     state.pending[sid] = Object.assign({}, held, {released: true});
-    // His words are put back only into a box that no longer holds anything:
-    // whatever is in there now is his, and newer than what was sent.
+    // His words are put back only into a box that no longer holds any of his:
+    // whatever is in there now is his, and newer than what was sent. sameWords
+    // comes from bin/command-center-state.js and answers both questions.
     const inBox = held.key === 'note' ? state.note : state.draft[held.key];
-    if (!inBox){
+    const empty = sameWords(inBox, '');
+    if (empty){
       if (held.key === 'note') noteText(held.text);
       else state.draft[held.key] = held.text;
     }
@@ -1301,7 +1307,8 @@ function reconcilePending(read){
     // offers Send with nothing said, and the same worker is steered twice.
     const warning = {outcome: 'unknown',
       detail: 'nothing ever reported what became of it: the page or the server '
-            + 'stopped before the command answered'};
+            + 'stopped before the command answered',
+      kept: empty || sameWords(inBox, held.text) ? 'box' : 'record'};
     for (const k of sendKeys(held.key, held.item)) state.failed[k] = warning;
     changed = true;
   }
@@ -1318,11 +1325,17 @@ function reconcilePending(read){
 function failedNote(key){
   const f = state.failed[key];
   if (!f) return '';
+  // Where the words are is a fact about this box, not about the send, so it is
+  // said as it is: still here, or kept in the record under My words because the
+  // box has moved on to something he typed since.
+  const where = f.kept === 'record'
+    ? 'What you sent is kept under <b>My words</b>.'
+    : 'Your words are still here.';
   return f.outcome === 'unknown'
     ? `<b>Delivery could not be confirmed.</b> ${esc(f.detail || '')} — it may already have
-       arrived, so check before sending it again. Your words are still here.`
+       arrived, so check before sending it again. ${where}`
     : `<b style="color:var(--hot)">Not sent.</b> ${esc(f.detail || 'the command failed')}
-       — your words are still here.`;
+       — ${where}`;
 }
 
 async function post(url, body){
