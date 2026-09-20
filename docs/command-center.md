@@ -41,6 +41,8 @@ The left list is everything waiting on you, from two kinds of durable record:
 Every row carries its project, its worktree and its branch.
 `Group by` arranges the list by project, project and worktree, or project and branch. `Latest first` and `Oldest first` drop the grouping for one flat list in time order, and `Nothing — one flat list` drops it for one list in the order the scan read the records, making no ordering claim at all.
 
+Beside it, `Filter by state` narrows the list to what is stuck, sent but not acted on, or has nobody listening. Its default view leaves out rows firstmate has already deferred to a date still in the future — they are waiting, but not on you today — and `Deferred` is the one view that shows them.
+
 In the two time-ordered views, rows whose records carry no usable time are never given a guessed position: they follow the dated rows and the list says how many there are. The unsorted flat list orders nothing, so it says nothing about them either.
 
 ## What it can and cannot prove
@@ -67,6 +69,9 @@ Above the list, every notice that applies is shown as its own band, because two 
 If a home has gone quiet, an answer you send there is still recorded but nothing will ring it, and the page says so rather than looking normal.
 Three things can go wrong between the page and the records, and each says what you can do about it. **It cannot reach the server** — nothing can be sent until it is back. **The server answers but no scan has ever succeeded** — there is no list, and the server refuses sends until there is one. **A scan failed over a list an earlier one read** — the list may be incomplete, and everything on it can still be answered.
 In all three the health bands stay on screen but stop speaking in the present: they say what was true at the last successful read, and when that read was. A poll merely being in flight changes nothing — the bands keep saying what the last answer established until a new one arrives.
+
+The page itself arrives as two files from the same address: the page, and `bin/command-center-state.js`, the decision rules every band and every send verdict above is made by.
+The server refuses to start if either is missing, but a file can still fail to be served under it — during a self-update, say — so if the rules do not arrive the page says it did not load completely and sends nothing, rather than showing an empty list and a live beat it cannot stand behind. Reload; if that does not fix it, restart the command center.
 
 ## Where your answer goes
 
