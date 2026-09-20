@@ -380,7 +380,7 @@ trailing_escape() {
 # as prose inside a quoted argument is not an operator while every line and
 # offset outside the span still lines up with the original text.
 quoted_scan() {
-  local mode=$1 rest=$2 out='' pre q body chunk span closed escapes word
+  local mode=$1 rest=$2 out='' pre q body chunk span closed escapes word prev
   while [ -n "$rest" ]; do
     pre=''
     while :; do
@@ -436,13 +436,17 @@ quoted_scan() {
     if [ "$mode" = mask ]; then
       out=$out${span//[!$'\n']/ }
     else
-      # The operand of a -c option is a COMMAND, so its separators keep their
+      # A shell wrapper's -c operand is a COMMAND, so its separators keep their
       # segmenting effect: an allow-listed lead word inside it must not release
-      # the project commands that follow it. Every other quoted span is data.
+      # the project commands that follow it. Every other quoted span, including
+      # the operand of any other tool's -c flag, is data.
       word=${pre%"${pre##*[![:space:]]}"}
+      prev=${word%"${word##*[[:space:]]}"}
       word=${word##*[[:space:]]}
-      case "$word" in
-        -*c) out=$out$body ;;
+      prev=${prev%"${prev##*[![:space:]]}"}
+      prev=${prev##*[[:space:]]}
+      case "$word/${prev##*/}" in
+        -c/bash|-c/sh|-c/zsh) out=$out$body ;;
         *) out=$out${body//[$'\n\r;|&']/ } ;;
       esac
     fi
@@ -574,8 +578,7 @@ if [ "$KIND" = command ]; then
       case "$RAW" in
         *://localhost*|*://127.*|*://0.0.0.0*|*://\[::1\]*|localhost:[0-9]*|127.0.0.1:[0-9]*)
           PORT=${RAW#*://}
-          PORT=${PORT#*@}
-          PORT=${PORT%%/*}
+          PORT=${PORT%%[/?#]*}
           PORT=${PORT##*:}
           PORT=${PORT%%[!0-9]*}
           case "$HOME_SERVICE_PORTS" in

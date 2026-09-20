@@ -135,6 +135,14 @@ test_wrappers_do_not_hide_the_lead_word() {
   # at the front of it must not release what follows.
   expect_deny "a bash -c compound does not release its trailing project command" \
     --tool Bash --command "bash -c \"bin/fm-spawn.sh task-1 --mode no-mistakes; grep -rn seeded $PROJ/src\""
+  # Only a shell wrapper's -c operand is a command. Another tool's -c flag
+  # takes data, and that data must not re-segment into a released lead word.
+  expect_deny "a grep -c pattern is data, not a command" \
+    --tool Bash --command "grep -c \"seeded; no-mistakes\" $PROJ/src"
+  expect_deny "the same grep -c pattern without a separator" \
+    --tool Bash --command "grep -c \"seeded no-mistakes\" $PROJ/src"
+  expect_deny "a jq -c filter is data, not a command" \
+    --tool Bash --command "jq -c \".a | .b\" $PROJ/composer.json"
   pass "timeout and shell wrappers resolve to the real lead word in both directions"
 }
 
@@ -274,6 +282,10 @@ test_project_runtime_verbs_are_refused_without_a_path() {
     --tool Bash --command "curl -s http://127.0.0.1:8765/state"
   expect_allow "lavish on the home's own port" \
     --tool Bash --command "curl -s http://localhost:4387/session/abc"
+  expect_deny "a home port appearing in the path is not the port" \
+    --tool Bash --command "curl -s http://127.0.0.1:3000/files/a@8765/b"
+  expect_deny "a home port appearing in the query is not the port" \
+    --tool Bash --command "curl -s http://127.0.0.1:3000?from=8765"
   expect_allow "gh-axi over https" --tool Bash --command "gh-axi pr view 12"
   expect_allow "docker named by a fleet script" \
     --tool Bash --command "bin/fm-crew-state.sh task-1 docker"
