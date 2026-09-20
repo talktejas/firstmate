@@ -533,6 +533,34 @@ hold_answered() {  # <task-id>
   body_has_resolution_record "$(show_field "$TASK_SHOW_OUTPUT" body)"
 }
 
+# A resolution failure is only absence when the backlog itself was readable; an
+# unreadable backend fails every id alike, and spending that as drift would
+# clear a live inventory. So before the first failure is spent as drift, the
+# backlog must prove itself readable, loudly. It takes both tests: `tasks-axi
+# list` reports a markdown backlog that is simply GONE as an empty one, so the
+# declared file is checked directly, while the listing read speaks for a
+# backend that keeps its rows elsewhere. That read runs under the metadata
+# lock, so it carries the same bound as every row read here, set inside the
+# substitution so it cannot leak past this one call.
+require_backlog_readable_for_drift() {  # <origin>
+  local origin=$1 reason probe_rc=0
+  fm_backlog_tasks_axi_addressing "$DATA" \
+    || fail "the configured backlog is not addressable, so no attested captain call may be dropped from the $origin inventory (data directory $DATA)${FM_BACKLOG_TRANSITION_ERROR:+: $FM_BACKLOG_TRANSITION_ERROR}"
+  [ -z "$FM_BACKLOG_AXI_FILE" ] || [ -r "$FM_BACKLOG_AXI_FILE" ] \
+    || fail "the configured backlog could not be read, so no attested captain call may be dropped from the $origin inventory: $FM_BACKLOG_AXI_FILE is absent or unreadable"
+  reason=$(FM_TASKS_AXI_TIMEOUT=${FM_TASKS_AXI_TIMEOUT:-${FM_BACKLOG_ROW_TIMEOUT_SECS:-10}} \
+    fm_backlog_row_list "$DATA" 2>&1) || probe_rc=$?
+  case "$probe_rc" in
+    0) : ;;
+    124|137)
+      fail "the backlog backend exceeded its read bound listing this home's backlog, so no attested captain call may be dropped from the $origin inventory (data directory $DATA)"
+      ;;
+    *)
+      fail "the configured backlog could not be read, so no attested captain call may be dropped from the $origin inventory (data directory $DATA)${reason:+: $(printf '%s' "$reason" | tr '\n' ' ')}"
+      ;;
+  esac
+}
+
 # --- migrated legacy-id resolution on the Beads backend ---------------------
 #
 # A home that moved its backlog from markdown to Beads no longer carries the
@@ -1624,7 +1652,7 @@ reconcile_note() {
 
 command_complete() {
   local origin=${1:-} meta previous='' supplied='' keys='' entry key status_file open has_meta=0 transfer_rc resolved
-  local resolved_how attested_by_prefix='' dropped_unresolved='' resolve_rc retained='' drop_err reason probe_rc
+  local resolved_how attested_by_prefix='' dropped_unresolved='' resolve_rc retained='' drop_err reason
   [ "$#" -ge 2 ] || { usage >&2; exit 2; }
   validate_slug origin-id "$origin"
   shift
@@ -1677,34 +1705,6 @@ EOF
   # A recorded captain answer is the outcome this gate exists to accept; a call
   # still held and unanswered is refused by name; an id that resolves to no row
   # at all is repairable drift, reported so a mistype stays visible.
-  # A resolution failure is only absence when the backlog itself was readable;
-  # an unreadable backend fails every id alike, and spending that as drift would
-  # clear a live inventory. Establish readability once, loudly, first. It takes
-  # both tests: `tasks-axi list` reports a markdown backlog that is simply GONE
-  # as an empty one, so the declared file is checked directly, while the bounded
-  # listing read is what speaks for a backend that keeps its rows elsewhere.
-  if [ -n "$previous" ]; then
-    fm_backlog_tasks_axi_addressing "$DATA" \
-      || fail "the configured backlog is not addressable, so no attested captain call may be dropped from the $origin inventory (data directory $DATA)${FM_BACKLOG_TRANSITION_ERROR:+: $FM_BACKLOG_TRANSITION_ERROR}"
-    [ -z "$FM_BACKLOG_AXI_FILE" ] || [ -r "$FM_BACKLOG_AXI_FILE" ] \
-      || fail "the configured backlog could not be read, so no attested captain call may be dropped from the $origin inventory: $FM_BACKLOG_AXI_FILE is absent or unreadable"
-    # The listing read is bounded the way every row read here is, and the bound
-    # is set inside the substitution so it cannot leak past this one call: an
-    # unbounded call while the metadata lock is held is exactly the hang the
-    # bound exists to prevent, and a bound hit is an unreadable backlog too.
-    probe_rc=0
-    reason=$(FM_TASKS_AXI_TIMEOUT=${FM_TASKS_AXI_TIMEOUT:-${FM_BACKLOG_ROW_TIMEOUT_SECS:-10}} \
-      fm_backlog_row_list "$DATA" 2>&1) || probe_rc=$?
-    case "$probe_rc" in
-      0) : ;;
-      124|137)
-        fail "the backlog backend exceeded its read bound listing this home's backlog, so no attested captain call may be dropped from the $origin inventory (data directory $DATA)"
-        ;;
-      *)
-        fail "the configured backlog could not be read, so no attested captain call may be dropped from the $origin inventory (data directory $DATA)${reason:+: $(printf '%s' "$reason" | tr '\n' ' ')}"
-        ;;
-    esac
-  fi
   drop_err=$(umask 077; mktemp "${TMPDIR:-/tmp}/fm-captain-hold-drop-err.XXXXXX") \
     || fail "cannot stage the inventory-drop resolution diagnostics"
   CAPTAIN_DROP_ERR=$drop_err
@@ -1720,6 +1720,7 @@ EOF
     [ "$resolve_rc" -ne 2 ] \
       || fail "the migrated-hold scan refused to resolve $entry, so it cannot be dropped from the $origin inventory${reason:+: $reason}"
     if [ "$resolve_rc" -ne 0 ]; then
+      [ -n "$dropped_unresolved" ] || require_backlog_readable_for_drift "$origin"
       dropped_unresolved="${dropped_unresolved}${dropped_unresolved:+ }$entry"
       continue
     fi

@@ -936,6 +936,8 @@ test_answered_inventory_allows_repair_and_teardown() {
 # this origin's metadata lock is held, so it carries the same read bound every
 # other backlog read here carries: the gate refuses by name instead of blocking
 # every other command that needs that lock behind an unbounded listing read.
+# And the probe is owed only when a resolution failure is about to be spent as
+# drift, so a re-attestation that drops nothing never pays for it at all.
 test_wedged_backlog_listing_does_not_hang_the_completion_gate() {
   local home id call rc err
   home=$(make_home drift-wedged-listing)
@@ -953,19 +955,28 @@ test_wedged_backlog_listing_does_not_hang_the_completion_gate() {
   run_captain "$home" complete "$id" "$call" >/dev/null \
     || fail "could not attest the wedged-listing inventory"
 
-  # A backend that answers every read but never returns from a listing.
+  # A backend whose listing never returns; with FM_TEST_SHOW_FAILS its row
+  # reads fail too, so every attested id fails to resolve.
   cat > "$home/fakebin/tasks-axi" <<'SH'
 #!/usr/bin/env bash
 for arg in "$@"; do
-  [ "$arg" = list ] || continue
-  while :; do sleep 0.1; done
+  case "$arg" in
+    list) while :; do sleep 0.1; done ;;
+    show) [ "${FM_TEST_SHOW_FAILS:-}" != 1 ] || exit 1 ;;
+  esac
 done
 exec "$REAL_TASKS_AXI" "$@"
 SH
   chmod +x "$home/fakebin/tasks-axi"
 
+  # Re-attesting the same inventory drops nothing, so it never reaches the
+  # listing read and succeeds exactly as it did before the drop guard existed.
+  (export FM_BACKLOG_ROW_TIMEOUT_SECS=1
+   run_captain "$home" complete "$id" "$call" >/dev/null) \
+    || fail "a re-attestation that drops nothing was refused over the backlog listing"
+
   set +e
-  err=$(export FM_BACKLOG_ROW_TIMEOUT_SECS=1
+  err=$(export FM_BACKLOG_ROW_TIMEOUT_SECS=1 FM_TEST_SHOW_FAILS=1
         run_captain "$home" complete "$id" --none 2>&1 >/dev/null)
   rc=$?
   set -e
@@ -979,7 +990,7 @@ SH
 
   run_captain "$home" verify "$id" >/dev/null \
     || fail "the preserved inventory stopped verifying once the backend answered again"
-  pass "a wedged backlog listing refuses under its read bound instead of hanging the completion gate"
+  pass "a no-drop re-attestation skips the listing probe, and a wedged listing refuses under its read bound"
 }
 
 # Drift is a statement about the backlog, not about the backend: when the
