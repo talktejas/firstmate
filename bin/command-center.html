@@ -288,6 +288,7 @@
         <h1>Command Center</h1>
         <span class="live" id="live"><span class="beat"></span>Live</span>
       </div>
+      <div class="watcher" id="lost" hidden></div>
       <div class="watcher" id="watcher"><span class="beat"></span><span>Checking…</span></div>
       <div class="search">
         <span class="mag">⌕</span>
@@ -515,23 +516,28 @@ function renderHomes(){
   }).join('');
 }
 
+// The log is the one store this server owns; a failed write to it is a loss
+// already taken, so it keeps its own slot and cannot be dismissed - and it never
+// takes the slot that says who is listening right now.
+function renderLost(){
+  const el = $('#lost');
+  el.hidden = !state.warning;
+  if (!state.warning) return;
+  el.style.background = 'var(--warn-soft)';
+  el.innerHTML = `<span class="lamp unknown"></span><span><b>${
+    state.warning.outcome === 'sent'
+      ? 'Sent, but your words did not reach the record.'
+      : 'Delivery could not be confirmed, and your words did not reach the record.'
+    }</b> ${esc(state.warning.text)} They are still in this browser, under
+    <b>My words</b>; copy them somewhere before clearing site data.</span>`;
+}
+
 function renderWatcher(){
+  renderLost();
   const el = $('#watcher');
   if (state.error){
     el.className = 'watcher'; el.style.background = 'var(--hot-soft)';
     el.innerHTML = `<span class="lamp dead"></span><span><b>Cannot read the records.</b> ${esc(state.error)}</span>`;
-    return;
-  }
-  // The log is the one store this server owns; a failed write to it is the one
-  // loss this page exists to prevent, so it is never left to a flash of text.
-  if (state.warning){
-    el.className = 'watcher'; el.style.background = 'var(--warn-soft)';
-    el.innerHTML = `<span class="lamp unknown"></span><span><b>${
-      state.warning.outcome === 'sent'
-        ? 'Sent, but your words did not reach the record.'
-        : 'Delivery could not be confirmed, and your words did not reach the record.'
-      }</b> ${esc(state.warning.text)} They are still in this
-      browser; copy them somewhere before clearing site data.</span>`;
     return;
   }
   const stale = (state.view.homes || []).filter(h =>
@@ -954,6 +960,12 @@ document.addEventListener('click', async e => {
   if (e.target.id === 'defer'){ state.open = null; render(); return; }
   if (e.target.id === 'sendanyway'){
     delete state.outcome[state.open]; save('cc.outcome', state.outcome);
+    // A delivered-but-unrecorded send cleared its draft, so put the kept copy
+    // back in the box: the control promises a send, not an empty form.
+    const kept = state.unlogged[state.open];
+    if (kept && !(state.draft[state.open] || '').trim()){
+      state.draft[state.open] = kept.text; save('cc.draft', state.draft);
+    }
     renderMain(); return;
   }
   if (e.target.id === 'clr'){ state.q = ''; $('#q').value = ''; renderList(); return; }

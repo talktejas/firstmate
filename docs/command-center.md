@@ -81,10 +81,13 @@ The server reuses those commands rather than writing records itself, so every gu
 One file: `<home>/data/command-center/said.jsonl`, an append-only log of what you typed and where it went, with the outcome of the send, read from the exit code of the command that ran and nothing else: **sent**, **failed** (a captain hold refused the record and nothing left this machine — answering it again is safe, and `fm-captain-hold.sh` documents an exact retry as idempotent), or **unknown** (the command reported neither, so the page never guesses which: `fm-send.sh` cannot say whether the steer reached the worker, and `fm-inbox.sh` saves a note before it wakes firstmate, so its failure may mean only that the wake did not land).
 On **unknown** the page keeps your text, says plainly that delivery could not be confirmed, and does not offer Send again until the steering record appears — or until you say so yourself, knowing it may be a second copy.
 
+If that log cannot be written, the page says so in its own banner and keeps the answer in this browser under **My words**, flagged *not in the record* — that copy is then the only one there is.
+
 That exists because firstmate keeps an answer that closes a decision but does not keep the rest of your words: a steer to a worker is removed with the task's steering inbox at cleanup, and an unsent draft was never recorded anywhere.
 Everything else on the page is read fresh from firstmate's records, so there is no second copy to drift.
 
-Unsent drafts — an answer in progress and an unsent note alike — and which rows you have already opened stay in your browser, because they are yours and this runs on your machine.
+Three things stay in this browser, in its local storage, because they are yours and this runs on your machine: unsent drafts (an answer in progress and an unsent note alike), which rows you have already opened, and any answer that was delivered while the log could not be written.
+They are per-browser and per-profile: they do not follow you to another browser, another machine or a private window, and clearing site data deletes them. For the first two that costs you a draft. For the third it destroys the only surviving copy of an answer you already sent, so copy those somewhere first — the page flags them under **My words** and says the same thing in its banner.
 
 ## Cost and limits
 

@@ -308,8 +308,11 @@ scan_home() {  # <home-id> <home-name> <home-path>
 }
 
 command_scan() {
-  local hid hname hpath backlog readable beat
-  {
+  local hid hname hpath backlog readable beat items produced
+  # The producer is captured and CHECKED before anything is published: piping it
+  # straight into `jq -cs` would turn a mid-scan failure into a well-formed but
+  # SHORT list, and the page would read that as "nothing else is waiting on you".
+  produced=$(
     while IFS=$'\t' read -r hid hname hpath; do
       [ -n "$hpath" ] || continue
       backlog=$(backlog_path "$hpath") || backlog=
@@ -320,10 +323,13 @@ command_scan() {
         --arg beat "$beat" --argjson readable "$readable" \
         '{kind:"home",id:$id,name:$name,path:$path,
           watcher_beat_epoch:(if $beat == "" then null else ($beat|tonumber) end),
-          backlog_readable:$readable}'
-      scan_home "$hid" "$hname" "$hpath" | jq -c '. + {kind:"item"}'
+          backlog_readable:$readable}' || exit 1
+      items=$(scan_home "$hid" "$hname" "$hpath") || exit 1
+      [ -z "$items" ] || printf '%s\n' "$items" | jq -c '. + {kind:"item"}' || exit 1
     done < <(home_records)
-  } | jq -cs --arg schema "$SCHEMA" --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '
+  ) || fail "the scan could not read every record; refusing to publish a partial list"
+  printf '%s\n' "$produced" \
+    | jq -cs --arg schema "$SCHEMA" --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '
     {schema:$schema, generated:$now,
      homes:[.[] | select(.kind == "home") | del(.kind)],
      items:[.[] | select(.kind == "item") | del(.kind)]}'
