@@ -1210,13 +1210,27 @@ fm_firstmate_root_home() {
 # and bin/fm-spawn.sh's refusal to launch into a copy a record still names - has
 # to be asked against this set rather than one home's own records. Answers into
 # TREEHOUSE_OWNER_STATES; refuses rather than answering partially, because a
-# registry this walk cannot read is a home whose records it cannot see.
+# home this walk cannot read is exactly the home that might be holding the copy
+# in question. Proceeding past it would turn "I could not check" into "nothing
+# claims this", which is the assumption that lets one worker run freshen and
+# reset inside another's copy. A refusal costs a minute; that collision costs
+# someone's unlanded work.
+#
+# The refusal itself is the CALLER's to phrase, because "nothing was changed"
+# means something different to a cleanup than to a spawn holding a pool lease:
+# what happened is left in FM_LOCAL_STATES_ERROR, and the registry file the
+# operator has to repair in FM_LOCAL_STATES_ERROR_REGISTRY (empty when the walk
+# never reached a registry).
+FM_LOCAL_STATES_ERROR=
+FM_LOCAL_STATES_ERROR_REGISTRY=
 collect_local_firstmate_states() {  # <record-state-dir>
   local record_state=$1 root home reg line child known existing i=0
   local -a homes
   TREEHOUSE_OWNER_STATES=("$record_state")
+  FM_LOCAL_STATES_ERROR=
+  FM_LOCAL_STATES_ERROR_REGISTRY=
   root=$(fm_firstmate_root_home "$FM_HOME") || {
-    echo "REFUSED: cannot resolve the root Firstmate home; nothing was changed" >&2
+    FM_LOCAL_STATES_ERROR="cannot resolve the root Firstmate home"
     return 1
   }
   homes=("$root")
@@ -1231,7 +1245,8 @@ collect_local_firstmate_states() {  # <record-state-dir>
     reg="$home/data/secondmates.md"
     [ ! -e "$reg" ] && [ ! -L "$reg" ] && continue
     [ -f "$reg" ] && [ ! -L "$reg" ] || {
-      echo "REFUSED: local Firstmate registry is unsafe at $reg; nothing was changed" >&2
+      FM_LOCAL_STATES_ERROR="local Firstmate registry is unsafe at $reg"
+      FM_LOCAL_STATES_ERROR_REGISTRY=$reg
       return 1
     }
     if ! command -v secondmate_registry_parse_line >/dev/null 2>&1; then
@@ -1242,12 +1257,14 @@ collect_local_firstmate_states() {  # <record-state-dir>
       case "$line" in
         "- "*)
           secondmate_registry_parse_line "$line" || {
-            echo "REFUSED: malformed local Firstmate registry entry in $reg; nothing was changed" >&2
+            FM_LOCAL_STATES_ERROR="malformed local Firstmate registry entry in $reg"
+            FM_LOCAL_STATES_ERROR_REGISTRY=$reg
             return 1
           }
           [ "$SECONDMATE_REGISTRY_REMOTE" -eq 0 ] || continue
           child=$(CDPATH='' cd -- "$SECONDMATE_REGISTRY_HOME" 2>/dev/null && pwd -P) || {
-            echo "REFUSED: registered local Firstmate home is unavailable: $SECONDMATE_REGISTRY_HOME; nothing was changed" >&2
+            FM_LOCAL_STATES_ERROR="registered local Firstmate home is unavailable: $SECONDMATE_REGISTRY_HOME"
+            FM_LOCAL_STATES_ERROR_REGISTRY=$reg
             return 1
           }
           known=0

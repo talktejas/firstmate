@@ -209,6 +209,47 @@ test_a_record_in_another_local_home_blocks_a_spawn() {
   pass "a record in another locally registered home blocks a spawn into its copy"
 }
 
+# The cross-home scan is fail-closed: a registered home the walk cannot read is
+# exactly the home that might hold the offered copy, so "I could not check" must
+# never become "nothing claims this". What the spawn owes the operator is its
+# OWN refusal - which copy it declined, why an unreadable home blocks it, that
+# the pool claim went back, and which registry to repair - rather than the
+# cleanup-shaped line the shared walk used to print.
+test_unreadable_registry_refuses_the_spawn_and_returns_the_claim() {
+  local shape id out status log reg
+  for shape in missing-home malformed-entry symlinked-registry; do
+    id="lease-registry-${shape}-w7"
+    make_lease_case "lease-registry-$shape" "$id"
+    reg="$LEASE_HOME/data/secondmates.md"
+    case "$shape" in
+      missing-home)
+        printf -- '- ghost - fixture (home: %s; scope: fixture; projects: sample; added 2026-09-20)\n' \
+          "$LEASE_HOME/gone" > "$reg" ;;
+      malformed-entry)
+        printf -- '- ghost - fixture (home: %s)\n' "$LEASE_HOME" > "$reg" ;;
+      symlinked-registry)
+        printf -- '- ghost - fixture (home: %s; scope: fixture; projects: sample; added 2026-09-20)\n' \
+          "$LEASE_HOME" > "$LEASE_HOME/data/registry-elsewhere.md"
+        ln -s "$LEASE_HOME/data/registry-elsewhere.md" "$reg" ;;
+    esac
+
+    out=$(run_lease_spawn "$id" "$LEASE_WT")
+    status=$?
+    [ "$status" -ne 0 ] || fail "$shape: spawn launched although a registered home could not be read"$'\n'"$out"
+    assert_contains "$out" "refusing to launch task $id into the pool copy '$LEASE_WT'" \
+      "$shape: the refusal was not the spawn's own"
+    assert_contains "$out" "cannot be ruled out as the task that holds this copy" \
+      "$shape: the refusal did not say why an unreadable home blocks the spawn"
+    assert_contains "$out" "$reg" "$shape: the refusal did not name the registry to repair"
+    [ ! -e "$LEASE_HOME/state/$id.meta" ] || fail "$shape: refused spawn published task metadata"
+    log=$(cat "$LEASE_LOG")
+    assert_contains "$log" \
+      "treehouse${SEP}return${SEP}--force${SEP}--if-lease-holder${SEP}fm:$id@$LEASE_HOME/state${SEP}$LEASE_WT" \
+      "$shape: the refusal said the claim was returned but the pool still holds it"
+  done
+  pass "an unreadable local registry refuses the spawn by name and gives the claim back"
+}
+
 # The guarantee the whole fix rests on, checked against the real pool rather
 # than assumed: a leased slot is not handed to a later `treehouse get`, with no
 # process running inside it.
@@ -254,6 +295,7 @@ test_aborted_spawn_returns_its_claim
 test_copy_another_task_record_claims_is_refused_by_name
 test_a_record_whose_claim_was_released_still_blocks_a_spawn
 test_a_record_in_another_local_home_blocks_a_spawn
+test_unreadable_registry_refuses_the_spawn_and_returns_the_claim
 test_real_pool_does_not_hand_out_a_leased_slot
 
 echo "# all fm-spawn-worktree-lease tests passed"
