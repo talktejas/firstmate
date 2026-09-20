@@ -887,7 +887,7 @@ async function sendAnswer(){
       return;
     }
     await loadSaid();
-    renderWatcher(); renderList();
+    render();
     $('#sendnote').innerHTML = `<b style="color:var(--hot)">Not sent.</b> ${
       esc(data.error || data.detail || 'the command failed')} — your words are still here.`;
     $('#send').disabled = false;
