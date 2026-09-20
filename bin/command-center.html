@@ -440,7 +440,7 @@ const ageTitle = it => it.since_kind === 'created'
   : it.since_kind === 'status-timestamp'
     ? 'from the moment the worker opened this decision'
     : it.since_kind === 'status-mtime'
-      ? 'from when the worker last wrote to its log — this line predates timestamped status, so this is the closest honest clock'
+      ? 'from when the worker last wrote to its log — this line carries no timestamp, so this is the closest honest clock'
       : 'this record carries no time at all';
 
 // --- derived per-item state --------------------------------------------------

@@ -405,10 +405,10 @@ _fm_key_before_colon() {  # <status-line>
   esac
 }
 # Raw slug of a complete "[key=<slug>]" token at the head of the note (the
-# first thing after the line's first colon, ignoring whitespace). Fails when
-# the line has no colon or no complete token there; slug charset validity is
-# the caller's check via _fm_decision_slug_ok, exactly as for the before-colon
-# position.
+# first thing after the line's first colon, ignoring whitespace, and ignoring
+# a timestamp bracket that may sit ahead of it). Fails when the line has no
+# colon or no complete token there; slug charset validity is the caller's
+# check via _fm_decision_slug_ok, exactly as for the before-colon position.
 _fm_key_at_note_head() {  # <status-line> -> raw slug
   local rest
   case "$1" in
@@ -416,6 +416,7 @@ _fm_key_at_note_head() {  # <status-line> -> raw slug
     *) return 1 ;;
   esac
   rest=${rest#"${rest%%[![:space:]]*}"}
+  rest=$(_fm_ts_strip_head "$rest")
   case "$rest" in
     \[key=*\]*) rest=${rest#\[key=}; printf '%s' "${rest%%\]*}" ;;
     *) return 1 ;;
@@ -469,8 +470,15 @@ _fm_note_after_key_strip() {  # <status-line> -> note text
   # yield the same note.
   if ! _fm_key_before_colon "$1" && k=$(_fm_key_at_note_head "$1") \
     && _fm_decision_slug_ok "$k"; then
+    local ts head=''
+    if ts=$(_fm_ts_at_head "$n"); then
+      head="[$ts] "
+      n=${n#"[$ts]"}
+      n=${n#"${n%%[![:space:]]*}"}
+    fi
     n=${n#"[key=$k]"}
     n=${n#"${n%%[![:space:]]*}"}
+    n="$head$n"
   fi
   printf '%s' "$n"
 }

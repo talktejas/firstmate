@@ -46,6 +46,26 @@ test_timestamp_after_a_before_colon_key() {
   pass "a timestamp after a before-colon key strips cleanly, leaving the key's own note"
 }
 
+test_timestamp_before_a_note_head_key() {
+  local line ts note dir got
+  line='needs-decision: [2026-09-21T10:00:00Z] [key=api-shape] pick REST or RPC'
+  ts=$(status_line_timestamp "$line")
+  [ "$ts" = "2026-09-21T10:00:00Z" ] || fail "timestamp not recovered ahead of a note-head key: got '$ts'"
+  note=$(status_line_note "$line")
+  [ "$note" = "pick REST or RPC" ] || fail "note-head key leaked into the note: got '$note'"
+
+  dir=$(case_dir ts-before-note-head-key)
+  printf '%s\n' "$line" > "$dir/t.status"
+  got=$(status_open_decisions "$dir/t.status")
+  [ "$got" = "$(printf 'api-shape\tneeds-decision\tpick REST or RPC\n')" ] || \
+    fail "a timestamp ahead of the note-head key collapsed the decision key: got '$got'"
+
+  printf 'resolved [key=api-shape]: [2026-09-21T10:05:00Z] answered: REST\n' >> "$dir/t.status"
+  got=$(status_open_decisions "$dir/t.status")
+  [ "$got" = "" ] || fail "the keyed resolution failed to close the decision: got '$got'"
+  pass "a timestamp written ahead of a note-head key still yields that key, note and timestamp"
+}
+
 test_pre_timestamp_line_still_parses() {
   local line ts note
   line='done: fixed the bug'
@@ -113,6 +133,7 @@ test_key_opened_at_tracks_the_actual_opening_line() {
 
 test_timestamp_round_trips_and_note_stays_clean
 test_timestamp_after_a_before_colon_key
+test_timestamp_before_a_note_head_key
 test_pre_timestamp_line_still_parses
 test_bracket_shaped_prose_is_not_mistaken_for_a_timestamp
 test_open_decisions_fold_is_unaffected_by_a_timestamp
