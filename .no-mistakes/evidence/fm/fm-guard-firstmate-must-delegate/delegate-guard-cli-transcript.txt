@@ -1,0 +1,149 @@
+=== scenario 1: the six behaviours the captain named, done directly by the primary ===
+
+$ Bash: grep -rn seeded /tmp/dg-fixture/proj/src
+  -> DENIED (exit 2)
+     [delegate-project-work] the firstmate primary delegates project work instead of doing it: this Bash call (grep) targets project /tmp/dg-fixture/proj, and project work - reading it included - belongs to a worker. Instead, first classify the work under the AGENTS.md intake contract, then use bin/fm-brief.sh followed by bin/fm-spawn.sh for dispatched work (blocked tool: Bash).
+
+$ Read: /tmp/dg-fixture/proj/src/app.php
+  -> DENIED (exit 2)
+     [delegate-project-work] the firstmate primary delegates project work instead of doing it: this Read call (read) targets project /tmp/dg-fixture/proj, and project work - reading it included - belongs to a worker. Instead, first classify the work under the AGENTS.md intake contract, then use bin/fm-brief.sh followed by bin/fm-spawn.sh for dispatched work (blocked tool: Read).
+
+$ Grep: pattern in /tmp/dg-fixture/proj
+  -> DENIED (exit 2)
+     [delegate-project-work] the firstmate primary delegates project work instead of doing it: this Grep call (grep) targets project /tmp/dg-fixture/proj, and project work - reading it included - belongs to a worker. Instead, first classify the work under the AGENTS.md intake contract, then use bin/fm-brief.sh followed by bin/fm-spawn.sh for dispatched work (blocked tool: Grep).
+
+$ Bash: git -C /tmp/dg-fixture/proj log -1 (module branch logs)
+  -> DENIED (exit 2)
+     [delegate-project-work] the firstmate primary delegates project work instead of doing it: this Bash call (git) targets project /tmp/dg-fixture/proj, and project work - reading it included - belongs to a worker. Instead, first classify the work under the AGENTS.md intake contract, then use bin/fm-brief.sh followed by bin/fm-spawn.sh for dispatched work (blocked tool: Bash).
+
+$ Bash: cat /tmp/dg-fixture/proj/package-lock.json (lock files)
+  -> DENIED (exit 2)
+     [delegate-project-work] the firstmate primary delegates project work instead of doing it: this Bash call (cat) targets project /tmp/dg-fixture/proj, and project work - reading it included - belongs to a worker. Instead, first classify the work under the AGENTS.md intake contract, then use bin/fm-brief.sh followed by bin/fm-spawn.sh for dispatched work (blocked tool: Bash).
+
+$ Bash: git -C /tmp/dg-fixture/proj merge feature (resolving a merge)
+  -> DENIED (exit 2)
+     [delegate-project-work] the firstmate primary delegates project work instead of doing it: this Bash call (git) targets project /tmp/dg-fixture/proj, and project work - reading it included - belongs to a worker. Instead, first classify the work under the AGENTS.md intake contract, then use bin/fm-brief.sh followed by bin/fm-spawn.sh for dispatched work (blocked tool: Bash).
+
+$ Edit: /tmp/dg-fixture/proj/src/app.php
+  -> DENIED (exit 2)
+     [delegate-project-work] the firstmate primary delegates project work instead of doing it: this Edit call (edit) targets project /tmp/dg-fixture/proj, and project work - reading it included - belongs to a worker. Instead, first classify the work under the AGENTS.md intake contract, then use bin/fm-brief.sh followed by bin/fm-spawn.sh for dispatched work (blocked tool: Edit).
+
+=== scenario 2: the primary's own job stays allowed ===
+
+$ Bash: bin/fm-spawn.sh task-1 /tmp/dg-fixture/proj
+  -> ALLOWED (exit 0, no output)
+
+$ Bash: bin/fm-brief.sh task-1 /tmp/dg-fixture/proj
+  -> ALLOWED (exit 0, no output)
+
+$ Bash: no-mistakes status /tmp/dg-fixture/proj
+  -> ALLOWED (exit 0, no output)
+
+$ Read: home file /tmp/dg-fixture/primary/AGENTS.md
+  -> ALLOWED (exit 0, no output)
+
+=== scenario 3: project runtime, no path at all (the backend-health shape) ===
+
+$ Bash: docker compose ps
+  -> DENIED (exit 2)
+     [delegate-project-work] the firstmate primary delegates project work instead of doing it: this Bash call (docker) drives a project's containers, database, or running service, which is a worker's job. Instead, first classify the work under the AGENTS.md intake contract, then use bin/fm-brief.sh followed by bin/fm-spawn.sh for dispatched work (blocked tool: Bash).
+
+$ Bash: psql -h localhost -c 'select 1'
+  -> DENIED (exit 2)
+     [delegate-project-work] the firstmate primary delegates project work instead of doing it: this Bash call (psql) drives a project's containers, database, or running service, which is a worker's job. Instead, first classify the work under the AGENTS.md intake contract, then use bin/fm-brief.sh followed by bin/fm-spawn.sh for dispatched work (blocked tool: Bash).
+
+$ Bash: curl http://127.0.0.1:3000/health
+  -> DENIED (exit 2)
+     [delegate-project-work] the firstmate primary delegates project work instead of doing it: this Bash call (curl) drives a project's containers, database, or running service, which is a worker's job. Instead, first classify the work under the AGENTS.md intake contract, then use bin/fm-brief.sh followed by bin/fm-spawn.sh for dispatched work (blocked tool: Bash).
+
+$ Bash: curl http://127.0.0.1:8765/ (command center = home tooling)
+  -> ALLOWED (exit 0, no output)
+
+$ Bash: curl http://127.0.0.1:4387/ (lavish = home tooling)
+  -> ALLOWED (exit 0, no output)
+
+$ Bash: curl http://admin:secret@localhost:15672/api/overview (userinfo)
+  -> DENIED (exit 2)
+     [delegate-project-work] the firstmate primary delegates project work instead of doing it: this Bash call (curl) drives a project's containers, database, or running service, which is a worker's job. Instead, first classify the work under the AGENTS.md intake contract, then use bin/fm-brief.sh followed by bin/fm-spawn.sh for dispatched work (blocked tool: Bash).
+
+$ Bash: curl http://user@127.0.0.1:3000/ (userinfo)
+  -> DENIED (exit 2)
+     [delegate-project-work] the firstmate primary delegates project work instead of doing it: this Bash call (curl) drives a project's containers, database, or running service, which is a worker's job. Instead, first classify the work under the AGENTS.md intake contract, then use bin/fm-brief.sh followed by bin/fm-spawn.sh for dispatched work (blocked tool: Bash).
+
+$ Bash: curl http://127.0.0.1:3000/files/a@8765/b (@ in path)
+  -> DENIED (exit 2)
+     [delegate-project-work] the firstmate primary delegates project work instead of doing it: this Bash call (curl) drives a project's containers, database, or running service, which is a worker's job. Instead, first classify the work under the AGENTS.md intake contract, then use bin/fm-brief.sh followed by bin/fm-spawn.sh for dispatched work (blocked tool: Bash).
+
+=== scenario 4: onboarding carve-out, scoped by the state of the target ===
+
+$ Bash: git clone url projects/fresh (absent dir)
+  -> ALLOWED (exit 0, no output)
+
+$ Bash: cd projects/brand-new && no-mistakes init (empty dir)
+  -> ALLOWED (exit 0, no output)
+
+$ Bash: git clone url projects/jeweltrek (real project present)
+  -> DENIED (exit 2)
+     [delegate-project-work] the firstmate primary delegates project work instead of doing it: this Bash call (git) targets project /tmp/dg-fixture/primary/projects/jeweltrek, and project work - reading it included - belongs to a worker. Instead, first classify the work under the AGENTS.md intake contract, then use bin/fm-brief.sh followed by bin/fm-spawn.sh for dispatched work (blocked tool: Bash).
+
+$ Bash: grep -rn seeded projects/jeweltrek/src
+  -> DENIED (exit 2)
+     [delegate-project-work] the firstmate primary delegates project work instead of doing it: this Bash call (grep) targets project /tmp/dg-fixture/primary/projects/jeweltrek, and project work - reading it included - belongs to a worker. Instead, first classify the work under the AGENTS.md intake contract, then use bin/fm-brief.sh followed by bin/fm-spawn.sh for dispatched work (blocked tool: Bash).
+
+=== scenario 5: adversarial - trying to ride out on an allowed lead word ===
+
+$ Bash: fm-send then grep, ; separated
+  -> DENIED (exit 2)
+     [delegate-project-work] the firstmate primary delegates project work instead of doing it: this Bash call (grep) targets project /tmp/dg-fixture/proj, and project work - reading it included - belongs to a worker. Instead, first classify the work under the AGENTS.md intake contract, then use bin/fm-brief.sh followed by bin/fm-spawn.sh for dispatched work (blocked tool: Bash).
+
+$ Bash: fm-send then grep on the next LINE
+  -> DENIED (exit 2)
+     [delegate-project-work] the firstmate primary delegates project work instead of doing it: this Bash call (grep) targets project /tmp/dg-fixture/proj, and project work - reading it included - belongs to a worker. Instead, first classify the work under the AGENTS.md intake contract, then use bin/fm-brief.sh followed by bin/fm-spawn.sh for dispatched work (blocked tool: Bash).
+
+$ Bash: bash -c "fm-spawn ...; grep ..."
+  -> DENIED (exit 2)
+     [delegate-project-work] the firstmate primary delegates project work instead of doing it: this Bash call (grep) targets project /tmp/dg-fixture/proj, and project work - reading it included - belongs to a worker. Instead, first classify the work under the AGENTS.md intake contract, then use bin/fm-brief.sh followed by bin/fm-spawn.sh for dispatched work (blocked tool: Bash).
+
+$ Bash: bash -lc "fm-spawn ...; grep ..."
+  -> DENIED (exit 2)
+     [delegate-project-work] the firstmate primary delegates project work instead of doing it: this Bash call (grep) targets project /tmp/dg-fixture/proj, and project work - reading it included - belongs to a worker. Instead, first classify the work under the AGENTS.md intake contract, then use bin/fm-brief.sh followed by bin/fm-spawn.sh for dispatched work (blocked tool: Bash).
+
+$ Bash: bash -c "bin/fm-brief.sh task-1 /tmp/dg-fixture/proj" (pure fleet operand)
+  -> ALLOWED (exit 0, no output)
+
+$ Bash: fm-send msg ending in ESCAPED backslash, grep next line
+  -> DENIED (exit 2)
+     [delegate-project-work] the firstmate primary delegates project work instead of doing it: this Bash call (grep) targets project /tmp/dg-fixture/proj, and project work - reading it included - belongs to a worker. Instead, first classify the work under the AGENTS.md intake contract, then use bin/fm-brief.sh followed by bin/fm-spawn.sh for dispatched work (blocked tool: Bash).
+
+$ Bash: fm-send msg with a genuine \ continuation
+  -> ALLOWED (exit 0, no output)
+
+$ Bash: grep -c "seeded; no-mistakes" $PROJ/src (quoted -c operand is data)
+  -> DENIED (exit 2)
+     [delegate-project-work] the firstmate primary delegates project work instead of doing it: this Bash call (grep) targets project /tmp/dg-fixture/proj, and project work - reading it included - belongs to a worker. Instead, first classify the work under the AGENTS.md intake contract, then use bin/fm-brief.sh followed by bin/fm-spawn.sh for dispatched work (blocked tool: Bash).
+
+$ Bash: heredoc into home data/ mentioning a project path
+  -> ALLOWED (exit 0, no output)
+
+=== scenario 6: a worker must never be blocked (crewmate worktree) ===
+=== scenario 3b: database client with no path (re-run) ===
+
+$ Bash: psql -h localhost -c "select 1"
+  -> DENIED (exit 2)
+     [delegate-project-work] the firstmate primary delegates project work instead of doing it: this Bash call (psql) drives a project's containers, database, or running service, which is a worker's job. Instead, first classify the work under the AGENTS.md intake contract, then use bin/fm-brief.sh followed by bin/fm-spawn.sh
+
+$ Bash: mysql -u root jeweltrek
+  -> DENIED (exit 2)
+     [delegate-project-work] the firstmate primary delegates project work instead of doing it: this Bash call (mysql) drives a project's containers, database, or running service, which is a worker's job. Instead, first classify the work under the AGENTS.md intake contract, then use bin/fm-brief.sh followed by bin/fm-spawn.s
+
+$ Bash: redis-cli ping
+  -> DENIED (exit 2)
+     [delegate-project-work] the firstmate primary delegates project work instead of doing it: this Bash call (redis-cli) drives a project's containers, database, or running service, which is a worker's job. Instead, first classify the work under the AGENTS.md intake contract, then use bin/fm-brief.sh followed by bin/fm-spa
+
+=== scenario 6: a crewmate worktree of the home stays inert (a worker must never be blocked) ===
+
+$ Bash (in crewmate worktree): grep -rn seeded /tmp/dg-fixture/proj/src
+  -> ALLOWED (exit 0, no output)
+
+$ Read (in crewmate worktree): /tmp/dg-fixture/proj/src/app.php
+  -> ALLOWED (exit 0, no output)
