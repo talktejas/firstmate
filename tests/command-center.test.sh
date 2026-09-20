@@ -216,6 +216,26 @@ EOF
   pass "a scan that cannot read everything fails instead of truncating"
 }
 
+# The page exists to show him only what is actually his. tasks-axi makes --kind
+# optional on a hold, so an absent hold kind is firstmate's own parked or future
+# hold - and a send against one is refused by fm-captain-hold.sh anyway.
+test_only_captain_kind_holds_are_his_to_answer() {
+  local home out
+  home="$TMP_ROOT/holdkind"
+  mkdir -p "$home/data" "$home/state"
+  {
+    printf '# Backlog\n'
+    printf -- '- [ ] hk-captain - Which palette? (repo: demo) (kind: captain) (hold: pick one) (hold-kind: captain)\n'
+    printf -- '- [ ] hk-none - Start after launch (repo: demo) (kind: ship) (hold: not yet)\n'
+    printf -- '- [ ] hk-parked - Waiting on the vendor (repo: demo) (kind: ship) (hold: vendor) (hold-kind: parked)\n'
+  } > "$home/data/backlog.md"
+
+  out=$(printf '%s' "$(scan "$home")" | jq -r '[.items[].id] | sort | join(",")')
+  assert_equals "hk-captain" "$out" \
+    "the captain's list carried a hold that is not his to answer"
+  pass "only a hold marked for the captain reaches his list"
+}
+
 test_fingerprint_changes_only_when_a_record_moves() {
   local home first second third
   home="$TMP_ROOT/fingerprint"
@@ -628,6 +648,7 @@ trap stop_server EXIT
 test_only_live_captain_holds_are_carded
 test_body_survives_the_record_separator
 test_a_title_keeps_a_trailing_parenthetical
+test_only_captain_kind_holds_are_his_to_answer
 test_deferred_hold_reports_its_date
 test_branch_states_are_honest
 test_status_decisions_are_carded_with_their_verb

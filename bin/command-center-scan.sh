@@ -129,9 +129,12 @@ held_tasks() {  # <backlog-file>
   awk '
     function flush(   b) {
       if (id == "") return
-      # Only a CAPTAIN hold is a question for him. Any other hold kind is
-      # firstmate holding its own work and must not be carded as his to answer.
-      if (hold != "" && (holdkind == "" || holdkind == "captain")) {
+      # Only hold-kind "captain", exactly. An ABSENT hold kind does not mean
+      # captain: tasks-axi makes --kind optional, so a hold with none is one of
+      # the parked/future/load holds firstmate sets. bin/fm-captain-hold.sh checks
+      # that every hold it sets retains hold_kind captain, so a real captain
+      # call never reaches the backlog without the annotation.
+      if (hold != "" && holdkind == "captain") {
         b = body
         gsub(/\n+$/, "", b)
         gsub(/\n/, "\036", b)
