@@ -37,7 +37,7 @@
 #     listen (busy|idle|unknown|dead|none), listen_source,
 #     since_epoch, since_kind (created|status-mtime|none),
 #     sent[]   the captain's steering records still in flight:
-#              seq, at, delivered, handled, text
+#              seq, at, delivered, handled, closed_key, text
 #   generated, schema
 set -eu
 
@@ -198,8 +198,33 @@ branch_of() {  # <worktree>  -> "<branch-state>\t<branch>" (newline-terminated)
 # into handled/ (bin/fm-task-inbox-lib.sh owns that acknowledgement contract).
 # Nothing between the two is reported, because nothing between the two is
 # observable.
+# Acted on is a DIFFERENT fact from picked up, and firstmate records it in a
+# different place: bin/fm-send.sh closes an answered decision by appending
+#   resolved [key=<k>]: answered: <excerpt of the captain's answer>
+# to the task's status log. That close note quotes his own words, so it is what
+# ties one steering record to the decision it actually settled. An ordinary
+# steer closes nothing and matches nothing, which is the honest answer.
+closing_key() {  # <status-file> <answer-text>  -> key, or empty
+  [ -f "$1" ] && [ -r "$1" ] || return 0
+  printf '%s' "$2" | tr '\n\r\t' '   ' | LC_ALL=C tr -d '\000-\037\177' \
+    | awk -v statusfile="$1" '
+      NR == 1 { answer = $0 }
+      END {
+        if (answer == "") exit
+        while ((getline line < statusfile) > 0) {
+          if (line !~ /^resolved \[key=[^]]+\]: answered: /) continue
+          key = line; sub(/^resolved \[key=/, "", key); sub(/\].*$/, "", key)
+          note = line; sub(/^resolved \[key=[^]]+\]: answered: /, "", note)
+          if (note != "" && substr(answer, 1, length(note)) == note) {
+            print key
+            exit
+          }
+        }
+      }'
+}
+
 sent_records() {  # <state-dir> <id>  -> JSON array
-  local dir=$1/$2.inbox f seq at text
+  local dir=$1/$2.inbox status=$1/$2.status f seq at text closed handled
   [ -d "$dir" ] || { printf '[]'; return 0; }
   {
     for f in "$dir"/*.msg "$dir"/handled/*.msg; do
@@ -207,12 +232,12 @@ sent_records() {  # <state-dir> <id>  -> JSON array
       seq=$(basename "$f" .msg)
       at=$(sed -n 's/^at=//p' "$f" | head -1)
       text=$(sed -n '/^--$/,$p' "$f" | tail -n +2)
-      case "$f" in
-        */handled/*) jq -cn --arg s "$seq" --arg a "$at" --arg t "$text" \
-          '{seq:$s,at:$a,delivered:true,handled:true,text:$t}' ;;
-        *) jq -cn --arg s "$seq" --arg a "$at" --arg t "$text" \
-          '{seq:$s,at:$a,delivered:true,handled:false,text:$t}' ;;
-      esac
+      closed=$(closing_key "$status" "$text")
+      case "$f" in */handled/*) handled=true ;; *) handled=false ;; esac
+      jq -cn --arg s "$seq" --arg a "$at" --arg t "$text" --arg c "$closed" \
+        --argjson h "$handled" \
+        '{seq:$s,at:$a,delivered:true,handled:$h,
+          closed_key:(if $c == "" then null else $c end),text:$t}'
     done
   } | jq -cs 'sort_by(.seq)'
 }

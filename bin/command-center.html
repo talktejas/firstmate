@@ -375,6 +375,7 @@ const state = {
   tab:'waiting', group:'project', sfilter:'', q:'', homes:new Set(),
   open:null, view:{homes:[],items:[]}, said:[], etag:null,
   sending:false, flash:null, error:null, seen:load('cc.seen',{}), draft:load('cc.draft',{}),
+  note:load('cc.note',''),
 };
 
 // Browser storage, wrapped: a private window or cleared site data must degrade
@@ -636,10 +637,14 @@ function trackHtml(m){
   html += m.handled ? step('done', '✓', 'Picked up', '')
         : stuck     ? step('bad', '!', 'Not picked up', '')
                     : step('wait', '○', 'Not picked up yet', '');
-  html += m.handled ? step('done', '✓', 'Acted on', '') : step('wait', '○', 'Acted on', '');
+  // Approved proposal section 7: the step and its evidence. Picked up is the
+  // handled/ move; acted on is a decision the status log records as closed.
+  html += m.closed_key ? step('done', '✓', 'Acted on', '') : step('wait', '○', 'Acted on', '');
   return `<div class="track">${html}</div><div class="proof">record ${esc(m.seq)}.msg ${
     m.handled ? '→ handled/' + esc(m.seq) + '.msg — the worker acknowledged it'
-              : '· still in the inbox, not in handled/'}</div>`;
+              : '· still in the inbox, not in handled/'} · ${
+    m.closed_key ? 'closed [key=' + esc(m.closed_key) + '] in the status log'
+                 : 'no decision recorded as closed by it'}</div>`;
 }
 
 function threadHtml(it){
@@ -777,9 +782,15 @@ async function sendAnswer(){
   const text = (state.draft[itemKey(it)] || '').trim();
   if (!text || state.sending) return;
   state.sending = true; renderMain();
-  const { ok, data } = await post('/api/answer',
-    { home: it.home, id: it.id, source: it.source, key: it.key || '', text });
-  state.sending = false;
+  let ok = false, data = {};
+  try {
+    ({ ok, data } = await post('/api/answer',
+      { home: it.home, id: it.id, source: it.source, key: it.key || '', text }));
+  } catch (err) {
+    data = { error: String(err.message || err) };
+  } finally {
+    state.sending = false;
+  }
   if (!ok || !data.ok){
     $('#sendnote').innerHTML = `<b style="color:var(--hot)">Not sent.</b> ${
       esc(data.error || data.detail || 'the command failed')} — your words are still here.`;
@@ -817,14 +828,28 @@ $('#grouping').addEventListener('change', e => { state.group = e.target.value; r
 $('#statefilter').addEventListener('change', e => { state.sfilter = e.target.value; renderList(); });
 $('#q').addEventListener('input', e => { state.q = e.target.value; renderList(); });
 
+// The note box keeps what he typed the same way the answer box does: a note
+// that vanishes on a failed send is the loss this whole surface exists to end.
+$('#note-text').value = state.note;
+$('#note-text').addEventListener('input', e => {
+  state.note = e.target.value; save('cc.note', state.note);
+});
+
 $('#note-dlg').addEventListener('close', async function(){
   const text = $('#note-text').value.trim();
   if (this.returnValue !== 'send' || !text) return;
   const btn = $('#open-note');
-  const { ok, data } = await post('/api/note', { text });
+  let ok = false, data = {};
+  try {
+    ({ ok, data } = await post('/api/note', { text }));
+  } catch (err) {
+    data = { error: String(err.message || err) };
+  }
   btn.textContent = (ok && data.ok) ? '✓  Queued — and kept under My words'
                                     : '✕  Not queued: ' + (data.error || 'the command failed');
-  if (ok && data.ok) $('#note-text').value = '';
+  if (ok && data.ok){
+    $('#note-text').value = ''; state.note = ''; save('cc.note', state.note);
+  }
   setTimeout(() => { btn.textContent = '✎  Tell firstmate something — not an answer'; }, 3500);
   await loadSaid(); renderList();
 });

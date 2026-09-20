@@ -171,6 +171,38 @@ test_steering_records_report_delivered_and_picked_up() {
   pass "a steering record reports delivered and picked up from the acknowledgement move"
 }
 
+# Picked up and acted on are different facts with different evidence. The only
+# durable proof a steer SETTLED anything is the close note fm-send.sh appends to
+# the status log, which quotes the answer it closed the decision with.
+test_only_a_steer_that_closed_a_decision_reports_it() {
+  local home out
+  home="$TMP_ROOT/closed"
+  mkdir -p "$home/data" "$home/state/t-closed.inbox/handled"
+  printf '# Backlog\n' > "$home/data/backlog.md"
+  {
+    printf 'blocked [key=one]: waiting on the colour\n'
+    printf 'resolved [key=one]: answered: Green, blue reads as disabled\n'
+    printf 'blocked [key=two]: waiting on the copy\n'
+  } > "$home/state/t-closed.status"
+  printf 'schema=fm-task-inbox.v1\nat=2026-09-01T10:00:00Z\n--\nGreen, blue reads as disabled\n' \
+    > "$home/state/t-closed.inbox/handled/001.msg"
+  printf 'schema=fm-task-inbox.v1\nat=2026-09-01T11:00:00Z\n--\nkeep going, I am watching\n' \
+    > "$home/state/t-closed.inbox/handled/002.msg"
+
+  out=$(printf '%s' "$(scan "$home")" \
+    | jq -c '[.items[] | select(.id == "t-closed")][0] | .sent')
+  assert_equals "one" \
+    "$(printf '%s' "$out" | jq -r '.[] | select(.seq == "001") | .closed_key')" \
+    "the steer whose answer closed a decision did not report that closure"
+  assert_equals "null" \
+    "$(printf '%s' "$out" | jq -r '.[] | select(.seq == "002") | .closed_key')" \
+    "an ordinary steer that closed no decision was reported as closing one"
+  assert_equals "true" \
+    "$(printf '%s' "$out" | jq -r '.[] | select(.seq == "002") | .handled')" \
+    "picked up and acted on were not reported as separate facts"
+  pass "only a steer whose answer closed a decision reports that closure"
+}
+
 test_fingerprint_changes_only_when_a_record_moves() {
   local home first second third
   home="$TMP_ROOT/fingerprint"
@@ -384,6 +416,7 @@ test_deferred_hold_reports_its_date
 test_branch_states_are_honest
 test_status_decisions_are_carded_with_their_verb
 test_steering_records_report_delivered_and_picked_up
+test_only_a_steer_that_closed_a_decision_reports_it
 test_fingerprint_changes_only_when_a_record_moves
 test_server_serves_the_page_and_the_records
 test_server_refuses_bad_input_before_running_anything

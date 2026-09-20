@@ -46,6 +46,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -83,6 +84,18 @@ class Records:
         self.body = b"{}"
         self.error = None
         self.checked = 0.0
+        # ThreadingHTTPServer gives every open tab its own thread, so the etag
+        # and the body it names must become visible together or a reader can
+        # store a new etag against an old list and 304 on it forever.
+        self.lock = threading.Lock()
+
+    def snapshot(self):
+        with self.lock:
+            return self.etag, self.body
+
+    def invalidate(self):
+        with self.lock:
+            self.etag = None
 
     def _run(self, args, timeout):
         env = dict(os.environ, FM_HOME=self.home)
@@ -122,8 +135,9 @@ class Records:
             self.error = f"scan produced unreadable output: {exc}"
             return
         self.error = None
-        self.etag = etag
-        self.body = dump(data)
+        with self.lock:
+            self.etag = etag
+            self.body = dump(data)
 
     def view(self):
         return json.loads(self.body)
@@ -164,7 +178,8 @@ def record_said(home, entry):
 
     Append-only and best effort: a failure here must never make a delivered
     answer look undelivered, so it is reported alongside the send result rather
-    than raised over it.
+    than raised over it. A failed send is logged too: the captain's words are
+    the one thing this surface exists not to lose.
     """
     path = said_log(home)
     try:
@@ -342,15 +357,16 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/api/items":
             self.records.refresh()
-            view = self.records.view()
-            view["error"] = self.records.error
-            etag = self.records.etag or "none"
+            etag, body = self.records.snapshot()
+            etag = etag or "none"
             if self.headers.get("If-None-Match") == etag and not self.records.error:
                 self.send_response(304)
                 self.send_header("ETag", etag)
                 self.send_header("Content-Length", "0")
                 self.end_headers()
                 return
+            view = json.loads(body)
+            view["error"] = self.records.error
             self._send(200, dump(view), etag=etag)
             return
 
@@ -388,7 +404,7 @@ class Handler(BaseHTTPRequestHandler):
             warn = record_said(self.records.home, {
                 "at": utc_now(), "kind": "note", "home": "main",
                 "text": text, "route": route, "delivered": ok, "detail": detail,
-            }) if ok else None
+            })
             self._json(200 if ok else 502,
                        {"ok": ok, "route": route, "detail": detail, "warning": warn})
             return
@@ -420,9 +436,9 @@ class Handler(BaseHTTPRequestHandler):
                 "source": item["source"], "key": item.get("key"),
                 "item_key": item_key(item), "title": item.get("title"),
                 "text": text, "route": route, "delivered": ok, "detail": detail,
-            }) if ok else None
+            })
             if ok:
-                self.records.etag = None      # force a rescan on the next poll
+                self.records.invalidate()     # force a rescan on the next poll
             self._json(200 if ok else 502,
                        {"ok": ok, "route": route, "detail": detail, "warning": warn})
             return

@@ -77,12 +77,12 @@ The server reuses those commands rather than writing records itself, so every gu
 
 ## What it stores
 
-One file: `<home>/data/command-center/said.jsonl`, an append-only log of what you typed and where it went.
+One file: `<home>/data/command-center/said.jsonl`, an append-only log of what you typed and where it went, whether the send succeeded or failed.
 
 That exists because firstmate keeps an answer that closes a decision but does not keep the rest of your words: a steer to a worker is removed with the task's steering inbox at cleanup, and an unsent draft was never recorded anywhere.
 Everything else on the page is read fresh from firstmate's records, so there is no second copy to drift.
 
-Unsent drafts and which rows you have already opened stay in your browser, because they are yours and this runs on your machine.
+Unsent drafts — an answer in progress and an unsent note alike — and which rows you have already opened stay in your browser, because they are yours and this runs on your machine.
 
 ## Cost and limits
 
