@@ -1,0 +1,19 @@
+HOME=/tmp/fm-live-base.Gx9a5u
+=== base poll 1 (defaults)  [env: ]
+    exit=0 after 6s; forge calls=1 (killed: 1)
+    output: contributions: observation unavailable for https://github.com/o/r/pull/8
+    record: {"error":"forge observation unavailable or changed during read","observed":false,"pending":[],"notified":[]}
+/home/tds/.no-mistakes/evidence/01M3007HMN0A9YMFX0F7CMBF0G/drive-poll-cases.sh: line 17: /tmp/fm-live-base.Gx9a5u/state/.wake-queue: No such file or directory
+    wake queue lines: 0
+=== base poll 2 (defaults)  [env: ]
+    exit=0 after 5s; forge calls=1 (killed: 1)
+    output: (silent - no wake line)
+    record: {"error":"forge observation unavailable or changed during read","observed":false,"pending":[],"notified":[]}
+/home/tds/.no-mistakes/evidence/01M3007HMN0A9YMFX0F7CMBF0G/drive-poll-cases.sh: line 17: /tmp/fm-live-base.Gx9a5u/state/.wake-queue: No such file or directory
+    wake queue lines: 0
+=== base: raise FM_CONTRIBUTIONS_BUDGET (reporter tried this)  [env: FM_CONTRIBUTIONS_BUDGET=25]
+    exit=0 after 6s; forge calls=1 (killed: 1)
+    output: (silent - no wake line)
+    record: {"error":"forge observation unavailable or changed during read","observed":false,"pending":[],"notified":[]}
+/home/tds/.no-mistakes/evidence/01M3007HMN0A9YMFX0F7CMBF0G/drive-poll-cases.sh: line 17: /tmp/fm-live-base.Gx9a5u/state/.wake-queue: No such file or directory
+    wake queue lines: 0

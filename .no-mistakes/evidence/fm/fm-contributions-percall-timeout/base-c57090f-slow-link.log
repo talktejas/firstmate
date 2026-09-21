@@ -1,0 +1,17 @@
+HOME=/tmp/fm-live-base.T9NBOo
+armed: /tmp/fm-live-base.T9NBOo/state/contributions.check.sh
+=== sweep 1 ()
+--- watcher checkpoint exit=0 after 7s; surfaced:
+    check: /tmp/fm-live-base.T9NBOo/state/contributions.check.sh: contributions: observation unavailable for https://github.com/o/r/pull/8
+--- forge calls (wall clock):
+    api repos/o/r/pulls/8	KILLED after 5.0s
+--- durable record:
+    {"checked_at":"2026-09-21T08:13:05Z","error":"forge observation unavailable or changed during read","head":null,"review_decision":null,"pending":[],"notified":[]}
+--- wake queue lines: 1
+=== sweep 2 ()
+--- watcher checkpoint exit=0 after 1s; surfaced:
+    check: rearm-resurface
+--- forge calls (wall clock):
+--- durable record:
+    {"checked_at":"2026-09-21T08:13:05Z","error":"forge observation unavailable or changed during read","head":null,"review_decision":null,"pending":[],"notified":[]}
+--- wake queue lines: 1

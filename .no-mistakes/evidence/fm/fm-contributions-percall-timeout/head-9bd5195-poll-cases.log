@@ -1,0 +1,58 @@
+HOME=/tmp/fm-live-head.VTUOn1
+=== per-call bound 5s (old hard-coded value) poll 1  [env: FM_CONTRIBUTIONS_CALL_TIMEOUT=5]
+    exit=0 after 6s; forge calls=1 (killed: 1)
+    output: contributions: observation unavailable for https://github.com/o/r/pull/8
+    record: {"error":"forge observation unavailable or changed during read","observed":false,"pending":[],"notified":[]}
+/home/tds/.no-mistakes/evidence/01M3007HMN0A9YMFX0F7CMBF0G/drive-poll-cases.sh: line 17: /tmp/fm-live-head.VTUOn1/state/.wake-queue: No such file or directory
+    wake queue lines: 0
+=== per-call bound 5s poll 2 (same failure episode)  [env: FM_CONTRIBUTIONS_CALL_TIMEOUT=5]
+    exit=0 after 5s; forge calls=1 (killed: 1)
+    output: (silent - no wake line)
+    record: {"error":"forge observation unavailable or changed during read","observed":false,"pending":[],"notified":[]}
+/home/tds/.no-mistakes/evidence/01M3007HMN0A9YMFX0F7CMBF0G/drive-poll-cases.sh: line 17: /tmp/fm-live-head.VTUOn1/state/.wake-queue: No such file or directory
+    wake queue lines: 0
+=== defaults restored (per-call 15s)  [env: ]
+    exit=0 after 55s; forge calls=8 (killed: 0)
+    output: contribution-wake: check: contributions delivery 91098b739e9d5fa236f3bad1991b5a7ee438872cf76756a7006b33e99ff2db4a
+    record: {"error":null,"observed":true,"pending":["review:77:2026-09-21T08:01:00Z:CHANGES_REQUESTED"],"notified":["review:77:2026-09-21T08:01:00Z:CHANGES_REQUESTED"]}
+    wake queue lines: 1
+=== immediate re-poll (inside freshness window)  [env: ]
+    exit=0 after 0s; forge calls=0 (killed: 0)
+    output: (silent - no wake line)
+    record: {"error":null,"observed":true,"pending":["review:77:2026-09-21T08:01:00Z:CHANGES_REQUESTED"],"notified":["review:77:2026-09-21T08:01:00Z:CHANGES_REQUESTED"]}
+    wake queue lines: 1
+=== record fresh but its review signal never got a wake (notified cleared, queue emptied)  [env: ]
+    exit=0 after 54s; forge calls=8 (killed: 0)
+    output: contribution-wake: check: contributions delivery 91098b739e9d5fa236f3bad1991b5a7ee438872cf76756a7006b33e99ff2db4a
+    record: {"error":null,"observed":true,"pending":["review:77:2026-09-21T08:01:00Z:CHANGES_REQUESTED"],"notified":["review:77:2026-09-21T08:01:00Z:CHANGES_REQUESTED"]}
+    wake queue lines: 1
+=== expired freshness window (MAX_AGE=0)  [env: FM_CONTRIBUTIONS_MAX_AGE=0]
+    exit=0 after 54s; forge calls=8 (killed: 0)
+    output: (silent - no wake line)
+    record: {"error":null,"observed":true,"pending":["review:77:2026-09-21T08:01:00Z:CHANGES_REQUESTED"],"notified":["review:77:2026-09-21T08:01:00Z:CHANGES_REQUESTED"]}
+    wake queue lines: 1
+=== budget too small for one PR, poll 1  [env: FM_CONTRIBUTIONS_MAX_AGE=0 FM_CONTRIBUTIONS_BUDGET=20]
+    exit=0 after 20s; forge calls=3 (killed: 1)
+    output: contributions: observation needs more than the 20s poll budget for https://github.com/o/r/pull/8; raise FM_CONTRIBUTIONS_BUDGET to at least 135s
+    record: {"error":"forge observation needs more than the 20s poll budget; raise FM_CONTRIBUTIONS_BUDGET to at least 135s","observed":true,"pending":["review:77:2026-09-21T08:01:00Z:CHANGES_REQUESTED"],"notified":["review:77:2026-09-21T08:01:00Z:CHANGES_REQUESTED"]}
+    wake queue lines: 1
+=== budget too small for one PR, poll 2  [env: FM_CONTRIBUTIONS_MAX_AGE=0 FM_CONTRIBUTIONS_BUDGET=20]
+    exit=0 after 21s; forge calls=3 (killed: 1)
+    output: (silent - no wake line)
+    record: {"error":"forge observation needs more than the 20s poll budget; raise FM_CONTRIBUTIONS_BUDGET to at least 135s","observed":true,"pending":["review:77:2026-09-21T08:01:00Z:CHANGES_REQUESTED"],"notified":["review:77:2026-09-21T08:01:00Z:CHANGES_REQUESTED"]}
+    wake queue lines: 1
+=== check bound 30s, budget unset  [env: FM_CONTRIBUTIONS_MAX_AGE=0 FM_CONTRIBUTIONS_CHECK_TIMEOUT=30]
+    exit=0 after 27s; forge calls=4 (killed: 1)
+    output: (silent - no wake line)
+    record: {"error":"forge observation needs more than the 27s poll budget; raise FM_CONTRIBUTIONS_CHECK_TIMEOUT to at least 138s","observed":true,"pending":["review:77:2026-09-21T08:01:00Z:CHANGES_REQUESTED"],"notified":["review:77:2026-09-21T08:01:00Z:CHANGES_REQUESTED"]}
+    wake queue lines: 1
+=== invalid per-call timeout  [env: FM_CONTRIBUTIONS_CALL_TIMEOUT=abc]
+    exit=1 after 0s; forge calls=0 (killed: 0)
+    output: fm-contributions: per-call timeout must be a whole number of seconds
+    record: {"error":"forge observation needs more than the 27s poll budget; raise FM_CONTRIBUTIONS_CHECK_TIMEOUT to at least 138s","observed":true,"pending":["review:77:2026-09-21T08:01:00Z:CHANGES_REQUESTED"],"notified":["review:77:2026-09-21T08:01:00Z:CHANGES_REQUESTED"]}
+    wake queue lines: 1
+=== zero per-call timeout  [env: FM_CONTRIBUTIONS_CALL_TIMEOUT=0]
+    exit=1 after 0s; forge calls=0 (killed: 0)
+    output: fm-contributions: per-call timeout must be a whole number of seconds
+    record: {"error":"forge observation needs more than the 27s poll budget; raise FM_CONTRIBUTIONS_CHECK_TIMEOUT to at least 138s","observed":true,"pending":["review:77:2026-09-21T08:01:00Z:CHANGES_REQUESTED"],"notified":["review:77:2026-09-21T08:01:00Z:CHANGES_REQUESTED"]}
+    wake queue lines: 1

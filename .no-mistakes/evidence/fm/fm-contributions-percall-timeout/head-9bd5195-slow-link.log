@@ -1,0 +1,24 @@
+HOME=/tmp/fm-live-head.iK7YJi
+armed: /tmp/fm-live-head.iK7YJi/state/contributions.check.sh
+=== sweep 1 ()
+--- watcher checkpoint exit=0 after 56s; surfaced:
+    check: contributions delivery 91098b739e9d5fa236f3bad1991b5a7ee438872cf76756a7006b33e99ff2db4a
+--- forge calls (wall clock):
+    api repos/o/r/pulls/8	7.4s
+    api repos/o/r/issues/8/comments?per_page=100 --paginate --slurp	5.0s
+    api repos/o/r/pulls/8/reviews?per_page=100 --paginate --slurp	12.2s
+    api repos/o/r/pulls/8/comments?per_page=100 --paginate --slurp	6s
+    api repos/o/r/commits/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/check-runs?filter=all&per_page=100 --paginate --slurp	8s
+    api repos/o/r/commits/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/statuses?per_page=100 --paginate --slurp	4s
+    api repos/o/r	4s
+    pr view https://github.com/o/r/pull/8 --json headRefOid,reviewDecision	6s
+--- durable record:
+    {"checked_at":"2026-09-21T08:13:05Z","error":null,"head":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","review_decision":"CHANGES_REQUESTED","pending":["review:77:2026-09-21T08:01:00Z:CHANGES_REQUESTED"],"notified":["review:77:2026-09-21T08:01:00Z:CHANGES_REQUESTED"]}
+--- wake queue lines: 1
+=== sweep 2 ()
+--- watcher checkpoint exit=0 after 1s; surfaced:
+    check: rearm-resurface
+--- forge calls (wall clock):
+--- durable record:
+    {"checked_at":"2026-09-21T08:13:05Z","error":null,"head":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","review_decision":"CHANGES_REQUESTED","pending":["review:77:2026-09-21T08:01:00Z:CHANGES_REQUESTED"],"notified":["review:77:2026-09-21T08:01:00Z:CHANGES_REQUESTED"]}
+--- wake queue lines: 1
