@@ -302,6 +302,7 @@
         <button class="tab" role="tab" data-tab="messages" aria-selected="true">Messages <span class="n" id="n-messages"></span></button>
         <button class="tab" role="tab" data-tab="waiting" aria-selected="false">Waiting on you <span class="n" id="n-waiting"></span></button>
         <button class="tab" role="tab" data-tab="words" aria-selected="false">My words <span class="n" id="n-words"></span></button>
+        <button class="tab" role="tab" data-tab="archived" aria-selected="false">Archived <span class="n" id="n-archived"></span></button>
       </div>
       <div class="groupbar">
         <label for="grouping">Group by</label>
@@ -404,12 +405,13 @@ const esc = s => String(s == null ? '' : s)
 
 const state = {
   tab:'messages', group:'project', sfilter:'', q:'', homes:new Set(),
-  open:null, view:{homes:[],items:[]}, said:[], messages:[], msgError:null,
+  open:null, view:{homes:[],items:[]}, said:[], messages:[], archivedMessages:[], msgError:null,
   saidDropped:0, msgEtag:null, saidEtag:null,
   // The page holds the newest window of the log; the rest is one click away
   // and searchable whole, and `capture` is the health of the automatic
   // recording that fills it.
-  capture:null, more:false, found:null, total:0, openMsg:null, openNote:'',
+  capture:null, more:false, archivedMore:false, found:null, archivedFound:null,
+  total:0, archivedTotal:0, openMsg:null, openNote:'', archiving:null,
   applied:load('cc.applied',{}),
   // A send in flight, by sid: what he typed and where he typed it. His words
   // leave the box only when the outcome row says the send landed.
@@ -499,7 +501,8 @@ const homeColour = id => HOME_COLOURS[
 // search around it changes.
 function openedMessage(){
   const find = rows => (rows || []).find(x => msgKey(x) === state.open);
-  return find(state.messages) || find(state.found && state.found.rows)
+  return find(state.messages) || find(state.archivedMessages)
+    || find(state.found && state.found.rows) || find(state.archivedFound && state.archivedFound.rows)
     || (state.openMsg && msgKey(state.openMsg) === state.open ? state.openMsg : null);
 }
 
@@ -508,8 +511,10 @@ function visibleMessages(){
   // has, so neither is applied here rather than quietly hiding messages by a
   // rule that cannot be true of them. Until the server has answered what he is
   // typing now, its last answer stays on screen under its own query.
-  if (!state.q.trim()) return state.messages;
-  return (state.found && state.found.rows) || [];
+  const archived = state.tab === 'archived';
+  if (!state.q.trim()) return archived ? state.archivedMessages : state.messages;
+  const found = archived ? state.archivedFound : state.found;
+  return (found && found.rows) || [];
 }
 
 let SEARCH_SEQ = 0, SEARCH_TIMER = null;
@@ -517,17 +522,23 @@ function searchMessages(){
   clearTimeout(SEARCH_TIMER);
   const q = state.q.trim();
   const seq = ++SEARCH_SEQ;
-  if (!q){ state.found = null; return; }
+  if (!q){
+    if (state.tab === 'archived') state.archivedFound = null;
+    else state.found = null;
+    return;
+  }
   const failed = detail => {
     if (seq !== SEARCH_SEQ) return;        // he has typed on since
     // Answered, with what happened: an unresolved search leaves the list
     // saying it is still searching over nothing, for as long as he looks at it.
-    state.found = { q, rows: [], more: false, error: detail };
+    if (state.tab === 'archived') state.archivedFound = { q, rows: [], more: false, error: detail };
+    else state.found = { q, rows: [], more: false, error: detail };
     renderList();
   };
   SEARCH_TIMER = setTimeout(async () => {
     try {
-      const res = await fetch('/api/messages?q=' + encodeURIComponent(q));
+      const res = await fetch('/api/messages?q=' + encodeURIComponent(q)
+        + (state.tab === 'archived' ? '&archived=1' : ''));
       if (!res.ok){ failed('the server answered ' + res.status); return; }
       const body = await res.json();
       if (seq !== SEARCH_SEQ) return;      // he has typed on since
@@ -535,9 +546,13 @@ function searchMessages(){
       // they come from anywhere in the log, while the held rows are one
       // contiguous newest-first run, which is what walking back through the
       // rest depends on. openedMessage() resolves either.
-      state.found = { q, rows: (body.messages || []).map(shapeMessage),
-                      more: !!body.more };
-      if (typeof body.total === 'number') state.total = body.total;
+      const found = { q, rows: (body.messages || []).map(shapeMessage), more: !!body.more };
+      if (state.tab === 'archived') state.archivedFound = found;
+      else state.found = found;
+      if (typeof body.total === 'number') {
+        if (state.tab === 'archived') state.archivedTotal = body.total;
+        else state.total = body.total;
+      }
       renderList();
     } catch (e) { failed(String(e.message || e)); }
   }, 200);
@@ -806,6 +821,7 @@ function draftTyped(){
 function renderList(){
   const items = state.view.items || [];
   $('#n-messages').textContent = Math.max(state.total, state.messages.length);
+  $('#n-archived').textContent = Math.max(state.archivedTotal, state.archivedMessages.length);
   $('#n-waiting').textContent = items.filter(i => !isDeferred(i)).length;
   $('#n-words').textContent = draftCount();
   document.querySelectorAll('.tab').forEach(t =>
@@ -817,6 +833,7 @@ function renderList(){
   renderHomes(); renderWatcher();
   if (state.tab === 'words'){ renderWords(); return; }
   if (state.tab === 'messages'){ renderMessages(); return; }
+  if (state.tab === 'archived'){ renderMessages(true); return; }
 
   const rows = ordered(visible());
   const empty = state.q || state.sfilter ? 'Nothing matches.'
@@ -830,7 +847,11 @@ function renderList(){
 // of the log one click away and searchable whole. The window arrives
 // newest first (bin/command-center.py), so the grouped views are newest first
 // without sorting anything; Latest and Oldest order explicitly as before.
-function renderMessages(){
+function renderMessages(archived){
+  const held = archived ? state.archivedMessages : state.messages;
+  const more = archived ? state.archivedMore : state.more;
+  const total = archived ? state.archivedTotal : state.total;
+  const found = archived ? state.archivedFound : state.found;
   const rows = ordered(visibleMessages(), true);
   let note = state.msgError
     ? `<div class="archive-note" style="background:var(--warn-soft)"><b>What firstmate
@@ -842,24 +863,24 @@ function renderMessages(){
   const cap = state.msgRead ? captureBand(state.capture) : null;
   if (cap) note += `<div class="archive-note" style="background:var(--warn-soft)">${esc(cap)}</div>`;
   const asked = state.q.trim();
-  const answered = state.found ? state.found.q : '';
-  const failed = asked && state.found && answered === asked && state.found.error;
+  const answered = found ? found.q : '';
+  const failed = asked && found && answered === asked && found.error;
   const empty = asked
-    ? (failed ? 'The search could not be run: ' + esc(state.found.error)
+    ? (failed ? 'The search could not be run: ' + esc(found.error)
               + ' — it runs again as you type.'
        : answered === asked ? 'Nothing matches.' : 'Searching the log…')
     : state.msgError ? 'The record could not be read.'
     : !state.msgRead ? 'The record has not been read yet.'
-    : 'Firstmate has not said anything to you yet.';
+    : archived ? 'Nothing archived yet.' : 'Firstmate has not said anything to you yet.';
   // Nothing is dropped: the rest of the log is one click away, and a search
   // reaches all of it however far back it is - saying so where it found more
   // than it is showing.
-  const searching = asked && state.found && answered === asked && !failed;
+  const searching = asked && found && answered === asked && !failed;
   const older = searching
-    ? (state.found.more ? `<div class="hits">These are the newest matches —
+    ? (found.more ? `<div class="hits">These are the newest matches —
         narrow the search to reach older ones.</div>` : '')
-    : (state.more ? `<button class="older" id="older">Show older messages —
-        ${state.messages.length} of ${Math.max(state.total, state.messages.length)} loaded,
+    : (more ? `<button class="older" id="older">Show older messages —
+        ${held.length} of ${Math.max(total, held.length)} loaded,
         the rest are in the log</button>` : '');
   $('#list').innerHTML = note
     + rowsHtml(rows, messageRow, empty, true, asked ? answered : '') + older;
@@ -867,19 +888,25 @@ function renderMessages(){
 
 // The rest of the log, a window at a time, oldest end of what is loaded first.
 async function loadOlder(){
-  const oldest = state.messages[state.messages.length - 1];
+  const archived = state.tab === 'archived';
+  const held = archived ? state.archivedMessages : state.messages;
+  const oldest = held[held.length - 1];
   if (!oldest) return;
   try {
-    const res = await fetch('/api/messages?before=' + encodeURIComponent(oldest.id));
+    const res = await fetch('/api/messages?before=' + encodeURIComponent(oldest.id)
+      + (archived ? '&archived=1' : ''));
     if (!res.ok) return;
     const body = await res.json();
     // This page was read from the oldest row the list holds, so it continues
     // that run rather than being merged against it.
-    const have = new Set(state.messages.map(m => m.id));
-    state.messages = state.messages.concat(
-      (body.messages || []).map(shapeMessage).filter(m => !have.has(m.id)));
-    state.more = !!body.more;
-    if (typeof body.total === 'number') state.total = body.total;
+    const have = new Set(held.map(m => m.id));
+    const next = held.concat((body.messages || []).map(shapeMessage).filter(m => !have.has(m.id)));
+    if (archived) { state.archivedMessages = next; state.archivedMore = !!body.more; }
+    else { state.messages = next; state.more = !!body.more; }
+    if (typeof body.total === 'number') {
+      if (archived) state.archivedTotal = body.total;
+      else state.total = body.total;
+    }
     renderList();
   } catch (e) { /* the list he has still stands */ }
 }
@@ -1052,6 +1079,10 @@ function renderMessagePane(m){
           ? 'Written down. Going out now — the outcome appears here when the command answers.'
           : failedNote(key) || going}</span>
       </div>
+    </div>
+    <div class="reply-foot">
+      <button class="defer" id="archive" ${state.archiving === m.id ? 'disabled' : ''}>${
+        m.archived ? 'Restore to Messages' : state.archiving === m.id ? 'Archiving…' : 'Archive'}</button>
     </div>
   </div>`);
   const ta = $('#reply');
@@ -1237,6 +1268,39 @@ async function fetchMessage(id){
   render();
 }
 
+function moveArchived(m, archived){
+  m.archived = archived;
+  state.messages = state.messages.filter(x => x.id !== m.id);
+  state.archivedMessages = state.archivedMessages.filter(x => x.id !== m.id);
+  if (archived) {
+    state.archivedMessages.unshift(m);
+    state.total = Math.max(0, state.total - 1);
+    state.archivedTotal++;
+  } else {
+    state.messages.unshift(m);
+    state.total++;
+    state.archivedTotal = Math.max(0, state.archivedTotal - 1);
+  }
+}
+
+async function archiveMessage(){
+  const m = openedMessage();
+  if (!m || state.archiving) return;
+  const archived = !m.archived;
+  state.archiving = m.id;
+  renderMain();
+  try {
+    const {ok, data} = await post('/api/archive', {msg:m.id, archived});
+    if (!ok || !data.ok) throw new Error(data.error || 'the archive record could not be written');
+    moveArchived(m, archived);
+  } catch (e) {
+    state.openNote = 'The archive change did not land: ' + (e.message || e);
+  } finally {
+    state.archiving = null;
+  }
+  render();
+}
+
 // --- talking to the server ---------------------------------------------------
 // A read that resolved well answers every reachability question at once, so
 // they are all cleared here rather than at each branch's discretion - the
@@ -1312,6 +1376,8 @@ async function loadMessages(){
     state.messages = mergeMessages(fresh, state.messages);
     state.more = state.messages.length > fresh.length ? state.more : !!body.more;
     state.total = typeof body.total === 'number' ? body.total : state.messages.length;
+    state.archivedTotal = typeof body.archived_total === 'number'
+      ? body.archived_total : state.archivedTotal;
     state.msgError = body.error || null;
     state.capture = body.capture || null;
     state.msgRead = true;
@@ -1322,6 +1388,20 @@ async function loadMessages(){
     // declines to claim the list is complete.
     return false;
   }
+}
+
+async function loadArchivedMessages(){
+  try {
+    const res = await fetch('/api/messages?archived=1');
+    if (!res.ok) return false;
+    const body = await res.json();
+    const fresh = (body.messages || []).map(shapeMessage).map(m => Object.assign(m, {archived:true}));
+    state.archivedMessages = mergeMessages(fresh, state.archivedMessages);
+    state.archivedMore = state.archivedMessages.length > fresh.length
+      ? state.archivedMore : !!body.more;
+    state.archivedTotal = typeof body.total === 'number' ? body.total : state.archivedMessages.length;
+    return true;
+  } catch (e) { return false; }
 }
 
 // Returns {read, changed}: whether this poll actually read the record, and
@@ -1597,6 +1677,7 @@ async function sendReply(){
     state.pending[data.sid] = {key, item: data.item_key || null, text,
                                at: Date.now()};
     delete state.failed[key];
+    if (data.archived) moveArchived(m, true);
     save('cc.pending', state.pending); save('cc.failed', state.failed);
     await loadSaid();
     render();
@@ -1633,7 +1714,10 @@ document.addEventListener('click', async e => {
   const tab = e.target.closest('.tab');
   if (tab){
     state.tab = tab.dataset.tab;
-    if (state.tab === 'messages') searchMessages();
+    if (state.tab === 'messages' || state.tab === 'archived') {
+      searchMessages();
+      if (state.tab === 'archived') await loadArchivedMessages();
+    }
     renderList(); return;
   }
   const chip = e.target.closest('.chip');
@@ -1646,6 +1730,7 @@ document.addEventListener('click', async e => {
   if (row){ if (row.dataset.key) open(row.dataset.key); return; }
   if (e.target.id === 'send'){ await sendAnswer(); return; }
   if (e.target.id === 'sendreply'){ await sendReply(); return; }
+  if (e.target.id === 'archive'){ await archiveMessage(); return; }
   if (e.target.id === 'defer'){ state.open = null; render(); return; }
   if (e.target.id === 'sendanyway'){
     // heldWith comes from bin/command-center-state.js: one deliberate decision
@@ -1669,7 +1754,7 @@ document.addEventListener('click', async e => {
   }
   if (e.target.id === 'older'){ await loadOlder(); return; }
   if (e.target.id === 'clr'){
-    state.q = ''; $('#q').value = ''; state.found = null; searchMessages();
+    state.q = ''; $('#q').value = ''; state.found = null; state.archivedFound = null; searchMessages();
     renderList(); return;
   }
   if (e.target.id === 'open-note'){ $('#note-dlg').showModal(); }
@@ -1681,7 +1766,7 @@ $('#statefilter').addEventListener('change', e => { state.sfilter = e.target.val
 // what the page already holds, so typing there asks the log for nothing.
 $('#q').addEventListener('input', e => {
   state.q = e.target.value;
-  if (state.tab === 'messages') searchMessages();
+  if (state.tab === 'messages' || state.tab === 'archived') searchMessages();
   renderList();
 });
 

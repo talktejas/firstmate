@@ -1502,6 +1502,54 @@ PYEOF
   pass "a message far behind the window is served by name"
 }
 
+test_an_archived_message_leaves_messages_and_can_be_restored() {
+  local home port id body
+  home="$TMP_ROOT/archive"
+  seed_home "$home"
+  id=$(say "$home" "Read this" "Nothing needs a reply.") || fail "the recorder refused the message"
+  start_server "$home" || fail "the server did not start"
+  port=$SERVER_PORT
+  body=$(post "$port" /api/archive "$(jq -cn --arg m "$id" '{msg:$m,archived:true}')")
+  assert_contains "$body" '"ok":true' "the archive change was not accepted"
+  assert_equals 0 "$(curl -s -m 30 "http://127.0.0.1:$port/api/messages" | jq '.messages | length')" \
+    "an archived message stayed in Messages"
+  body=$(curl -s -m 30 "http://127.0.0.1:$port/api/messages?archived=1")
+  assert_equals "$id" "$(printf '%s' "$body" | jq -r '.messages[0].id')" \
+    "the archived message was not readable from Archived"
+  assert_equals 'Nothing needs a reply.' "$(printf '%s' "$body" | jq -r '.messages[0].text')" \
+    "archiving lost the message body"
+  assert_equals archive "$(tail -1 "$home/data/captain-messages.jsonl" | jq -r .kind)" \
+    "archive state was not recorded beside the message"
+  body=$(post "$port" /api/archive "$(jq -cn --arg m "$id" '{msg:$m,archived:false}')")
+  assert_contains "$body" '"ok":true' "the restore change was not accepted"
+  assert_equals "$id" "$(curl -s -m 30 "http://127.0.0.1:$port/api/messages" | jq -r '.messages[0].id')" \
+    "a restored message did not return to Messages"
+  stop_server
+  pass "archiving is durable beside the message and can be restored"
+}
+
+test_a_reply_archives_its_message_before_delivery_finishes() {
+  local home port id body sid
+  home="$TMP_ROOT/reply-archives"
+  seed_home "$home"
+  id=$(say "$home" "Reply to this" "Your reply clears this conversation.") \
+    || fail "the recorder refused the message"
+  start_server "$home" || fail "the server did not start"
+  port=$SERVER_PORT
+  body=$(post "$port" /api/reply "$(jq -cn --arg m "$id" '{msg:$m,text:"Done."}')")
+  assert_equals true "$(printf '%s' "$body" | jq -r .archived)" \
+    "a reply did not archive its conversation with its acceptance"
+  sid=$(printf '%s' "$body" | jq -r .sid)
+  assert_contains "$(wait_outcome "$home" "$sid")" 'fm-inbox.sh note' \
+    "the reply was not still delivered through its normal route"
+  assert_equals 0 "$(curl -s -m 30 "http://127.0.0.1:$port/api/messages" | jq '.messages | length')" \
+    "a replied-to message stayed in Messages"
+  assert_equals "$id" "$(curl -s -m 30 "http://127.0.0.1:$port/api/messages?archived=1" | jq -r '.messages[0].id')" \
+    "a replied-to message was not kept in Archived"
+  stop_server
+  pass "replying archives the conversation while preserving its delivery"
+}
+
 test_an_unchanged_message_poll_is_answered_without_the_log() {
   local home port tag code body
   home="$TMP_ROOT/msgetag"
@@ -2075,6 +2123,8 @@ test_a_send_that_cannot_run_at_all_still_records_an_outcome
 test_a_reply_that_is_not_a_question_is_sent_even_with_no_scan
 test_every_captured_message_is_reachable_without_serving_them_all
 test_a_message_far_behind_the_window_is_served_by_id
+test_an_archived_message_leaves_messages_and_can_be_restored
+test_a_reply_archives_its_message_before_delivery_finishes
 test_an_unchanged_message_poll_is_answered_without_the_log
 test_a_search_finds_text_however_the_record_escapes_it
 test_an_unreadable_message_log_is_reported_not_shown_as_empty
