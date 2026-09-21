@@ -745,6 +745,16 @@ test_fresh_observation_is_not_reread() {
   jq -e '.records[0].error == null and .records[0].observation != null' \
     "$home/data/filed/contributions.json" >/dev/null || fail 'the retried issue was not observed'
   : > "$home/forge/calls"
+  # A fresh record whose signal was saved but never carried by a wake.
+  mutate_record "$home" delivery '.records[0].pending = [{token:"comment:12:x",type:"comment",
+    source:"https://github.com/o/r/pull/8#issuecomment-12",head:null,author:"maintainer",body:"hi"}]
+    | .records[0].seen = ["comment:12:x"] | .records[0].notified = []'
+  out=$(with_home "$home" env FM_CONTRIBUTIONS_MAX_AGE=900 "$ROOT/bin/fm-contributions.sh" poll) \
+    || fail 'poll failed with an unpublished signal'
+  grep -Fx 'api repos/o/r/pulls/8' "$home/forge/calls" >/dev/null \
+    || fail 'a fresh record holding an unpublished signal was skipped'
+  [ -s "$home/state/.wake-queue" ] || fail 'the unpublished signal was not retried as a wake'
+  : > "$home/forge/calls"
   mutate_record "$home" delivery '.records[0].checked_at="2026-09-16T07:50:00Z"'
   out=$(with_home "$home" env FM_CONTRIBUTIONS_MAX_AGE=900 "$ROOT/bin/fm-contributions.sh" poll) \
     || fail 'poll failed with an ageing observation'

@@ -371,11 +371,14 @@ poll() {
     # every sweep. A URL every owner holds a real observation of from inside
     # half of FM_CONTRIBUTIONS_MAX_AGE is left alone, so it is still re-read
     # before that observation expires. An error, starved reads included, is
-    # never fresh: a URL that could not be read is the one to try again.
+    # never fresh: a URL that could not be read is the one to try again. Nor
+    # is a record holding a signal no wake has carried yet: it is saved before
+    # its wakes are queued, and re-reading it is what retries them.
     if jq -ne --slurpfile saved "$TMP/saved.json" --arg url "$url" \
       --argjson now "$EPOCH" --argjson window "$((MAX_AGE / 2))" --args \
       'all($ARGS.positional[] as $task | [$saved[0][] | select(.task == $task) | .records[] | select(.url == $url)] | first;
         . != null and .error == null and .observation != null
+        and (([.pending[]?.token] - (.notified // [])) | length == 0)
         and (((.checked_at // "") | try fromdateiso8601 catch null) as $at
           | $at != null and $now - $at >= 0 and $now - $at < $window))' "${row[@]:1}" >/dev/null; then
       continue
