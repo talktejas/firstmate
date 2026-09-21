@@ -1531,7 +1531,7 @@ test_an_unchanged_message_poll_is_answered_without_the_log() {
 # answer. What the message CONTAINS is what he searches by - not how the record
 # happens to be escaped on disk.
 test_a_search_finds_text_however_the_record_escapes_it() {
-  local home port body
+  local home port body id
   home="$TMP_ROOT/msgquote"
   seed_home "$home"
   say "$home" 'The gate call' 'I refused the "gate" run, so nothing was pushed.' >/dev/null
@@ -1553,6 +1553,17 @@ test_a_search_finds_text_however_the_record_escapes_it() {
     "http://127.0.0.1:$port/api/messages")
   assert_equals "The gate call" "$(printf '%s' "$body" | jq -r '.messages[0].title')" \
     "a search across the title and the body of one message found nothing"
+
+  # A thread is what firstmate said AND what he replied: he remembers his own
+  # words at least as well, and searches by them.
+  id=$(say "$home" 'The palette fix' 'The palette fix is ready to merge.')
+  body=$(post "$port" /api/reply "$(jq -cn --arg m "$id" '{msg:$m,text:"ship the blue one"}')")
+  wait_outcome "$home" "$(jq -r .sid <<<"$body")" >/dev/null \
+    || fail "the reply never reached the record"
+  body=$(curl -s -m 30 --get --data-urlencode 'q=ship the blue one' \
+    "http://127.0.0.1:$port/api/messages")
+  assert_equals "The palette fix" "$(printf '%s' "$body" | jq -r '.messages[0].title')" \
+    "a search by the words he replied did not find the message he replied to"
 
   # Nor by how it is cased, in any alphabet: he types what he remembers seeing.
   body=$(curl -s -m 30 --get --data-urlencode 'q=über' \

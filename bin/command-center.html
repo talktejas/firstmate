@@ -790,10 +790,16 @@ function renderWords(){
 // Nothing in either list is drawn from a draft except the unsent-draft row on
 // My words, so a keystroke updates the count and that one list - never a sort
 // and a full repaint of the message log per character.
-function draftTyped(){
-  $('#n-words').textContent = state.said.length +
+// Exactly the rows My words shows: a draft the record already speaks for is
+// not counted a second time.
+function draftCount(){
+  return state.said.length +
     Object.entries(state.draft)
       .filter(([k, t]) => t && t.trim() && !spokenFor(state.pending, k, t)).length;
+}
+
+function draftTyped(){
+  $('#n-words').textContent = draftCount();
   if (state.tab === 'words') renderWords();
 }
 
@@ -801,11 +807,7 @@ function renderList(){
   const items = state.view.items || [];
   $('#n-messages').textContent = Math.max(state.total, state.messages.length);
   $('#n-waiting').textContent = items.filter(i => !isDeferred(i)).length;
-  // Exactly the rows My words shows: a draft the record already speaks for is
-  // not counted a second time here.
-  $('#n-words').textContent = state.said.length +
-    Object.entries(state.draft)
-      .filter(([k, t]) => t && t.trim() && !spokenFor(state.pending, k, t)).length;
+  $('#n-words').textContent = draftCount();
   document.querySelectorAll('.tab').forEach(t =>
     t.setAttribute('aria-selected', String(t.dataset.tab === state.tab)));
   $('#clr').hidden = !state.q;

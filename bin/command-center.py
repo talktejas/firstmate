@@ -611,15 +611,34 @@ def json_id(raw):
     return row.get("id") if isinstance(row, dict) else None
 
 
-def matches(row, needle):
+def replies_by_message(home):
+    """What he typed under each message, keyed by the message it answered.
+
+    A thread is a message AND his replies to it, so both are searched; they
+    live in the other log, which is read once per search rather than per line.
+    """
+    rows, error, _ = read_log(said_log(home))
+    threads = {}
+    if error:
+        return threads
+    for row in rows:
+        msg = row.get("msg")
+        if msg and row.get("text"):
+            threads.setdefault(msg, []).append(str(row["text"]))
+    return threads
+
+
+def matches(row, needle, replies):
     """Is this message one he is searching for? The fields he can see.
 
     The one matcher every search goes through, line by line. A faster path over
     the raw bytes would be a second spelling of this rule, and a search that
     disagrees with it says "nothing matches" over words he is looking at.
     """
-    return needle in " ".join(str(row.get(f) or "") for f in (
-        "title", "text", "project", "worktree", "branch", "task", "pr")).lower()
+    haystack = [str(row.get(f) or "") for f in (
+        "title", "text", "project", "worktree", "branch", "task")]
+    haystack += replies.get(row.get("id"), [])
+    return needle in " ".join(haystack).lower()
 
 
 def read_messages(home, limit=MESSAGE_WINDOW, before=None, query=None):
@@ -635,6 +654,7 @@ def read_messages(home, limit=MESSAGE_WINDOW, before=None, query=None):
     never said anything to him.
     """
     needle = query.strip().lower() if query else None
+    replies = replies_by_message(home) if needle else {}
     skipping = bool(before)
     # The id is looked for as a value, then confirmed by reading the record:
     # what a line looks like is the writer's business, not this reader's.
@@ -651,7 +671,7 @@ def read_messages(home, limit=MESSAGE_WINDOW, before=None, query=None):
                     row = json.loads(raw)
                 except json.JSONDecodeError:
                     continue
-                if needle and not matches(row, needle):
+                if needle and not matches(row, needle, replies):
                     continue
                 if len(rows) == limit:
                     return rows, True, None
