@@ -1749,10 +1749,15 @@ setInterval(poll, POLL_MS);
 // Only the LIST is redrawn: a recorded message never changes, and the open pane
 // is built from the message it already holds and the said thread, so rebuilding
 // it earns nothing and can only cost him his place.
+// A search he left in the box is a view of the whole log, so it is asked again
+// whenever the log moved: otherwise the newest message matching what he typed
+// is the one message the page will not show him.
 setInterval(async () => {
-  if (state.found && state.found.error && state.q.trim() === state.found.q)
+  const changed = await loadMessages();
+  const failed = state.found && state.found.error && state.q.trim() === state.found.q;
+  if ((changed || failed) && state.q.trim() && state.tab === 'messages')
     searchMessages();
-  if (await loadMessages()) renderList();
+  if (changed) renderList();
 }, POLL_MS);
 // The outcome of a send is written to the record by the thread carrying the
 // delivery out, so the record is polled on the same cadence and behind the same
