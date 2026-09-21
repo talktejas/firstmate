@@ -533,8 +533,7 @@ resolution_receipt_matches() {  # <task-id>
   [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || return 1
   [ "$schema" = "$RESOLUTION_RECEIPT_SCHEMA" ] \
     && [ "$recorded_id" = "$id" ] \
-    && case "$mode" in answered|repaired|routed) true ;; *) false ;; esac \
-    && case "$digest" in [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) true ;; *) false ;; esac
+    && case "$mode" in answered|repaired|routed) true ;; *) false ;; esac
 }
 
 record_resolution_receipt() {  # <task-id> <answer-mode>
@@ -1758,6 +1757,7 @@ command_complete() {
         ;;
       --none)
         [ "$none" = 0 ] || fail "--none may appear only once"
+        [ -z "$supplied" ] || fail "--none cannot be combined with task ids"
         none=1
         ;;
       *)

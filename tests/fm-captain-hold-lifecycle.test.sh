@@ -905,6 +905,17 @@ test_answered_inventory_allows_repair_and_teardown() {
   # A mistyped id that resolves to no row at all is repairable drift, not a
   # settled call: --none clears it but says so, so the mistype stays visible.
   printf 'decision_keys=%s\n' "$active,$missing" >> "$home/state/$id.meta"
+  set +e
+  err=$(run_captain "$home" complete "$id" "$active" --none 2>&1 >/dev/null)
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "--none after a task id attested the supplied ids instead of refusing"
+  assert_contains "$err" "--none cannot be combined with task ids" \
+    "a trailing --none was not refused for the same reason as a leading one"
+  assert_equals "decision_keys=$active,$missing" \
+    "$(grep '^decision_keys=' "$home/state/$id.meta" | tail -1)" \
+    "the refused trailing --none still rewrote the attested inventory"
+
   out=$(run_captain "$home" complete "$id" --repair-reason "remove the mistyped fixture id" --none) \
     || fail "completion refused --none with every attested call answered"
   assert_contains "$out" "$missing" "the drift report did not name the dropped unresolved id"
