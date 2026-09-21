@@ -667,13 +667,13 @@ test_starved_issue_asks_for_an_issue_sized_budget() {
   printf 'exhaust-issue\n' > "$home/forge/fault"
   out=$(with_home "$home" env FM_CONTRIBUTIONS_BUDGET=2 "$ROOT/bin/fm-contributions.sh" poll) \
     || fail 'poll failed when an issue consumed its whole budget'
-  [ "$out" = 'contributions: observation needs more than the 2s poll budget for https://github.com/o/r/issues/9; raise FM_CONTRIBUTIONS_BUDGET to at least 45s' ] \
+  [ "$out" = 'contributions: observation needs more than the 2s poll budget for https://github.com/o/r/issues/9; raise FM_CONTRIBUTIONS_BUDGET to at least 60s' ] \
     || fail "a starved issue was told to buy a pull request's budget: $out"
-  jq -e --arg now "$NOW" --arg error 'forge observation needs more than the 2s poll budget; raise FM_CONTRIBUTIONS_BUDGET to at least 45s' '
+  jq -e --arg now "$NOW" --arg error 'forge observation needs more than the 2s poll budget; raise FM_CONTRIBUTIONS_BUDGET to at least 60s' '
     .records[0].checked_at == $now and .records[0].error == $error' \
     "$home/data/filed/contributions.json" >/dev/null \
     || fail 'a starved issue recorded the wrong required budget'
-  pass 'a starved issue asks for the two reads it costs, not a pull request\'"'"'s eight'
+  pass 'a starved issue asks for the three reads it costs, not the eight a pull request costs'
 }
 
 test_contributions_check_keeps_its_own_kill_bound() {
@@ -696,6 +696,32 @@ test_contributions_check_keeps_its_own_kill_bound() {
     "$home/data/delivery/contributions.json" >/dev/null \
     || fail 'the sweep-wide check timeout killed the contributions poll'
   pass 'the contributions check is bounded by its own timeout, not the sweep-wide one'
+}
+
+test_watcher_beats_before_each_check() {
+  local home rc age
+  home=$(new_home beat-per-check)
+  forge_home "$home"
+  wrap_forge "$home"
+  mutate_record "$home" delivery '.records[0].checked_at="2026-09-15T08:00:00Z"'
+  # The contributions poll holds the sweep for about two seconds; the check
+  # after it records how old the liveness beacon is when it starts.
+  printf 'crawl\n' > "$home/forge/fault"
+  with_home "$home" "$ROOT/bin/fm-contributions.sh" arm >/dev/null || fail 'could not arm the contributions check'
+  cat > "$home/state/zz-beacon.check.sh" <<SH
+#!/usr/bin/env bash
+perl -e 'print time - (stat shift)[9], "\\n"' "$home/state/.last-watcher-beat" >> "$home/beacon-age"
+SH
+  chmod 700 "$home/state/zz-beacon.check.sh"
+  with_home "$home" "$ROOT/bin/fm-check-register.sh" zz-beacon >/dev/null || fail 'could not register the beacon probe'
+  rc=0
+  with_home "$home" env FM_POLL=1 FM_SIGNAL_GRACE=0 FM_CHECK_INTERVAL=0 FM_HEARTBEAT=999999 \
+    "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 20 > "$home/beat.out" 2> "$home/beat.err" || rc=$?
+  [ "$rc" -eq 0 ] || [ "$rc" -eq 124 ] || fail "watcher run failed: $(cat "$home/beat.err")"
+  [ -s "$home/beacon-age" ] || fail 'the beacon probe never ran'
+  age=$(head -n 1 "$home/beacon-age")
+  [ "$age" -le 1 ] || fail "a check started with a ${age}s-old beacon after a slow sibling check"
+  pass 'the watcher beats before each check, so a slow check cannot age the beacon for the next'
 }
 
 test_call_timeout_above_budget_is_the_deadlines_outcome() {
@@ -937,7 +963,7 @@ test_late_owner_keeps_failure_episode_suppressed() {
 }
 
 failures=0
-for test_name in test_actor_coverage test_stale_verdict test_unchecked_is_not_silence test_newest_check_has_no_verdict test_comment_wake test_review_wake test_inline_wake test_ready_issue_wake test_fresh_issue_requires_maintainer test_missing_lane_remains_missing test_partial_freshness_keeps_measured_rows test_malformed_record_cannot_prove_silence test_issue_timeline_and_exact_ack test_verdict_retains_judged_head test_observed_replacement_refreshes_verdict test_unobserved_head_leaves_verdict_unknown test_away_yolo_is_fleet_work test_away_yolo_cross_home_is_fleet_work test_retired_and_unsupported_coverage test_unsupported_forge_is_not_fleet_work test_held_unsupported_forge_is_not_captain_work test_shared_contribution_signal_wakes_once test_watcher_keeps_diagnostics_separate_from_contribution_wakes test_expired_child_unsupported_forge_stays_unmeasured test_watcher_surfaces_new_contribution_once test_home_summary_coverage test_unreadable_pending_is_not_empty test_budget_refusal_between_calls test_budget_bounded_call_timeout test_budget_too_small_for_one_observation_is_reported test_default_bound_observes_a_slow_pull_request test_starved_issue_asks_for_an_issue_sized_budget test_contributions_check_keeps_its_own_kill_bound test_call_timeout_above_budget_is_the_deadlines_outcome test_per_call_timeout_is_unavailable test_genuine_failure_near_deadline_is_unavailable test_shared_url_observed_once test_terminal_contribution_settles test_late_owner_inherits_terminal_observation test_done_task_open_pr_still_observed test_failure_wakes_once_per_episode test_late_owner_keeps_failure_episode_suppressed; do
+for test_name in test_actor_coverage test_stale_verdict test_unchecked_is_not_silence test_newest_check_has_no_verdict test_comment_wake test_review_wake test_inline_wake test_ready_issue_wake test_fresh_issue_requires_maintainer test_missing_lane_remains_missing test_partial_freshness_keeps_measured_rows test_malformed_record_cannot_prove_silence test_issue_timeline_and_exact_ack test_verdict_retains_judged_head test_observed_replacement_refreshes_verdict test_unobserved_head_leaves_verdict_unknown test_away_yolo_is_fleet_work test_away_yolo_cross_home_is_fleet_work test_retired_and_unsupported_coverage test_unsupported_forge_is_not_fleet_work test_held_unsupported_forge_is_not_captain_work test_shared_contribution_signal_wakes_once test_watcher_keeps_diagnostics_separate_from_contribution_wakes test_expired_child_unsupported_forge_stays_unmeasured test_watcher_surfaces_new_contribution_once test_home_summary_coverage test_unreadable_pending_is_not_empty test_budget_refusal_between_calls test_budget_bounded_call_timeout test_budget_too_small_for_one_observation_is_reported test_default_bound_observes_a_slow_pull_request test_starved_issue_asks_for_an_issue_sized_budget test_contributions_check_keeps_its_own_kill_bound test_watcher_beats_before_each_check test_call_timeout_above_budget_is_the_deadlines_outcome test_per_call_timeout_is_unavailable test_genuine_failure_near_deadline_is_unavailable test_shared_url_observed_once test_terminal_contribution_settles test_late_owner_inherits_terminal_observation test_done_task_open_pr_still_observed test_failure_wakes_once_per_episode test_late_owner_keeps_failure_episode_suppressed; do
   ( "$test_name" ) || failures=$((failures + 1))
 done
 [ "$failures" -eq 0 ] || fail "$failures contribution regressions"

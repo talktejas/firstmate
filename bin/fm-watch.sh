@@ -2286,6 +2286,10 @@ while :; do
     contribution_check_output=
     for c in "$STATE"/*.check.sh; do
       [ -e "$c" ] || continue
+      # Checks run in sequence and each may hold the cycle for its whole
+      # bound, so beat before each one: the guard's grace then covers the
+      # longest single check rather than the sum of the sweep.
+      touch "$STATE/.last-watcher-beat"
       is_pr_poll=0
       FM_CHECK_ACTIVE_ID=
       if [ "$(basename "$c")" = x-watch.check.sh ]; then

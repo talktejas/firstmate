@@ -44,7 +44,7 @@
 # contributions-poll incident, and 8 x 15 = 120 seconds of forge time plus a
 # ninth call of margin for the local work between reads is why the default
 # bound is 135 + 3: a PR on that link is observed without configuring
-# anything. An issue costs two reads, so it wants 3 x 15. When the whole
+# anything. An issue costs three reads, so it wants 4 x 15. When the whole
 # budget goes to one URL and it still does not finish, the poll records that
 # URL unavailable and names each setting that actually bounds it with the
 # value that URL's kind needs, rather than leaving it silently unobserved poll
@@ -209,10 +209,10 @@ write_record() { # task record-json-file
 
 budget_advice() { # pr|issue : the settings that bound this observation, with the value each needs
   local kind=$1 needed advice=
-  # Eight sequential calls observe a PR and two observe an issue; one call
+  # Eight sequential calls observe a PR and three observe an issue; one call
   # more covers the local work between reads. A budget already that large was
   # still not enough on this link, so ask for one call beyond it.
-  if [ "$kind" = issue ]; then needed=$((3 * CALL_TIMEOUT)); else needed=$((9 * CALL_TIMEOUT)); fi
+  if [ "$kind" = issue ]; then needed=$((4 * CALL_TIMEOUT)); else needed=$((9 * CALL_TIMEOUT)); fi
   [ "$needed" -gt "$BUDGET" ] || needed=$((BUDGET + CALL_TIMEOUT))
   [ "$BUDGET" -ge "$BUDGET_MAX" ] || advice="raise FM_CONTRIBUTIONS_BUDGET to at least ${needed}s"
   if [ "$needed" -gt "$BUDGET_MAX" ]; then
