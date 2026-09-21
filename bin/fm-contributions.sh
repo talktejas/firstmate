@@ -57,7 +57,9 @@
 # timeout, a head change or a budget that cannot finish one observation
 # records an error and the poll continues with the next URL.
 # API failure leaves error evidence; an expired or absent observation is not
-# silence. FM_CONTRIBUTIONS_MAX_AGE (default 900 seconds) bounds freshness.
+# silence. FM_CONTRIBUTIONS_MAX_AGE (default 900 seconds) bounds freshness,
+# and a URL observed inside half that window is not re-read, so traffic
+# follows staleness rather than the budget.
 # A URL whose last good observation is merged or closed is final: it is
 # never re-read, stays fresh, and a stale error beside it is cleared once.
 # A genuine failure prints its unavailable line only when it starts an episode
@@ -361,6 +363,21 @@ poll() {
       'any($ARGS.positional[] as $task | [$saved[0][] | select(.task == $task) | .records[] | select(.url == $url)] | first;
         . != null and (.observation.state | IN("merged","closed")))' "${row[@]:1}" >/dev/null; then
       settle_final "$url" "${row[@]:1}"
+      continue
+    fi
+    # Freshness, not the budget, limits forge traffic. The budget is sized so
+    # one pull request can be read on a slow link; if it were the limiter, a
+    # fast link would spend all of it re-reading every open contribution on
+    # every sweep. A URL every owner holds a real observation of from inside
+    # half of FM_CONTRIBUTIONS_MAX_AGE is left alone, so it is still re-read
+    # before that observation expires. An error, starved reads included, is
+    # never fresh: a URL that could not be read is the one to try again.
+    if jq -ne --slurpfile saved "$TMP/saved.json" --arg url "$url" \
+      --argjson now "$EPOCH" --argjson window "$((MAX_AGE / 2))" --args \
+      'all($ARGS.positional[] as $task | [$saved[0][] | select(.task == $task) | .records[] | select(.url == $url)] | first;
+        . != null and .error == null and .observation != null
+        and (((.checked_at // "") | try fromdateiso8601 catch null) as $at
+          | $at != null and $now - $at >= 0 and $now - $at < $window))' "${row[@]:1}" >/dev/null; then
       continue
     fi
     observed=0
