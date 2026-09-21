@@ -123,7 +123,10 @@ test_an_unreadable_inbox_fails_loudly() {
   dir=$(make_case unreadable-inbox)
   state="$dir/state"
   out="$dir/drain.out"
+  printf 'note: bootstrap cursor line\n' > "$state/task.status"
+  FM_STATE_OVERRIDE="$state" "$DRAIN" >/dev/null 2>&1 || fail "bootstrap drain failed"
   queue_note "$dir" "resolve it now"
+  printf 'note: captain said use REST not RPC\n' >> "$state/task.status"
   chmod 000 "$state/inbox"
   FM_HOME="$dir" "$INBOX" unread >/dev/null 2>&1 || rc=$?
   FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" 2>/dev/null
@@ -131,6 +134,8 @@ test_an_unreadable_inbox_fails_loudly() {
   [ "$rc" -ne 0 ] || fail "fm-inbox.sh unread reported an unreadable inbox as empty"
   grep -F 'CAPTAIN INBOX NOTES INCOMPLETE' "$out" >/dev/null \
     || fail "an unreadable inbox was drained silently: $(cat "$out")"
+  grep -F 'task note: captain said use REST not RPC' "$out" >/dev/null \
+    || fail "an unreadable inbox hid the unrelated status sections: $(cat "$out")"
   pass "an unreadable inbox is a loud failure, never an empty one"
 }
 

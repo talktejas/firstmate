@@ -566,7 +566,7 @@ print_unread_inbox_notes_section() {
 
   if ! notes=$("$SCRIPT_DIR/fm-inbox.sh" unread 2>/dev/null); then
     printf 'CAPTAIN INBOX NOTES INCOMPLETE: state/inbox/ could not be read - notes may be waiting unseen\n'
-    return 1
+    return 0
   fi
   [ -n "$notes" ] || return 0
   now=$(date +%s)
