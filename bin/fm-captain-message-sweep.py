@@ -322,9 +322,10 @@ def sweep(home, since, paths=None, directory=None):
                 continue
             seen.add(req)
             # ponytail: a turn that began before this batch has no known start,
-            # so any earlier by-hand row with the same text stands for it; the
-            # hook sweeps at every turn end, so a batch rarely starts mid-turn.
-            ats = hand.get(same_text(text), [])
+            # so no by-hand row can be shown to be its own and the message is
+            # recorded anyway; a second row beside the routed one costs less
+            # than a message that is never shown.
+            ats = hand.get(same_text(text), []) if turn else []
             match = next((a for a in ats if turn <= a <= (at or "~")), None)
             if match is not None:
                 ats.remove(match)

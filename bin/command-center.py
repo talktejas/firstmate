@@ -1058,8 +1058,6 @@ class Handler(BaseHTTPRequestHandler):
                 # stayed stopped - so nothing is sent and it is reported as
                 # failed, which is what it is: resending is safe.
                 if records.etag is None:
-                    records.refresh()
-                if records.etag is None:
                     unread = records.error or "the records have not been read yet"
                 else:
                     item = records.waiting_question(message.get("task"),

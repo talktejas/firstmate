@@ -1019,6 +1019,7 @@ test_a_reply_takes_the_answer_route_when_the_task_is_still_waiting() {
     || fail "the recorder refused the message"
   start_server "$home" || fail "the server did not start"
   port=$SERVER_PORT
+  curl -s -m 30 -o /dev/null "http://127.0.0.1:$port/api/items"
   body=$(post "$port" /api/reply "$(jq -cn --arg m "$id" '{msg:$m,text:"Go blue."}')")
   assert_contains "$body" '"outcome":"sending"' "the reply was not accepted"
   # The item a steer may reach is named at acceptance, so the page can lock it
@@ -1101,6 +1102,7 @@ test_a_reply_never_resolves_its_task_against_another_home() {
     || fail "the recorder refused the message"
   start_server "$home" || fail "the server did not start"
   port=$SERVER_PORT
+  curl -s -m 30 -o /dev/null "http://127.0.0.1:$port/api/items"
   body=$(post "$port" /api/reply "$(jq -cn --arg m "$id" '{msg:$m,text:"Go blue."}')")
   resolved=$(wait_outcome "$home" "$(jq -r .sid <<<"$body")") \
     || fail "the outcome of the reply never reached the record"
@@ -1710,6 +1712,18 @@ Blue or green?" --task cc-live --question) || fail "the recorder refused the mes
     "the hand-recorded question was duplicated, or a later turn was swallowed"
   assert_equals "true" "$(jq -r "select(.id == \"$id\") | .question" "$log")" \
     "the routed row did not survive as the question"
+
+  # A turn whose prompt an earlier sweep already read has no known start here,
+  # so the old hand row cannot stand for it and the message is still recorded.
+  jq -cn --arg at "$(date -u -d '+240 sec' +%Y-%m-%dT%H:%M:%S.000Z)" \
+    '{type:"user",timestamp:$at,sessionId:"sess-1",
+      message:{role:"user",content:"and once more"}}' >> "$tdir/sess-1.jsonl"
+  sweep "$home" "$tdir" || fail "the sweep of the prompt failed"
+  entry r-split-turn end_turn false "$(date -u -d '+300 sec' +%Y-%m-%dT%H:%M:%S.000Z)" \
+    '{"type":"text","text":"The colour call is yours.\nBlue or green?"}' >> "$tdir/sess-1.jsonl"
+  sweep "$home" "$tdir" || fail "the mid-turn sweep failed"
+  assert_equals "$id,r-again,r-split-turn" "$(jq -rs 'map(.req // .id) | join(",")' "$log")" \
+    "a turn read across two sweeps was swallowed by an old hand record"
   pass "a hand-recorded question stands for its turn's captured message"
 }
 
