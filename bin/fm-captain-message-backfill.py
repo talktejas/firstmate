@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 # fm-captain-message-backfill.py - fill recorded message context from its task.
 #
-# Captured messages do not know what work they describe and must remain unknown.
-# A row that already carries a task id is different: state/<task>.meta is the
-# same authoritative record Bearings uses for project and worktree. This command
-# fills only those missing fields from it. A branch is never derived here: the
-# worktree's current branch says nothing about which branch a past message was
-# about, so a branch stays unknown unless the row already recorded it. It never extracts a task id from text,
-# consults the caller's current directory, or overwrites a recorded value.
+# A row with no task id gets one only by the capture's own evidence rule
+# (bin/fm-captain-message-sweep.py, WHICH WORK A MESSAGE IS ABOUT): the turn it
+# was said in, read back from the conversation record, named exactly one task's
+# own record in a tool call. A row carrying a task id then has its missing
+# project and worktree filled from state/<task>.meta, the same authoritative
+# record Bearings uses. A branch is never derived here: the worktree's current
+# branch says nothing about which branch a past message was about, so a branch
+# stays unknown unless the row already recorded it. It never extracts a task id
+# from text, consults the caller's current directory, or overwrites a recorded
+# value.
 #
 # Usage:
 #   fm-captain-message-backfill.py [--home <FM_HOME>]
@@ -27,45 +30,58 @@ import json
 import os
 import sys
 import tempfile
+import importlib.util
 from collections import Counter
-from pathlib import Path
+
+_spec = importlib.util.spec_from_file_location(
+    "fm_captain_message_sweep",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "fm-captain-message-sweep.py"))
+capture = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(capture)
 
 
-def meta_records(state):
-    records = {}
+def turn_tasks(home):
+    """requestId -> the task ids its turn's tool calls named, from every
+    transcript the capture knows of."""
+    paths = set()
+    directory = capture.default_transcript_dir(home)
+    if os.path.isdir(directory):
+        paths.update(os.path.join(directory, f) for f in os.listdir(directory)
+                     if f.endswith(".jsonl"))
     try:
-        paths = Path(state).glob("*.meta")
-        for path in paths:
-            try:
-                values = {}
-                for line in path.read_text(encoding="utf-8").splitlines():
-                    key, sep, value = line.partition("=")
-                    if sep and key in ("project", "worktree") and key not in values:
-                        values[key] = value
-                records[path.stem] = values
-            except OSError:
-                continue
-    except OSError:
+        with open(os.path.join(home, "state", ".captain-message-sweep"), encoding="utf-8") as fh:
+            files = json.load(fh).get("files")
+        if isinstance(files, dict):
+            paths.update(files)
+    except (OSError, ValueError, AttributeError):
         pass
-    return records
+    tasks = {}
+    for path in sorted(paths):
+        try:
+            with open(path, "rb") as fh:
+                lines = fh.read().splitlines()
+        except OSError:
+            continue
+        for req, _at, _session, _text, found in capture.parse_batch(lines):
+            tasks.setdefault(req, found)
+    return tasks
 
 
 def missing(row, field):
     return not isinstance(row.get(field), str) or not row[field].strip()
 
 
-def resolve(row, records):
+def resolve(row, state, turns):
     task = row.get("task")
-    record = records.get(task) if isinstance(task, str) else None
+    if not isinstance(task, str) or not task:
+        task = capture.turn_task(turns.get(row.get("req"), set()))
+        if task:
+            row["task"] = task
+    record = capture.task_record(state, task) if task else None
     if record:
-        if missing(row, "project"):
-            project = record.get("project", "").strip()
-            if project:
-                row["project"] = os.path.basename(os.path.normpath(project))
-        if missing(row, "worktree"):
-            worktree = record.get("worktree", "").strip()
-            if worktree:
-                row["worktree"] = worktree
+        for field in ("project", "worktree"):
+            if missing(row, field) and record.get(field):
+                row[field] = record[field]
 
     if all(not missing(row, field) for field in ("project", "worktree", "branch")):
         return None
@@ -83,7 +99,6 @@ def resolve(row, records):
 def backfill(home):
     state = os.path.join(home, "state")
     log = os.path.join(home, "data", "captain-messages.jsonl")
-    records = meta_records(state)
     summary = Counter(rows=0, changed=0, unresolved=0, malformed_rows=0)
     reasons = Counter()
     if not os.path.exists(log):
@@ -91,6 +106,7 @@ def backfill(home):
 
     with open(log, "rb") as source:
         lines = source.readlines()
+    turns = turn_tasks(home)
     output = []
     for raw in lines:
         try:
@@ -105,7 +121,7 @@ def backfill(home):
             continue
         summary["rows"] += 1
         original = json.dumps(row, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-        reason = resolve(row, records)
+        reason = resolve(row, state, turns)
         changed = json.dumps(row, ensure_ascii=False, sort_keys=True, separators=(",", ":")) != original
         if changed:
             summary["changed"] += 1

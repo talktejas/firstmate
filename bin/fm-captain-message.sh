@@ -24,7 +24,8 @@
 #   --title <t>     the short line the captain sees in the list. required.
 #   --task <id>     a task in this home; fills project, worktree and branch from
 #                   its own record (state/<id>.meta) unless the flags below
-#                   override them.
+#                   override them. A task with no record yet (a queued hold)
+#                   needs --project; any other unrecorded id is refused.
 #   --general       this message is about no task. A message needs exactly one
 #                   of --task and --general.
 #   --project <p>   --worktree <path>   --branch <b>
@@ -111,6 +112,8 @@ fi
 # scan does. Each is filled only where the caller left it empty.
 if [ -n "$task" ]; then
   meta="$FM_HOME/state/$task.meta"
+  [ -f "$meta" ] || [ -n "$project" ] \
+    || fail "--task $task has no task record: pass --task <id> for a task listed in state/*.meta, or name its --project for a task that has none yet (a queued hold)"
   if [ -f "$meta" ]; then
     if [ -z "$project" ]; then
       project=$(sed -n 's/^project=//p' "$meta" | head -1)
