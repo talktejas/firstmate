@@ -63,7 +63,10 @@
 # state/<id>.status). When a turn touched exactly one task, its message is
 # recorded against that task, with the project and worktree its state/<id>.meta
 # names; a turn that touched none, or several, stays unknown. The branch is
-# recorded nowhere in that record, so it stays unknown too.
+# recorded nowhere in that record, so it is read live from that worktree only by
+# the Stop hook's run, which captures the turn that just ended; a catch-up run
+# may be reading an old turn, and a worktree's branch now is not its branch
+# then, so there it stays unknown.
 # bin/fm-captain-message-backfill.py applies the same rule to older rows.
 #
 # BACKFILL AND THE FLOOR. The first run has no cursor and reads every transcript
@@ -102,6 +105,7 @@ import hashlib
 import json
 import os
 import re
+import subprocess
 import sys
 from datetime import datetime, timezone
 
@@ -211,6 +215,16 @@ def task_record(state_dir, task):
     if values.get("project"):
         values["project"] = os.path.basename(os.path.normpath(values["project"]))
     return values
+
+
+def live_branch(worktree):
+    if not worktree or not os.path.isdir(worktree):
+        return None
+    result = subprocess.run(
+        ["git", "-C", worktree, "symbolic-ref", "--quiet", "--short", "HEAD"],
+        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        text=True, check=False)
+    return result.stdout.strip() or None if result.returncode == 0 else None
 
 
 def parse_batch(lines, turn=None):
@@ -391,7 +405,8 @@ def sweep(home, since, paths=None, directory=None):
                 "id": "c" + hashlib.sha1((session + req).encode()).hexdigest()[:16],
                 "at": at or utc_now(), "title": derive_title(text), "text": text,
                 "task": task, "project": record.get("project"),
-                "worktree": record.get("worktree"), "branch": None,
+                "worktree": record.get("worktree"),
+                "branch": live_branch(record.get("worktree")) if paths else None,
                 "source": "transcript", "session": session or None, "req": req,
             })
         if rows:

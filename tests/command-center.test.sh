@@ -1728,13 +1728,15 @@ seed_turn_transcript() {  # <file>
 
 seed_turn_home() {  # <home>
   mkdir -p "$1/state" "$1/data"
-  printf 'project=/home/captain/p/demo\nworktree=/wt/one\n' > "$1/state/cc-one.meta"
+  git init -q "$1/wt-one"
+  git -C "$1/wt-one" checkout -q -b fm/one
+  printf 'project=/home/captain/p/demo\nworktree=%s\n' "$1/wt-one" > "$1/state/cc-one.meta"
   printf 'project=/home/captain/p/other\nworktree=/wt/two\n' > "$1/state/cc-two.meta"
 }
 
-assert_turn_attribution() {  # <log> <what>
+assert_turn_attribution() {  # <log> <what> [branch]
   local log=$1
-  assert_equals "cc-one|demo|/wt/one|null" \
+  assert_equals "cc-one|demo|${log%/data/*}/wt-one|${3:-null}" \
     "$(jq -r 'select(.req == "r-one") | [.task, .project, .worktree, (.branch // "null")] | join("|")' "$log")" \
     "$2: a turn that touched exactly one task was not recorded against it"
   assert_equals "null|null" \
@@ -1752,8 +1754,15 @@ test_a_captured_message_carries_the_one_task_its_turn_touched() {
   seed_turn_home "$home"
   seed_turn_transcript "$tdir/sess-t.jsonl"
   sweep "$home" "$tdir" || fail "the sweep failed on a turn transcript"
-  assert_turn_attribution "$home/data/captain-messages.jsonl" "capture"
-  pass "a captured message carries the one task its own turn touched, and no guess otherwise"
+  assert_turn_attribution "$home/data/captain-messages.jsonl" "catch-up capture"
+
+  home="$TMP_ROOT/turn-capture-hook"
+  seed_turn_home "$home"
+  jq -cn --arg p "$tdir/sess-t.jsonl" '{transcript_path:$p}' \
+    | python3 "$SWEEP" --home "$home" --from-payload --since 2026-01-02T00:00:00Z \
+    || fail "the sweep failed on a payload-named turn transcript"
+  assert_turn_attribution "$home/data/captain-messages.jsonl" "turn-end capture" fm/one
+  pass "a captured message carries the one task its own turn touched, its branch only at turn end, and no guess otherwise"
 }
 
 test_message_backfill_attributes_by_the_same_turn_evidence() {
