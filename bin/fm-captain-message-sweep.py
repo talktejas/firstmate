@@ -57,6 +57,18 @@
 # already done so is kept with the cursor, so saying the same thing again in a
 # later turn is still recorded. This never decides a message is a question.
 #
+# WHICH WORK A MESSAGE IS ABOUT. A message's words never say it reliably, so
+# they are never read for it. The only evidence is what firstmate did in the
+# same turn: a tool call that named a task's own record (state/<id>.meta or
+# state/<id>.status). When a turn touched exactly one task, its message is
+# recorded against that task, with the project and worktree its state/<id>.meta
+# names; a turn that touched none, or several, stays unknown. The branch is
+# recorded nowhere in that record, so it is read live from that worktree only by
+# the Stop hook's run, which captures the turn that just ended; a catch-up run
+# may be reading an old turn, and a worktree's branch now is not its branch
+# then, so there it stays unknown.
+# bin/fm-captain-message-backfill.py applies the same rule to older rows.
+#
 # BACKFILL AND THE FLOOR. The first run has no cursor and reads every transcript
 # from the top, so the log starts complete from the floor - today's local
 # midnight unless --since says otherwise. The floor is stored and applied
@@ -93,6 +105,7 @@ import hashlib
 import json
 import os
 import re
+import subprocess
 import sys
 from datetime import datetime, timezone
 
@@ -161,32 +174,98 @@ def recorded(log_path):
     return reqs, hand
 
 
-def parse_batch(lines):
+TASK_RECORD = re.compile(r"\bstate/([A-Za-z0-9][A-Za-z0-9_-]*)\.(?:meta|status)\b")
+
+
+def task_refs(value):
+    if isinstance(value, str):
+        return set(TASK_RECORD.findall(value))
+    if isinstance(value, dict):
+        value = list(value.values())
+    if isinstance(value, list):
+        return set().union(*(task_refs(v) for v in value))
+    return set()
+
+
+def is_prompt(entry):
+    """A user entry that starts a turn, as opposed to a tool result."""
+    content = (entry.get("message") or {}).get("content")
+    if isinstance(content, str):
+        return True
+    return isinstance(content, list) and not any(
+        isinstance(b, dict) and b.get("type") == "tool_result" for b in content)
+
+
+def turn_task(tasks):
+    return next(iter(tasks)) if len(tasks) == 1 else None
+
+
+def task_record(state_dir, task):
+    """The project and worktree a task's own state/<id>.meta names."""
+    try:
+        with open(os.path.join(state_dir, task + ".meta"), encoding="utf-8") as fh:
+            lines = fh.read().splitlines()
+    except (OSError, UnicodeDecodeError):
+        return None
+    values = {}
+    for line in lines:
+        key, sep, value = line.partition("=")
+        if sep and key in ("project", "worktree") and key not in values:
+            values[key] = value.strip() or None
+    if values.get("project"):
+        values["project"] = os.path.basename(os.path.normpath(values["project"]))
+    return values
+
+
+def live_branch(worktree):
+    if not worktree or not os.path.isdir(worktree):
+        return None
+    result = subprocess.run(
+        ["git", "-C", worktree, "symbolic-ref", "--quiet", "--short", "HEAD"],
+        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        text=True, check=False)
+    return result.stdout.strip() or None if result.returncode == 0 else None
+
+
+def parse_batch(lines, turn=None):
     """Turn one batch of transcript lines into finished messages, in order.
 
     Groups the lines of each final response by requestId and joins its text
     blocks; a response with no text (interrupted, or thinking only so far)
-    yields nothing and is left for a later batch to complete.
+    yields nothing and is left for a later batch to complete. `turn` is the set
+    of task ids the current turn's tool calls have named so far; it carries
+    across batches, and each message is returned with the set as it stood.
     """
+    if turn is None:
+        turn = set()
     groups = {}
     for raw in lines:
         try:
             entry = json.loads(raw)
         except json.JSONDecodeError:
             continue
-        if not isinstance(entry, dict) or entry.get("type") != "assistant":
+        if not isinstance(entry, dict) or entry.get("isSidechain"):
             continue
-        if entry.get("isSidechain") or entry.get("isApiErrorMessage"):
+        if entry.get("type") == "user" and is_prompt(entry):
+            turn.clear()
+            continue
+        if entry.get("type") != "assistant" or entry.get("isApiErrorMessage"):
             continue
         message = entry.get("message")
-        if not isinstance(message, dict) or message.get("stop_reason") not in FINAL_STOPS:
+        if not isinstance(message, dict):
+            continue
+        for block in message.get("content") or []:
+            if isinstance(block, dict) and block.get("type") == "tool_use":
+                turn.update(task_refs(block.get("input")))
+        if message.get("stop_reason") not in FINAL_STOPS:
             continue
         if message.get("model") == "<synthetic>":
             continue
         req = entry.get("requestId") or entry.get("uuid") or ""
         if not req:
             continue
-        g = groups.setdefault(req, {"parts": [], "at": "", "session": ""})
+        g = groups.setdefault(req, {"parts": [], "at": "", "session": "",
+                                    "tasks": set(turn)})
         for block in message.get("content") or []:
             if isinstance(block, dict) and block.get("type") == "text":
                 g["parts"].append(block.get("text") or "")
@@ -196,7 +275,7 @@ def parse_batch(lines):
     for req, g in groups.items():
         text = "".join(g["parts"]).strip()
         if text:
-            out.append((req, g["at"], g["session"], text))
+            out.append((req, g["at"], g["session"], text, g["tasks"]))
     return out
 
 
@@ -280,8 +359,10 @@ def sweep(home, since, paths=None, directory=None):
         entry = dict(entry) if isinstance(entry, dict) else {}
         offset = entry.get("off", 0)
         size = os.path.getsize(path)
+        turn = set(entry.get("turn") or [])
         if size < offset:
             offset = 0          # truncated or rewritten; the log still dedupes
+            turn = set()
         if paths:
             entry["named"] = True
         if size == offset:
@@ -308,7 +389,7 @@ def sweep(home, since, paths=None, directory=None):
         lines = chunk[:end + 1].splitlines()
 
         rows = []
-        for req, at, session, text in parse_batch(lines):
+        for req, at, session, text, tasks in parse_batch(lines, turn):
             if req in seen or (floor and at and at < floor):
                 continue
             seen.add(req)
@@ -318,11 +399,14 @@ def sweep(home, since, paths=None, directory=None):
                 used.add(routed)
                 cursor["used"] = sorted(used)
                 continue
+            task = turn_task(tasks)
+            record = (task_record(state_dir, task) if task else None) or {}
             rows.append({
                 "id": "c" + hashlib.sha1((session + req).encode()).hexdigest()[:16],
                 "at": at or utc_now(), "title": derive_title(text), "text": text,
-                "task": None, "project": None, "worktree": None,
-                "branch": None,
+                "task": task, "project": record.get("project"),
+                "worktree": record.get("worktree"),
+                "branch": live_branch(record.get("worktree")) if paths else None,
                 "source": "transcript", "session": session or None, "req": req,
             })
         if rows:
@@ -333,6 +417,7 @@ def sweep(home, since, paths=None, directory=None):
         # Advance the cursor only after this file's messages are on disk, one
         # file at a time, so a killed sweep loses progress, never messages.
         entry["off"] = offset + end + 1
+        entry["turn"] = sorted(turn)
         cursor["files"][path] = entry
         write_cursor(cursor_path, cursor)
 

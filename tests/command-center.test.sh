@@ -9,6 +9,7 @@ set -u
 
 SCAN="$ROOT/bin/command-center-scan.sh"
 RECORD="$ROOT/bin/fm-captain-message.sh"
+BACKFILL="$ROOT/bin/fm-captain-message-backfill.py"
 SERVER="$ROOT/bin/command-center.py"
 TMP_ROOT=$(fm_test_tmproot command-center)
 
@@ -904,6 +905,7 @@ $out"
 say() {  # <home> <title> <text> [extra args...]
   local home=$1 title=$2 text=$3
   shift 3
+  case " $* " in *" --task "*) ;; *) set -- --general "$@" ;; esac
   FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$RECORD" --title "$title" "$@" "$text"
 }
 
@@ -929,6 +931,40 @@ test_a_message_names_the_project_the_worktree_and_the_branch() {
   assert_equals "Blue or green?" "$(jq -r .text <<<"$row")" \
     "the message text was not recorded"
   pass "a recorded message names its project, its worktree and its branch"
+}
+
+test_message_backfill_resolves_only_context_keyed_by_a_task_record() {
+  local home wt result row
+  home="$TMP_ROOT/backfill"
+  seed_home "$home"
+  wt="$home/wt"
+  git init -q "$wt"
+  git -C "$wt" checkout -q -b fm/backfill
+  printf 'project=/home/captain/p/demo\nworktree=%s\n' "$wt" > "$home/state/cc-live.meta"
+  printf '%s\n' \
+    '{"id":"captured","task":null,"project":null,"worktree":null,"branch":null}' \
+    '{"id":"routed","task":"cc-live","project":null,"worktree":null,"branch":null}' \
+    > "$home/data/captain-messages.jsonl"
+
+  result=$(FM_HOME="$home" "$BACKFILL") || fail "the message backfill failed"
+  assert_equals 1 "$(jq -r .changed <<<"$result")" \
+    "the task-keyed row was not backfilled"
+  assert_equals 2 "$(jq -r .unresolved <<<"$result")" \
+    "a row missing context was not left honestly unresolved"
+  assert_equals 1 "$(jq -r '.unresolved_reasons.branch_not_recorded' <<<"$result")" \
+    "the backfill did not explain why the branch stayed unknown"
+  assert_equals 1 "$(jq -r '.unresolved_reasons.no_task_record' <<<"$result")" \
+    "the backfill did not explain why the captured row stayed unknown"
+  row=$(jq -c 'select(.id == "routed")' "$home/data/captain-messages.jsonl")
+  assert_equals demo "$(jq -r .project <<<"$row")" \
+    "the backfill did not resolve project from task metadata"
+  assert_equals "$wt" "$(jq -r .worktree <<<"$row")" \
+    "the backfill did not resolve worktree from task metadata"
+  assert_equals null "$(jq -r .branch <<<"$row")" \
+    "the backfill guessed a historical branch from the worktree's current one"
+  assert_equals 0 "$(FM_HOME="$home" "$BACKFILL" | jq -r .changed)" \
+    "a second backfill pass was not convergent"
+  pass "message backfill resolves task-keyed context without guessing captured rows"
 }
 
 # The automatic capture can be killed mid-write; whatever is recorded next must
@@ -980,7 +1016,20 @@ test_the_recorder_refuses_a_message_with_no_title_or_no_text() {
     || fail "a message with no title was recorded anyway"
   ! say "$home" "A title" "   " 2>/dev/null \
     || fail "an empty message was recorded anyway"
-  pass "the recorder refuses a message with no title or no text"
+  local err
+  err=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$RECORD" --title "A title" "About some work." 2>&1) \
+    && fail "a message naming neither --task nor --general was recorded anyway"
+  case $err in *"--task <id>"*"state/*.meta"*) ;; *)
+    fail "the refusal did not name --task <id> and state/*.meta: $err" ;; esac
+  [ ! -s "$home/data/captain-messages.jsonl" ] \
+    || fail "a refused message still reached the log"
+  err=$(say "$home" "A title" "About a typo." --task cc-nosuch 2>&1) \
+    && fail "a message about a task with no record was recorded anyway"
+  case $err in *"--task <id>"*"state/*.meta"*) ;; *)
+    fail "the unknown-task refusal did not name --task <id> and state/*.meta: $err" ;; esac
+  [ ! -s "$home/data/captain-messages.jsonl" ] \
+    || fail "a message about an unrecorded task still reached the log"
+  pass "the recorder refuses a message with no title, no text, or no --task/--general"
 }
 
 # THE ONE THING THAT DECIDES WHETHER THIS IS DONE. He was away; firstmate spoke
@@ -1015,7 +1064,7 @@ test_a_reply_takes_the_answer_route_when_the_task_is_still_waiting() {
   local home port id body resolved
   home="$TMP_ROOT/reply-answer"
   seed_home "$home"
-  id=$(say "$home" "Blue or green?" "The colour call is yours." --task cc-live --question) \
+  id=$(say "$home" "Blue or green?" "The colour call is yours." --task cc-live --project demo --question) \
     || fail "the recorder refused the message"
   start_server "$home" || fail "the server did not start"
   port=$SERVER_PORT
@@ -1098,7 +1147,7 @@ test_a_reply_never_resolves_its_task_against_another_home() {
     "$home/data/backlog.md"
   printf -- '- mate - synthetic scope (home: %s; scope: reviews; projects: demo; added 2026-07-14)\n' \
     "$mate" > "$home/data/secondmates.md"
-  id=$(say "$home" "Blue or green?" "The colour call is yours." --task cc-live --question) \
+  id=$(say "$home" "Blue or green?" "The colour call is yours." --task cc-live --project demo --question) \
     || fail "the recorder refused the message"
   start_server "$home" || fail "the server did not start"
   port=$SERVER_PORT
@@ -1124,9 +1173,9 @@ test_a_reply_to_a_message_that_is_not_a_question_never_answers_a_decision() {
   local home port id body resolved
   home="$TMP_ROOT/reply-notaquestion"
   seed_home "$home"
-  say "$home" "Blue or green?" "The colour call is yours." --task cc-live --question >/dev/null \
+  say "$home" "Blue or green?" "The colour call is yours." --task cc-live --project demo --question >/dev/null \
     || fail "the recorder refused the question"
-  id=$(say "$home" "The PR is up" "https://example.invalid/pr/1 for the colour work." --task cc-live) \
+  id=$(say "$home" "The PR is up" "https://example.invalid/pr/1 for the colour work." --task cc-live --project demo) \
     || fail "the recorder refused the message"
   start_server "$home" || fail "the server did not start"
   port=$SERVER_PORT
@@ -1151,7 +1200,7 @@ test_a_reply_is_never_delivered_as_a_note_while_no_scan_has_been_read() {
   local home shim realjq port id body resolved ready
   home="$TMP_ROOT/reply-unscanned"
   seed_home "$home"
-  id=$(say "$home" "Blue or green?" "The colour call is yours." --task cc-live --question) \
+  id=$(say "$home" "Blue or green?" "The colour call is yours." --task cc-live --project demo --question) \
     || fail "the recorder refused the message"
   shim="$TMP_ROOT/reply-unscanned-shim"
   mkdir -p "$shim"
@@ -1652,6 +1701,89 @@ seed_transcripts() {  # <dir> [at for real messages] [at for pre-floor history]
   } > "$1/sess-1.jsonl"
 }
 
+# Three turns: one whose tool call named exactly one task's record, one that
+# named two, and one that names a task only in its prose.
+seed_turn_transcript() {  # <file>
+  local prompt tool
+  prompt='{"type":"user","sessionId":"sess-t","message":{"role":"user","content":"go"}}'
+  turn_tool() {  # <req> <input-json>
+    jq -cn --arg req "$1" --argjson input "$2" \
+      '{type:"assistant", requestId:$req, sessionId:"sess-t", timestamp:"2026-01-03T10:00:00.000Z",
+        message:{role:"assistant", stop_reason:"tool_use",
+                 content:[{type:"tool_use", name:"Bash", input:$input}]}}'
+  }
+  mkdir -p "$(dirname "$1")"
+  {
+    printf '%s\n' "$prompt"
+    turn_tool t-a1 '{"command":"cat state/cc-one.meta"}'
+    printf '%s\n' '{"type":"user","sessionId":"sess-t","message":{"role":"user","content":[{"type":"tool_result","content":"state/cc-two.meta"}]}}'
+    entry r-one end_turn false 2026-01-03T10:00:00.000Z '{"type":"text","text":"About one task."}'
+    printf '%s\n' "$prompt"
+    turn_tool t-b1 '{"command":"cat state/cc-one.meta state/cc-two.status"}'
+    entry r-two end_turn false 2026-01-03T10:00:00.000Z '{"type":"text","text":"About two tasks."}'
+    printf '%s\n' "$prompt"
+    entry r-prose end_turn false 2026-01-03T10:00:00.000Z '{"type":"text","text":"See state/cc-one.meta."}'
+  } > "$1"
+}
+
+seed_turn_home() {  # <home>
+  mkdir -p "$1/state" "$1/data"
+  git init -q "$1/wt-one"
+  git -C "$1/wt-one" checkout -q -b fm/one
+  printf 'project=/home/captain/p/demo\nworktree=%s\n' "$1/wt-one" > "$1/state/cc-one.meta"
+  printf 'project=/home/captain/p/other\nworktree=/wt/two\n' > "$1/state/cc-two.meta"
+}
+
+assert_turn_attribution() {  # <log> <what> [branch]
+  local log=$1
+  assert_equals "cc-one|demo|${log%/data/*}/wt-one|${3:-null}" \
+    "$(jq -r 'select(.req == "r-one") | [.task, .project, .worktree, (.branch // "null")] | join("|")' "$log")" \
+    "$2: a turn that touched exactly one task was not recorded against it"
+  assert_equals "null|null" \
+    "$(jq -r 'select(.req == "r-two") | [(.task // "null"), (.project // "null")] | join("|")' "$log")" \
+    "$2: a turn that touched two tasks was attributed to one"
+  assert_equals "null|null" \
+    "$(jq -r 'select(.req == "r-prose") | [(.task // "null"), (.project // "null")] | join("|")' "$log")" \
+    "$2: a task named only in the message's words was attributed"
+}
+
+test_a_captured_message_carries_the_one_task_its_turn_touched() {
+  local home tdir
+  home="$TMP_ROOT/turn-capture"
+  tdir="$TMP_ROOT/turn-capture-transcripts"
+  seed_turn_home "$home"
+  seed_turn_transcript "$tdir/sess-t.jsonl"
+  sweep "$home" "$tdir" || fail "the sweep failed on a turn transcript"
+  assert_turn_attribution "$home/data/captain-messages.jsonl" "catch-up capture"
+
+  home="$TMP_ROOT/turn-capture-hook"
+  seed_turn_home "$home"
+  jq -cn --arg p "$tdir/sess-t.jsonl" '{transcript_path:$p}' \
+    | python3 "$SWEEP" --home "$home" --from-payload --since 2026-01-02T00:00:00Z \
+    || fail "the sweep failed on a payload-named turn transcript"
+  assert_turn_attribution "$home/data/captain-messages.jsonl" "turn-end capture" fm/one
+  pass "a captured message carries the one task its own turn touched, its branch only at turn end, and no guess otherwise"
+}
+
+test_message_backfill_attributes_by_the_same_turn_evidence() {
+  local home cfg result
+  home="$TMP_ROOT/turn-backfill"
+  cfg="$TMP_ROOT/turn-backfill-config"
+  seed_turn_home "$home"
+  seed_turn_transcript "$cfg/projects/$(printf '%s' "$home" | sed 's/[^A-Za-z0-9]/-/g')/sess-t.jsonl"
+  for req in r-one r-two r-prose; do
+    jq -cn --arg req "$req" '{id:("c-"+$req), req:$req, session:"sess-t", task:null,
+      project:null, worktree:null, branch:null, source:"transcript"}'
+  done > "$home/data/captain-messages.jsonl"
+  result=$(CLAUDE_CONFIG_DIR="$cfg" FM_HOME="$home" "$BACKFILL") || fail "the message backfill failed"
+  assert_equals 1 "$(jq -r .changed <<<"$result")" \
+    "the backfill did not change exactly the one attributable row"
+  assert_turn_attribution "$home/data/captain-messages.jsonl" "backfill"
+  assert_equals 0 "$(CLAUDE_CONFIG_DIR="$cfg" FM_HOME="$home" "$BACKFILL" | jq -r .changed)" \
+    "a second backfill pass was not convergent"
+  pass "the backfill attributes a captured row only by its own turn's single task"
+}
+
 sweep() {  # <home> <transcripts>
   python3 "$SWEEP" --home "$1" --transcripts "$2" --since 2026-01-02T00:00:00Z
 }
@@ -1713,7 +1845,7 @@ test_a_hand_recorded_question_is_not_captured_a_second_time() {
   mkdir -p "$tdir"
   before=$(date -u -d '-60 sec' +%Y-%m-%dT%H:%M:%S.000Z)
   id=$(say "$home" "Blue or green?" "The colour call is yours.
-Blue or green?" --task cc-live --question) || fail "the recorder refused the message"
+Blue or green?" --task cc-live --project demo --question) || fail "the recorder refused the message"
   after=$(date -u -d '+60 sec' +%Y-%m-%dT%H:%M:%S.000Z)
   {
     jq -cn --arg at "$before" '{type:"user",timestamp:$at,sessionId:"sess-1",
@@ -1740,7 +1872,7 @@ Blue or green?" --task cc-live --question) || fail "the recorder refused the mes
   # turn ends, so the routed row must still stand for the message on a sweep
   # that sees only the reply.
   id2=$(say "$home" "Merge the PR?" "The review is clean. Merge the PR?" \
-    --task cc-live --question) || fail "the recorder refused the second message"
+    --task cc-live --project demo --question) || fail "the recorder refused the second message"
   jq -cn --arg at "$(date -u -d '+240 sec' +%Y-%m-%dT%H:%M:%S.000Z)" \
     '{type:"user",timestamp:$at,sessionId:"sess-1",
       message:{role:"user",content:"and the PR?"}}' >> "$tdir/sess-1.jsonl"
@@ -2056,6 +2188,9 @@ test_concurrent_polls_produce_one_scan
 test_the_pages_decision_rules_hold
 test_the_server_serves_the_pages_decision_rules
 test_a_message_names_the_project_the_worktree_and_the_branch
+test_message_backfill_resolves_only_context_keyed_by_a_task_record
+test_message_backfill_attributes_by_the_same_turn_evidence
+test_a_captured_message_carries_the_one_task_its_turn_touched
 test_a_field_nothing_knows_is_recorded_as_unknown_not_guessed
 test_a_recorded_message_never_glues_onto_a_torn_row
 test_the_recorder_refuses_a_message_with_no_title_or_no_text
