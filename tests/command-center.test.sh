@@ -905,6 +905,7 @@ $out"
 say() {  # <home> <title> <text> [extra args...]
   local home=$1 title=$2 text=$3
   shift 3
+  case " $* " in *" --task "*) ;; *) set -- --general "$@" ;; esac
   FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$RECORD" --title "$title" "$@" "$text"
 }
 
@@ -948,8 +949,10 @@ test_message_backfill_resolves_only_context_keyed_by_a_task_record() {
   result=$(FM_HOME="$home" "$BACKFILL") || fail "the message backfill failed"
   assert_equals 1 "$(jq -r .changed <<<"$result")" \
     "the task-keyed row was not backfilled"
-  assert_equals 1 "$(jq -r .unresolved <<<"$result")" \
-    "the unkeyed captured row was not left honestly unresolved"
+  assert_equals 2 "$(jq -r .unresolved <<<"$result")" \
+    "a row missing context was not left honestly unresolved"
+  assert_equals 1 "$(jq -r '.unresolved_reasons.branch_not_recorded' <<<"$result")" \
+    "the backfill did not explain why the branch stayed unknown"
   assert_equals 1 "$(jq -r '.unresolved_reasons.no_task_record' <<<"$result")" \
     "the backfill did not explain why the captured row stayed unknown"
   row=$(jq -c 'select(.id == "routed")' "$home/data/captain-messages.jsonl")
@@ -957,8 +960,8 @@ test_message_backfill_resolves_only_context_keyed_by_a_task_record() {
     "the backfill did not resolve project from task metadata"
   assert_equals "$wt" "$(jq -r .worktree <<<"$row")" \
     "the backfill did not resolve worktree from task metadata"
-  assert_equals fm/backfill "$(jq -r .branch <<<"$row")" \
-    "the backfill did not resolve branch from the recorded worktree"
+  assert_equals null "$(jq -r .branch <<<"$row")" \
+    "the backfill guessed a historical branch from the worktree's current one"
   assert_equals 0 "$(FM_HOME="$home" "$BACKFILL" | jq -r .changed)" \
     "a second backfill pass was not convergent"
   pass "message backfill resolves task-keyed context without guessing captured rows"
@@ -1013,7 +1016,14 @@ test_the_recorder_refuses_a_message_with_no_title_or_no_text() {
     || fail "a message with no title was recorded anyway"
   ! say "$home" "A title" "   " 2>/dev/null \
     || fail "an empty message was recorded anyway"
-  pass "the recorder refuses a message with no title or no text"
+  local err
+  err=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$RECORD" --title "A title" "About some work." 2>&1) \
+    && fail "a message naming neither --task nor --general was recorded anyway"
+  case $err in *"--task <id>"*"state/*.meta"*) ;; *)
+    fail "the refusal did not name --task <id> and state/*.meta: $err" ;; esac
+  [ ! -s "$home/data/captain-messages.jsonl" ] \
+    || fail "a refused message still reached the log"
+  pass "the recorder refuses a message with no title, no text, or no --task/--general"
 }
 
 # THE ONE THING THAT DECIDES WHETHER THIS IS DONE. He was away; firstmate spoke
@@ -2089,6 +2099,7 @@ test_concurrent_polls_produce_one_scan
 test_the_pages_decision_rules_hold
 test_the_server_serves_the_pages_decision_rules
 test_a_message_names_the_project_the_worktree_and_the_branch
+test_message_backfill_resolves_only_context_keyed_by_a_task_record
 test_a_field_nothing_knows_is_recorded_as_unknown_not_guessed
 test_a_recorded_message_never_glues_onto_a_torn_row
 test_the_recorder_refuses_a_message_with_no_title_or_no_text

@@ -23,7 +23,10 @@
 #
 #   --title <t>     the short line the captain sees in the list. required.
 #   --task <id>     a task in this home; fills project, worktree and branch from
-#                   its own record unless the flags below override them.
+#                   its own record (state/<id>.meta) unless the flags below
+#                   override them.
+#   --general       this message is about no task. A message needs exactly one
+#                   of --task and --general.
 #   --project <p>   --worktree <path>   --branch <b>
 #   --question           this message IS the question waiting on him, so his
 #                        reply in the command center answers it.
@@ -39,8 +42,12 @@
 #
 # The captain's standing rule is that every item names its project, its worktree
 # and its branch, so --task exists to make supplying all three one flag rather
-# than three chances to leave one out. A field nothing knows is recorded as null
-# and shown as unknown; it is never guessed.
+# than three chances to leave one out, and a message that names neither --task
+# nor --general is refused rather than recorded without them. A field nothing
+# knows is recorded as null and shown as unknown; it is never guessed.
+#
+# Every write to the log, and the backfill's rewrite of it, holds
+# state/.captain-message-sweep.lock, so no writer's line is lost to another.
 #
 # Environment:
 #   FM_HOME   operational home whose data/ is written (default: the code root).
@@ -62,12 +69,14 @@ fail() {
 }
 
 command -v jq >/dev/null 2>&1 || fail "jq is required"
+command -v python3 >/dev/null 2>&1 || fail "python3 is required"
 
-title='' task='' project='' worktree='' branch='' question=0 question_key=''
+title='' task='' general=0 project='' worktree='' branch='' question=0 question_key=''
 while [ $# -gt 0 ]; do
   case "$1" in
     --title)    title=${2-}; shift 2 ;;
     --task)     task=${2-}; shift 2 ;;
+    --general)  general=1; shift ;;
     --project)  project=${2-}; shift 2 ;;
     --worktree) worktree=${2-}; shift 2 ;;
     --branch)   branch=${2-}; shift 2 ;;
@@ -84,6 +93,11 @@ done
 
 [ -n "$title" ] || fail "a message needs --title: it is the line he reads in the list"
 [ $# -gt 0 ] || fail "no message text"
+if [ -n "$task" ] && [ "$general" -eq 1 ]; then
+  fail "a message is either about --task <id> or --general, not both"
+fi
+[ -n "$task" ] || [ "$general" -eq 1 ] \
+  || fail "a message about work needs --task <id>, a task recorded in state/*.meta; pass --general only for a message about no task"
 
 if [ "$1" = - ] && [ $# -eq 1 ]; then
   text=$(cat)
@@ -113,14 +127,7 @@ fi
 # log one supervisor appends to; a counter would need a lock this does not need.
 id="m$(date -u +%Y%m%dT%H%M%SZ)-$$"
 
-mkdir -p "$(dirname "$LOG")"
-# The automatic capture can be killed on its Stop-hook bound mid-write, so this
-# log's last line may be a torn one. The sweep's appender mends it before adding
-# to it (bin/fm-captain-message-sweep.py), and so does this: a record glued onto
-# a torn line is unreadable, and takes the torn one's message down with it.
-if [ -s "$LOG" ] && [ -n "$(tail -c 1 "$LOG")" ]; then
-  printf '\n' >> "$LOG"
-fi
+mkdir -p "$(dirname "$LOG")" "$FM_HOME/state"
 line=$(jq -cn \
   --arg id "$id" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   --arg title "$title" --arg text "$text" --arg task "$task" \
@@ -132,5 +139,21 @@ line=$(jq -cn \
    task:($task|n), project:($project|n), worktree:($worktree|n),
    branch:($branch|n), question:($question == 1),
    question_key:($question_key|n)}')
-printf '%s\n' "$line" >> "$LOG"
+# The automatic capture can be killed on its Stop-hook bound mid-write, so this
+# log's last line may be a torn one. The sweep's appender mends it before adding
+# to it (bin/fm-captain-message-sweep.py), and so does this: a record glued onto
+# a torn line is unreadable, and takes the torn one's message down with it.
+python3 - "$FM_HOME/state/.captain-message-sweep.lock" "$LOG" "$line" <<'PYEOF'
+import fcntl, sys
+lock_path, log, line = sys.argv[1:]
+with open(lock_path, "w") as lock:
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    with open(log, "ab+") as target:
+        target.seek(0, 2)
+        if target.tell():
+            target.seek(-1, 2)
+            if target.read(1) != b"\n":
+                target.write(b"\n")
+        target.write(line.encode("utf-8") + b"\n")
+PYEOF
 printf '%s\n' "$id"

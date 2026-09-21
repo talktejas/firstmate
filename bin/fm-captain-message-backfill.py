@@ -3,9 +3,10 @@
 #
 # Captured messages do not know what work they describe and must remain unknown.
 # A row that already carries a task id is different: state/<task>.meta is the
-# same authoritative record Bearings uses for project and worktree, and its
-# worktree can authoritatively report its current branch. This command fills
-# only missing fields from those records. It never extracts a task id from text,
+# same authoritative record Bearings uses for project and worktree. This command
+# fills only those missing fields from it. A branch is never derived here: the
+# worktree's current branch says nothing about which branch a past message was
+# about, so a branch stays unknown unless the row already recorded it. It never extracts a task id from text,
 # consults the caller's current directory, or overwrites a recorded value.
 #
 # Usage:
@@ -17,29 +18,17 @@
 # already-filled row is not changed again. A malformed or torn log row is copied
 # without alteration and counted under `malformed_row`.
 #
-# The command shares the sweep lock, so it cannot race automatic capture. If a
-# sweep owns it, it exits successfully with `busy:true` and changes nothing.
+# The command takes the log's write lock, shared with the sweep and
+# bin/fm-captain-message.sh, so no concurrent append is lost to its rewrite. If
+# a writer owns it, it exits successfully with `busy:true` and changes nothing.
 import argparse
 import fcntl
 import json
 import os
-import subprocess
 import sys
 import tempfile
 from collections import Counter
 from pathlib import Path
-
-
-def branch_for(worktree):
-    if not isinstance(worktree, str) or not os.path.isdir(worktree):
-        return None
-    result = subprocess.run(
-        ["git", "-C", worktree, "symbolic-ref", "--quiet", "--short", "HEAD"],
-        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-        text=True, check=False,
-    )
-    branch = result.stdout.strip()
-    return branch if result.returncode == 0 and branch else None
 
 
 def meta_records(state):
@@ -77,10 +66,6 @@ def resolve(row, records):
             worktree = record.get("worktree", "").strip()
             if worktree:
                 row["worktree"] = worktree
-    if missing(row, "branch"):
-        branch = branch_for(row.get("worktree"))
-        if branch:
-            row["branch"] = branch
 
     if all(not missing(row, field) for field in ("project", "worktree", "branch")):
         return None
@@ -90,9 +75,9 @@ def resolve(row, records):
         return "task_metadata_unavailable"
     if missing(row, "worktree"):
         return "task_metadata_has_no_worktree"
-    if missing(row, "branch"):
-        return "worktree_unavailable_or_detached"
-    return "task_metadata_has_no_project"
+    if missing(row, "project"):
+        return "task_metadata_has_no_project"
+    return "branch_not_recorded"
 
 
 def backfill(home):
