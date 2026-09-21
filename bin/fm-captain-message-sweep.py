@@ -28,8 +28,8 @@
 # already in the log, so running it twice - or recovering a lost cursor - can
 # never record the same message twice.
 #
-# WHAT COUNTS AS A MESSAGE. An assistant response whose stop_reason is end_turn
-# (or stop_sequence): exactly the messages the harness presented as a reply.
+# WHAT COUNTS AS A MESSAGE. An assistant response whose stop_reason is end_turn:
+# exactly the messages the harness presented as a reply.
 # Mid-turn narration before a tool call carries stop_reason tool_use and is
 # deliberately not a message; sidechain (subagent) entries are never his chat.
 # Entries the harness itself authored are excluded too, whether they are
@@ -50,10 +50,12 @@
 #
 # A MESSAGE FIRSTMATE ALSO RECORDED BY HAND. A question tied to a decision is
 # recorded by firstmate itself with bin/fm-captain-message.sh --question, which
-# is the only row that knows where a reply to it goes. When the turn's final
-# message carries the same text as a by-hand row written during that turn, the
-# routed row already stands for it and nothing is added beside it. This never
-# decides a message is a question: an uncaptured match is simply a second row.
+# is the only row that knows where a reply to it goes. The routed row and the
+# captured one are the same words, so the words are what match them: a final
+# message whose text a by-hand row already carries is not added beside it. Each
+# by-hand row stands for one captured message and no more - which ones have
+# already done so is kept with the cursor, so saying the same thing again in a
+# later turn is still recorded. This never decides a message is a question.
 #
 # BACKFILL AND THE FLOOR. The first run has no cursor and reads every transcript
 # from the top, so the log starts complete from the floor - today's local
@@ -94,7 +96,7 @@ import re
 import sys
 from datetime import datetime, timezone
 
-FINAL_STOPS = ("end_turn", "stop_sequence")
+FINAL_STOPS = ("end_turn",)
 
 
 def utc_now():
@@ -138,7 +140,7 @@ def same_text(text):
 
 def recorded(log_path):
     """The log itself is the dedupe record: the requestIds already captured,
-    and the by-hand rows as {text: [at, ...]}."""
+    and the by-hand rows as {text: [id, ...]}."""
     reqs, hand = set(), {}
     try:
         with open(log_path, "rb") as fh:
@@ -151,20 +153,12 @@ def recorded(log_path):
                     row = json.loads(line)
                 except ValueError:
                     continue
-                if isinstance(row, dict) and isinstance(row.get("text"), str):
-                    hand.setdefault(same_text(row["text"]), []).append(row.get("at") or "")
+                if isinstance(row, dict) and isinstance(row.get("text"), str) \
+                        and row.get("id"):
+                    hand.setdefault(same_text(row["text"]), []).append(row["id"])
     except OSError:
         pass
     return reqs, hand
-
-
-def is_prompt(entry):
-    """A line the captain typed, which is where a turn begins."""
-    if entry.get("type") != "user" or entry.get("isSidechain") or entry.get("isMeta"):
-        return False
-    content = (entry.get("message") or {}).get("content")
-    return isinstance(content, str) or any(
-        isinstance(b, dict) and b.get("type") != "tool_result" for b in content or [])
 
 
 def parse_batch(lines):
@@ -172,22 +166,15 @@ def parse_batch(lines):
 
     Groups the lines of each final response by requestId and joins its text
     blocks; a response with no text (interrupted, or thinking only so far)
-    yields nothing and is left for a later batch to complete. Each carries
-    when its turn began, or "" when that is before this batch.
+    yields nothing and is left for a later batch to complete.
     """
     groups = {}
-    turn = ""
     for raw in lines:
         try:
             entry = json.loads(raw)
         except json.JSONDecodeError:
             continue
-        if not isinstance(entry, dict):
-            continue
-        if is_prompt(entry):
-            turn = clean_ts(entry.get("timestamp"))
-            continue
-        if entry.get("type") != "assistant":
+        if not isinstance(entry, dict) or entry.get("type") != "assistant":
             continue
         if entry.get("isSidechain") or entry.get("isApiErrorMessage"):
             continue
@@ -199,7 +186,7 @@ def parse_batch(lines):
         req = entry.get("requestId") or entry.get("uuid") or ""
         if not req:
             continue
-        g = groups.setdefault(req, {"parts": [], "at": "", "session": "", "turn": turn})
+        g = groups.setdefault(req, {"parts": [], "at": "", "session": ""})
         for block in message.get("content") or []:
             if isinstance(block, dict) and block.get("type") == "text":
                 g["parts"].append(block.get("text") or "")
@@ -209,7 +196,7 @@ def parse_batch(lines):
     for req, g in groups.items():
         text = "".join(g["parts"]).strip()
         if text:
-            out.append((req, g["at"], g["session"], g["turn"], text))
+            out.append((req, g["at"], g["session"], text))
     return out
 
 
@@ -262,6 +249,10 @@ def sweep(home, since, paths=None, directory=None):
     if cursor is None:
         cursor = {"v": 2, "floor": since or local_midnight_utc(), "files": {}}
     floor = cursor.get("floor") or ""
+    # Which by-hand rows have already stood for a captured message: kept here
+    # because a run reads the log afresh and cannot otherwise tell a routed row
+    # that is spoken for from one that is not.
+    used = set(cursor.get("used") or [])
     named = [p for p, f in cursor["files"].items() if isinstance(f, dict) and f.get("named")]
 
     if paths:
@@ -317,18 +308,15 @@ def sweep(home, since, paths=None, directory=None):
         lines = chunk[:end + 1].splitlines()
 
         rows = []
-        for req, at, session, turn, text in parse_batch(lines):
+        for req, at, session, text in parse_batch(lines):
             if req in seen or (floor and at and at < floor):
                 continue
             seen.add(req)
-            # ponytail: a turn that began before this batch has no known start,
-            # so no by-hand row can be shown to be its own and the message is
-            # recorded anyway; a second row beside the routed one costs less
-            # than a message that is never shown.
-            ats = hand.get(same_text(text), []) if turn else []
-            match = next((a for a in ats if turn <= a <= (at or "~")), None)
-            if match is not None:
-                ats.remove(match)
+            routed = next((i for i in hand.get(same_text(text), [])
+                           if i not in used), None)
+            if routed:
+                used.add(routed)
+                cursor["used"] = sorted(used)
                 continue
             rows.append({
                 "id": "c" + hashlib.sha1((session + req).encode()).hexdigest()[:16],

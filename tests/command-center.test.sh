@@ -1706,7 +1706,7 @@ test_every_chat_message_is_captured_without_anyone_recording_it() {
 # unroutable copy beside it - and must not swallow a later turn that says the
 # same words with no hand record behind them.
 test_a_hand_recorded_question_is_not_captured_a_second_time() {
-  local home tdir log id before after
+  local home tdir log id id2 before after
   home="$TMP_ROOT/handdedupe"
   tdir="$TMP_ROOT/handdedupe-transcripts"
   seed_home "$home"
@@ -1736,18 +1736,21 @@ Blue or green?" --task cc-live --question) || fail "the recorder refused the mes
   assert_equals "true" "$(jq -r "select(.id == \"$id\") | .question" "$log")" \
     "the routed row did not survive as the question"
 
-  # A turn whose prompt an earlier sweep already read has no known start here,
-  # so the old hand row cannot stand for it and the message is still recorded.
+  # The page's own capture runs mid-turn and reads the prompt long before the
+  # turn ends, so the routed row must still stand for the message on a sweep
+  # that sees only the reply.
+  id2=$(say "$home" "Merge the PR?" "The review is clean. Merge the PR?" \
+    --task cc-live --question) || fail "the recorder refused the second message"
   jq -cn --arg at "$(date -u -d '+240 sec' +%Y-%m-%dT%H:%M:%S.000Z)" \
     '{type:"user",timestamp:$at,sessionId:"sess-1",
-      message:{role:"user",content:"and once more"}}' >> "$tdir/sess-1.jsonl"
+      message:{role:"user",content:"and the PR?"}}' >> "$tdir/sess-1.jsonl"
   sweep "$home" "$tdir" || fail "the sweep of the prompt failed"
-  entry r-split-turn end_turn false "$(date -u -d '+300 sec' +%Y-%m-%dT%H:%M:%S.000Z)" \
-    '{"type":"text","text":"The colour call is yours.\nBlue or green?"}' >> "$tdir/sess-1.jsonl"
+  entry r-pr end_turn false "$(date -u -d '+300 sec' +%Y-%m-%dT%H:%M:%S.000Z)" \
+    '{"type":"text","text":"The review is clean. Merge the PR?"}' >> "$tdir/sess-1.jsonl"
   sweep "$home" "$tdir" || fail "the mid-turn sweep failed"
-  assert_equals "$id,r-again,r-split-turn" "$(jq -rs 'map(.req // .id) | join(",")' "$log")" \
-    "a turn read across two sweeps was swallowed by an old hand record"
-  pass "a hand-recorded question stands for its turn's captured message"
+  assert_equals "$id,r-again,$id2" "$(jq -rs 'map(.req // .id) | join(",")' "$log")" \
+    "a routed question was duplicated by a sweep that began after the prompt"
+  pass "a hand-recorded question stands for its captured message, however the sweep is split"
 }
 
 # THE REPORTED COMPLAINT: a session started from somewhere else writes its
