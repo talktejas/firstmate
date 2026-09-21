@@ -462,7 +462,15 @@ test_complete_accepts_a_migrated_inventory_on_beads() {
     "the attestation did not record the attested legacy id"
   run_captain "$home" verify "$scout" >/dev/null \
     || fail "verify did not re-resolve the attested legacy id after completion"
-  pass "the completion gate attests an inventory resolved through a migrated beads row"
+
+  # The same still-held row under its migrated spelling is a re-attestation,
+  # not a drop, so the drop guard must not refuse the corrective pass.
+  run_captain "$home" complete "$scout" fm-herald-github-delete >/dev/null \
+    || fail "re-attesting the same row under its migrated id read as dropping a live call"
+  assert_equals "decision_keys=fm-herald-github-delete" \
+    "$(grep '^decision_keys=' "$home/state/$scout.meta" | tail -1)" \
+    "the corrective completion did not replace the inventory with the migrated id"
+  pass "the completion gate attests an inventory resolved through a migrated beads row and re-attests it under the migrated id"
 }
 
 test_verify_names_the_unresolvable_legacy_id_once() {
@@ -835,6 +843,218 @@ test_answer_records_and_closes() {
   pass "answer records the captain's words, closes idempotently, and releases routed work"
 }
 
+# A scout's inventory is a completion gate, not an append-only tomb. After the
+# answer path closes one call with its durable record, verify accepts that
+# settled call. A corrective completion may then replace the inventory with the
+# calls that remain, allowing the finished scout to tear down. What a
+# replacement drops is still checked: a call still held and unanswered is
+# refused by name, an id with no row at all is reported as drift, and an id
+# with no row remains a loud verify refusal rather than reading as an answer.
+test_answered_inventory_allows_repair_and_teardown() {
+  local home id settled active missing rc err out
+  home=$(make_home answered-inventory-repair)
+  id=sample-answered-inventory-scout
+  settled=sample-settled-call
+  active=sample-active-call
+  missing=sample-missing-call
+  mkdir -p "$home/data/$id"
+  tasks_in "$home" add "$id" "Investigate the answered inventory" --kind scout \
+    --repo sample --start >/dev/null || fail "could not create the answered-inventory scout"
+  write_origin_meta "$home" "$id"
+  printf 'done: report complete\n' > "$home/state/$id.status"
+  printf '# Answered inventory\n\nThe investigation is complete.\n' > "$home/data/$id/report.md"
+  run_captain "$home" hold "$settled" --title "Choose the settled option" \
+    --reason "captain settled choice pending" --repo sample >/dev/null \
+    || fail "could not hold the settled inventory call"
+  run_captain "$home" hold "$active" --title "Choose the active option" \
+    --reason "captain active choice pending" --repo sample >/dev/null \
+    || fail "could not hold the active inventory call"
+  run_captain "$home" complete "$id" "$settled" "$active" >/dev/null \
+    || fail "could not attest the initial inventory"
+  printf 'The captain settled this call.\n' > "$home/settled-answer.txt"
+
+  # Dropping a call that is still held and unanswered would put it out of
+  # verify's reach, so completion refuses it and names it. The refusal is also
+  # an exit path, so it must not strand the staging file it read through.
+  mkdir -p "$home/tmp"
+  set +e
+  err=$(export TMPDIR="$home/tmp"; run_captain "$home" complete "$id" "$settled" 2>&1 >/dev/null)
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "completion dropped a still-held, unanswered captain call"
+  assert_contains "$err" "$active" "the refused drop did not name the still-held call"
+  assert_equals "decision_keys=$active,$settled" \
+    "$(grep '^decision_keys=' "$home/state/$id.meta" | tail -1)" \
+    "the refused drop still rewrote the attested inventory"
+  assert_equals "0" \
+    "$(find "$home/tmp" -name 'fm-captain-hold-drop-err.*' | wc -l | tr -d ' ')" \
+    "the refused drop stranded its resolution-diagnostics staging file"
+
+  run_captain "$home" answer "$settled" --decision-file "$home/settled-answer.txt" >/dev/null \
+    || fail "could not close the settled inventory call through the answer path"
+  run_captain "$home" verify "$id" >/dev/null \
+    || fail "a closed call with its recorded answer did not satisfy verify"
+  run_captain "$home" complete "$id" "$active" >/dev/null \
+    || fail "completion did not accept the corrected active-only inventory"
+  assert_equals "decision_keys=$active" \
+    "$(grep '^decision_keys=' "$home/state/$id.meta" | tail -1)" \
+    "corrected completion did not replace the recorded inventory"
+  run_captain "$home" answer "$active" --decision-file "$home/settled-answer.txt" >/dev/null \
+    || fail "could not close the remaining inventory call"
+
+  # A mistyped id that resolves to no row at all is repairable drift, not a
+  # settled call: --none clears it but says so, so the mistype stays visible.
+  printf 'decision_keys=%s\n' "$active,$missing" >> "$home/state/$id.meta"
+  out=$(run_captain "$home" complete "$id" --none) \
+    || fail "completion refused --none with every attested call answered"
+  assert_contains "$out" "$missing" "the drift report did not name the dropped unresolved id"
+  assert_equals "decision_keys=" \
+    "$(grep '^decision_keys=' "$home/state/$id.meta" | tail -1)" \
+    "--none did not clear the attested inventory"
+
+  run_teardown "$home" "$id" > "$home/teardown.out" 2> "$home/teardown.err" \
+    || fail "answered inventory still refused scout teardown: $(cat "$home/teardown.err")"
+
+  # Use a fresh attestation record so this is a true verify-path absence, not a
+  # failure caused by teardown removing the preceding fixture's metadata.
+  mkdir -p "$home/state"
+  fm_write_meta "$home/state/$missing.meta" \
+    "window=firstmate:fm-$missing" "worktree=$home/projects/missing" \
+    "project=$home/projects/sample" "harness=codex" "kind=scout" "mode=scout" \
+    "spawn_gen=fixture-$missing" "decisions_reviewed=1" "decision_keys=$missing"
+  set +e
+  err=$(run_captain "$home" verify "$missing" 2>&1 >/dev/null)
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "verify accepted an inventory id with no task or resolution"
+  assert_contains "$err" "$missing" "the missing inventory refusal did not name its id"
+  pass "answered inventories verify, corrected completion replaces them without dropping a live call, teardown proceeds, and missing ids refuse"
+}
+
+
+# A wedged backend is not an empty one either. The readability probe runs while
+# this origin's metadata lock is held, so it carries the same read bound every
+# other backlog read here carries: the gate refuses by name instead of blocking
+# every other command that needs that lock behind an unbounded listing read.
+# And the probe is owed only when a resolution failure is about to be spent as
+# drift, so a re-attestation that drops nothing never pays for it at all.
+test_wedged_backlog_listing_does_not_hang_the_completion_gate() {
+  local home id call rc err
+  home=$(make_home drift-wedged-listing)
+  id=sample-wedged-listing-scout
+  call=sample-wedged-listing-call
+  mkdir -p "$home/data/$id"
+  tasks_in "$home" add "$id" "Investigate the wedged listing" --kind scout \
+    --repo sample --start >/dev/null || fail "could not create the wedged-listing scout"
+  write_origin_meta "$home" "$id"
+  printf 'done: report complete\n' > "$home/state/$id.status"
+  printf '# Report\n\nThe investigation is complete.\n' > "$home/data/$id/report.md"
+  run_captain "$home" hold "$call" --title "Choose an option" \
+    --reason "captain must choose" --repo sample >/dev/null \
+    || fail "could not hold the wedged-listing call"
+  run_captain "$home" complete "$id" "$call" >/dev/null \
+    || fail "could not attest the wedged-listing inventory"
+
+  # A backend whose listing never returns; with FM_TEST_SHOW_FAILS its row
+  # reads fail too, so every attested id fails to resolve.
+  cat > "$home/fakebin/tasks-axi" <<'SH'
+#!/usr/bin/env bash
+for arg in "$@"; do
+  case "$arg" in
+    list) while :; do sleep 0.1; done ;;
+    show) [ "${FM_TEST_SHOW_FAILS:-}" != 1 ] || exit 1 ;;
+  esac
+done
+exec "$REAL_TASKS_AXI" "$@"
+SH
+  chmod +x "$home/fakebin/tasks-axi"
+
+  # Re-attesting the same inventory drops nothing, so it never reaches the
+  # listing read and succeeds exactly as it did before the drop guard existed.
+  FM_BACKLOG_ROW_TIMEOUT_SECS=1 \
+    run_captain "$home" complete "$id" "$call" >/dev/null \
+    || fail "a re-attestation that drops nothing was refused over the backlog listing"
+
+  set +e
+  err=$(FM_BACKLOG_ROW_TIMEOUT_SECS=1 FM_TEST_SHOW_FAILS=1 \
+        run_captain "$home" complete "$id" --none 2>&1 >/dev/null)
+  rc=$?
+  set -e
+  rm -f "$home/fakebin/tasks-axi"
+  [ "$rc" -ne 0 ] || fail "--none cleared a live inventory against a wedged backlog listing"
+  assert_contains "$err" "read bound" \
+    "the refusal did not name the exceeded read bound as its reason"
+  assert_equals "decision_keys=$call" \
+    "$(grep '^decision_keys=' "$home/state/$id.meta" | tail -1)" \
+    "a wedged backlog listing still rewrote the attested inventory"
+
+  run_captain "$home" verify "$id" >/dev/null \
+    || fail "the preserved inventory stopped verifying once the backend answered again"
+  pass "a no-drop re-attestation skips the listing probe, and a wedged listing refuses under its read bound"
+}
+
+# Drift is a statement about the backlog, not about the backend: when the
+# configured backlog cannot be read, every id fails to resolve alike, and
+# reading that as "these calls no longer exist" would clear a live inventory
+# and let teardown discard the scout with its questions unanswered. Both a
+# missing data directory and a missing backlog file inside a present one are
+# that same unreadable backlog.
+test_unreadable_backlog_does_not_drift_clear_an_inventory() {
+  local home id call_a call_b rc err
+  home=$(make_home drift-backend-failure)
+  id=sample-drift-backend-scout
+  call_a=sample-drift-call-a
+  call_b=sample-drift-call-b
+  mkdir -p "$home/data/$id"
+  tasks_in "$home" add "$id" "Investigate the unaddressable backlog" --kind scout \
+    --repo sample --start >/dev/null || fail "could not create the drift-backend scout"
+  write_origin_meta "$home" "$id"
+  printf 'done: report complete\n' > "$home/state/$id.status"
+  printf '# Report\n\nThe investigation is complete.\n' > "$home/data/$id/report.md"
+  run_captain "$home" hold "$call_a" --title "Choose the first option" \
+    --reason "captain must choose" --repo sample >/dev/null \
+    || fail "could not hold the first drift-backend call"
+  run_captain "$home" hold "$call_b" --title "Choose the second option" \
+    --reason "captain must choose" --repo sample >/dev/null \
+    || fail "could not hold the second drift-backend call"
+  run_captain "$home" complete "$id" "$call_a" "$call_b" >/dev/null \
+    || fail "could not attest the drift-backend inventory"
+
+  # The whole data directory out of reach.
+  mv "$home/data" "$home/data-away" || fail "could not take the data directory out of reach"
+  set +e
+  err=$(run_captain "$home" complete "$id" --none 2>&1 >/dev/null)
+  rc=$?
+  set -e
+  mv "$home/data-away" "$home/data" || fail "could not restore the data directory"
+  [ "$rc" -ne 0 ] || fail "--none cleared a live inventory with the data directory out of reach"
+  assert_contains "$err" "not addressable" \
+    "the refusal did not name the unreachable data directory as its reason"
+  assert_equals "decision_keys=$call_a,$call_b" \
+    "$(grep '^decision_keys=' "$home/state/$id.meta" | tail -1)" \
+    "an unreachable data directory still rewrote the attested inventory"
+
+  # The data directory present, but the backlog file itself gone - the default
+  # markdown backend still addresses cleanly here, so only a real read sees it.
+  mv "$home/data/backlog.md" "$home/backlog-away.md" \
+    || fail "could not take the backlog file out of reach"
+  set +e
+  err=$(run_captain "$home" complete "$id" --none 2>&1 >/dev/null)
+  rc=$?
+  set -e
+  mv "$home/backlog-away.md" "$home/data/backlog.md" \
+    || fail "could not restore the backlog file"
+  [ "$rc" -ne 0 ] || fail "--none cleared a live inventory with the backlog file missing"
+  assert_contains "$err" "could not be read" \
+    "the missing-backlog refusal did not name the unreadable backlog as its reason"
+  assert_equals "decision_keys=$call_a,$call_b" \
+    "$(grep '^decision_keys=' "$home/state/$id.meta" | tail -1)" \
+    "a missing backlog file still rewrote the attested inventory"
+
+  run_captain "$home" verify "$id" >/dev/null \
+    || fail "the preserved inventory stopped verifying once the backlog was back in reach"
+  pass "an unreadable backlog refuses instead of drift-clearing a live captain-call inventory"
+}
 # --release lifts the hold instead of closing, preserving the work item's own
 # body under the record; a re-held task later accepts a new answer.
 test_release_frees_held_work() {
@@ -4054,6 +4274,9 @@ test_hold_decodes_a_bare_scalar_body_without_the_nonref_default
 test_retained_body_keeps_its_utf8_bytes
 test_completion_gate_attests_and_transfers
 test_answer_records_and_closes
+test_answered_inventory_allows_repair_and_teardown
+test_unreadable_backlog_does_not_drift_clear_an_inventory
+test_wedged_backlog_listing_does_not_hang_the_completion_gate
 test_release_frees_held_work
 test_hold_stamp_precedes_hold_visibility
 test_interrupted_answer_preserves_hold_age
