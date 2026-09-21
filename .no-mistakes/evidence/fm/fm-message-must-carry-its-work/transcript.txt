@@ -1,0 +1,46 @@
+### S1 hand record with neither --task nor --general
+fm-captain-message: a message about work needs --task <id>, a task recorded in state/*.meta; pass --general only for a message about no task
+exit=1
+### S2 hand record --task with no state/<id>.meta (typo)
+fm-captain-message: --task cc-alpah has no task record: pass --task <id> for a task listed in state/*.meta, or name its --project for a task that has none yet (a queued hold)
+exit=1
+### S3 hand record --task and --general together
+fm-captain-message: a message is either about --task <id> or --general, not both
+exit=1
+log lines after refusals: 0
+### S4 hand record --task cc-alpha
+m20260921T083245Z-26978
+exit=0
+### S5 hand record --general
+m20260921T083245Z-27178
+exit=0
+{"title":"Alpha PR up","task":"cc-alpha","project":"alpha","worktree":"/tmp/fmcc-live.MbrI/wt-alpha","branch":"fm/alpha-fix"}
+{"title":"Morning","task":null,"project":null,"worktree":null,"branch":null}
+### S6 Stop-hook sweep (--from-payload) of the turn that just ended
+exit=0
+{"req":"r-one","task":"cc-alpha","project":"alpha","worktree":"/tmp/fmcc-live.MbrI/wt-alpha","branch":"fm/alpha-fix"}
+{"req":"r-two","task":null,"project":null,"worktree":null,"branch":null}
+{"req":"r-none","task":null,"project":null,"worktree":null,"branch":null}
+{"req":"r-prose","task":null,"project":null,"worktree":null,"branch":null}
+### S7 backfill of older rows (strip context from captured rows, add legacy task-keyed row)
+{"busy":false,"rows":8,"changed":2,"unresolved":7,"malformed_rows":1,"unresolved_reasons":{"branch_not_recorded":2,"no_task_record":4,"task_metadata_unavailable":1}}
+exit=0
+{"id":"m20260921T083245Z-26978","task":"cc-alpha","project":"alpha","worktree":"/tmp/fmcc-live.MbrI/wt-alpha","branch":"fm/alpha-fix"}
+{"id":"m20260921T083245Z-27178","task":null,"project":null,"worktree":null,"branch":null}
+{"id":"r-one","task":"cc-alpha","project":"alpha","worktree":"/tmp/fmcc-live.MbrI/wt-alpha","branch":null}
+{"id":"r-two","task":null,"project":null,"worktree":null,"branch":null}
+{"id":"r-none","task":null,"project":null,"worktree":null,"branch":null}
+{"id":"r-prose","task":null,"project":null,"worktree":null,"branch":null}
+{"id":"legacy","task":"cc-beta","project":"beta","worktree":"/tmp/fmcc-live.MbrI/wt-beta","branch":null}
+{"id":"gone","task":"cc-torndown","project":null,"worktree":null,"branch":null}
+### S8 backfill re-run converges
+{"busy":false,"rows":8,"changed":0,"unresolved":7,"malformed_rows":1,"unresolved_reasons":{"branch_not_recorded":2,"no_task_record":4,"task_metadata_unavailable":1}}
+log byte-identical after rerun
+### S9 concurrent hand record while backfill holds the lock
+{"busy": true, "changed": 0, "rows": 0, "unresolved": 0, "unresolved_reasons": {}}
+backfill while locked exit=0
+recorder waited 2.411340129s then exit=0
+1
+race rows present: 20/20
+T=/tmp/fmcc-live.MbrI
+{"req":"r-beta","task":"cc-beta","project":"beta","worktree":"/tmp/fmcc-live.MbrI/wt-beta","branch":"fm/beta-fix"}
