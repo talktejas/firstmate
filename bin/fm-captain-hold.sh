@@ -28,7 +28,7 @@
 #   fm-captain-hold.sh bind <source-id> [<legacy-origin> | --any-origin]
 #   fm-captain-hold.sh unbind <source-id>
 #   fm-captain-hold.sh binding <source-id>
-#   fm-captain-hold.sh complete <origin-id> (--none | <task-id>...)
+#   fm-captain-hold.sh complete <origin-id> [--repair-reason <reason>] (--none | <task-id>...)
 #   fm-captain-hold.sh verify <origin-id>
 #   fm-captain-hold.sh open <task-id> [--identity] [--distinguish-absent]
 #   fm-captain-hold.sh diverged
@@ -122,6 +122,11 @@
 # stores. `binding` prints the stored value verbatim and `answers` accepts it,
 # so the process-event runner's feed seam is unchanged.
 #
+# A successful answer also writes an id-bound receipt under
+# `state/captain-hold-resolutions/`. The receipt contains no decision text and
+# survives Done-history pruning, so verify can distinguish a genuinely answered
+# call from a typo after its backlog row is gone.
+#
 # `complete` is the shared investigation and visual-review completion gate.
 # It attests, in the origin task's metadata, the reviewed inventory of
 # captain-held tasks that carry the origin's unresolved captain calls.
@@ -134,7 +139,7 @@
 # `captain-held [key=...]` status close naming the inventory. Later review
 # passes may correct its ids: a previously attested id may be dropped only when
 # it is closed with a recorded captain answer, or resolves to no task at all
-# (reported as drift); one still held and unanswered is refused by name.
+# (reported as drift with an explicit repair reason); one still held and unanswered is refused by name.
 # A post-teardown visual review can complete against the
 # surviving report and tasks without recreating task state.
 # `verify` is read-only and is called by scout teardown, so teardown cannot
@@ -320,6 +325,8 @@ BINDING_ANY='(any)'
 
 DECISION_TEXT=''
 DECISION_DIGEST=''
+RESOLUTION_RECEIPT_DIR="$STATE/captain-hold-resolutions"
+RESOLUTION_RECEIPT_SCHEMA='fm-captain-hold-resolution.v1'
 
 load_decision() {  # <path>; sets DECISION_TEXT and DECISION_DIGEST
   local path=$1 decision
@@ -506,6 +513,71 @@ resolution_block() {  # <mode>
   [ "$1" != reconciled ] || label='Reconciliation evidence:'
   printf 'Resolution recorded by fm-captain-hold.\nDecision digest: %s\nResolution mode: %s\n\n%s\n%s\n' \
     "$DECISION_DIGEST" "$1" "$label" "$DECISION_TEXT"
+}
+
+# A compact, id-bound receipt is deliberately separate from the retained Done
+# row. tasks-axi may prune that history, while an inventory must still prove
+# that a particular id was genuinely answered rather than merely absent.
+resolution_receipt_matches() {  # <task-id>
+  local id=$1 path line schema='' recorded_id='' mode='' digest=''
+  path="$RESOLUTION_RECEIPT_DIR/$id.receipt"
+  [ -f "$path" ] && [ ! -L "$path" ] && [ -r "$path" ] || return 1
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      schema=*) schema=${line#schema=} ;;
+      id=*) recorded_id=${line#id=} ;;
+      mode=*) mode=${line#mode=} ;;
+      decision_digest=*) digest=${line#decision_digest=} ;;
+    esac
+  done < "$path"
+  [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || return 1
+  [ "$schema" = "$RESOLUTION_RECEIPT_SCHEMA" ] \
+    && [ "$recorded_id" = "$id" ] \
+    && case "$mode" in answered|repaired|routed) true ;; *) false ;; esac \
+    && case "$digest" in [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) true ;; *) false ;; esac
+}
+
+record_resolution_receipt() {  # <task-id> <answer-mode>
+  local id=$1 mode=$2 path tmp now existing_mode='' existing_digest=''
+  case "$mode" in answered|repaired|routed) : ;; *) return 0 ;; esac
+  path="$RESOLUTION_RECEIPT_DIR/$id.receipt"
+  if [ -e "$path" ] || [ -L "$path" ]; then
+    resolution_receipt_matches "$id" \
+      || fail "captain answer receipt for $id is malformed; refusing to replace durable evidence"
+    existing_mode=$(sed -n 's/^mode=//p' "$path" | tail -1)
+    existing_digest=$(sed -n 's/^decision_digest=//p' "$path" | tail -1)
+    [ "$existing_mode" = "$mode" ] && [ "$existing_digest" = "$DECISION_DIGEST" ] \
+      || fail "captain answer receipt for $id conflicts with this resolution"
+    return 0
+  fi
+  mkdir -p "$RESOLUTION_RECEIPT_DIR" \
+    || fail "cannot create the captain answer receipt directory"
+  chmod 700 "$RESOLUTION_RECEIPT_DIR" 2>/dev/null || true
+  now=${FM_CAPTAIN_HOLD_NOW:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}
+  tmp=$(umask 077; mktemp "$RESOLUTION_RECEIPT_DIR/.${id}.XXXXXX") \
+    || fail "cannot stage the captain answer receipt for $id"
+  if ! printf 'schema=%s\nid=%s\nmode=%s\ndecision_digest=%s\nrecorded_at=%s\n' \
+      "$RESOLUTION_RECEIPT_SCHEMA" "$id" "$mode" "$DECISION_DIGEST" "$now" > "$tmp" \
+    || ! mv "$tmp" "$path"; then
+    rm -f -- "$tmp"
+    fail "cannot persist the captain answer receipt for $id"
+  fi
+}
+
+receipt_resolves_entry() {  # <origin-or-empty> <entry>; prints "<id> pruned-resolution"
+  local origin=$1 entry=$2 legacy
+  if resolution_receipt_matches "$entry"; then
+    printf '%s pruned-resolution' "$entry"
+    return 0
+  fi
+  if [ -n "$origin" ] && [ "$origin" != "$BINDING_ANY" ]; then
+    legacy=$(legacy_hold_id "$origin" "$entry")
+    if resolution_receipt_matches "$legacy"; then
+      printf '%s pruned-resolution' "$legacy"
+      return 0
+    fi
+  fi
+  return 1
 }
 
 # Durable state of one captain call: an active captain hold (annotations
@@ -833,10 +905,16 @@ write_hold_set_stamp() {  # <task-id> <shown-body> <timestamp> <preserve-existin
 # attestation evidence.
 verify_entry_durable() {  # <origin-or-empty> <entry>; prints "<id> <how>"
   local origin=$1 entry=$2 resolved resolve_status=0
-  resolved=$(resolve_entry "$origin" "$entry") || resolve_status=$?
+  resolved=$(resolve_entry "$origin" "$entry" 2>&1) || resolve_status=$?
   if [ "$resolve_status" -ne 0 ]; then
     [ "$resolve_status" -ne 124 ] \
       || fail "the backlog backend exceeded its read bound resolving $entry"
+    if resolved=$(receipt_resolves_entry "$origin" "$entry"); then
+      printf '%s\n' "$resolved"
+      return 0
+    fi
+    [ -n "$resolved" ] || resolved="fm-captain-hold: no captain-held task or recorded answer receipt for $entry in this home's configured backlog (data directory $DATA)"
+    printf '%s\n' "$resolved" >&2
     exit "$resolve_status"
   fi
   printf '%s\n' "$resolved"
@@ -1060,6 +1138,7 @@ command_answer() {
         || fail "task $id records this resolution with mode ${recorded_mode:-unknown}; it is not a captain-answer replay"
       [ "$release" = 0 ] \
         || fail "task $id records this answer with mode ${recorded_mode:-unknown}; --release cannot reopen a closed task"
+      record_resolution_receipt "$id" "$recorded_mode"
       remove_interrupted_answer_stamp "$id"
       if [ "$recorded_mode" = repaired ]; then
         publish_parent_resolution_then_retire "$id" $((occurrence - 1)) "answered (repaired)"
@@ -1076,6 +1155,7 @@ command_answer() {
     [ "$hold_kind" = captain ] \
       || fail "task $id was never held for the captain; nothing to record an answer on"
     write_resolution_record "$id" repaired "$body"
+    record_resolution_receipt "$id" repaired
     remove_interrupted_answer_stamp "$id"
     task_show "$id" || fail "task $id disappeared while recording the answer"
     show=$TASK_SHOW_OUTPUT
@@ -1105,12 +1185,14 @@ command_answer() {
       if ! close_answered "$id" "$release"; then
         fail "could not close answered captain-held task $id"
       fi
+      [ "$release" = 1 ] || record_resolution_receipt "$id" "$recorded_mode"
       remove_interrupted_answer_stamp "$id"
       publish_parent_resolution_then_retire "$id" $((occurrence - 1)) "$outcome"
       printf '%s: %s\n' "$outcome" "$id"
       return 0
     fi
     write_resolution_record "$id" "$outcome" "$body"
+    [ "$release" = 1 ] || record_resolution_receipt "$id" "$outcome"
     if ! close_answered "$id" "$release"; then
       fail "could not close answered captain-held task $id"
     fi
@@ -1652,7 +1734,7 @@ reconcile_note() {
 
 command_complete() {
   local origin=${1:-} meta previous='' supplied='' keys='' entry key status_file open has_meta=0 transfer_rc resolved
-  local resolved_how attested_by_prefix='' dropped_unresolved='' resolve_rc retained='' drop_err reason
+  local resolved_how attested_by_prefix='' dropped_unresolved='' resolve_rc retained='' drop_err reason repair_reason='' none=0
   [ "$#" -ge 2 ] || { usage >&2; exit 2; }
   validate_slug origin-id "$origin"
   shift
@@ -1666,16 +1748,27 @@ command_complete() {
   fi
   require_tasks_axi
   origin_exists_here "$origin" || fail "origin $origin is not owned by the active home $FM_HOME"
-  if [ "$#" -eq 1 ] && [ "$1" = --none ]; then
-    supplied=''
-  else
-    while [ "$#" -gt 0 ]; do
-      [ "$1" != --none ] || fail "--none cannot be combined with task ids"
-      validate_slug task-id "$1"
-      supplied="${supplied}${supplied:+ }$1"
-      shift
-    done
-  fi
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --repair-reason)
+        [ "$#" -ge 2 ] || fail "--repair-reason requires one line explaining the inventory repair"
+        shift
+        repair_reason=${1:-}
+        validate_one_line repair-reason "$repair_reason"
+        ;;
+      --none)
+        [ "$none" = 0 ] || fail "--none may appear only once"
+        none=1
+        ;;
+      *)
+        [ "$none" = 0 ] || fail "--none cannot be combined with task ids"
+        validate_slug task-id "$1"
+        supplied="${supplied}${supplied:+ }$1"
+        ;;
+    esac
+    shift
+  done
+  [ "$none" = 1 ] || [ -n "$supplied" ] || { usage >&2; exit 2; }
   if [ "$has_meta" = 1 ]; then
     previous=$(meta_value "$meta" decision_keys)
   fi
@@ -1736,6 +1829,9 @@ EOF
   rm -f -- "$drop_err"
   CAPTAIN_DROP_ERR=
 
+  [ -z "$dropped_unresolved" ] || [ -n "$repair_reason" ] \
+    || fail "attested captain calls resolve to no task ($dropped_unresolved); re-run complete with --repair-reason stating why this explicit inventory repair drops them"
+
   status_file="$STATE/$origin.status"
   open=$(status_open_decisions "$status_file")
   if [ -n "$open" ] && [ -z "$keys" ]; then
@@ -1745,6 +1841,10 @@ EOF
   if [ "$has_meta" = 1 ]; then
     if [ "$(meta_value "$meta" decisions_reviewed)" != 1 ] || [ "$previous" != "$keys" ]; then
       printf 'decisions_reviewed=1\ndecision_keys=%s\n' "$keys" >> "$meta"
+    fi
+    if [ -n "$dropped_unresolved" ]; then
+      printf 'decision_repair=%s dropped=%s reason=%s\n' \
+        "${FM_CAPTAIN_HOLD_NOW:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}" "$dropped_unresolved" "$repair_reason" >> "$meta"
     fi
     fm_lock_release "$CAPTAIN_META_LOCK"
     CAPTAIN_META_LOCK_HELD=0
@@ -1769,7 +1869,7 @@ EOF
   fi
   printf 'complete: %s captain-call inventory reviewed%s%s%s\n' "$origin" "${keys:+ ($keys)}" \
     "${attested_by_prefix:+ [attested through the configured prefix: $attested_by_prefix]}" \
-    "${dropped_unresolved:+ [dropped ids that resolve to no task: $dropped_unresolved]}"
+    "${dropped_unresolved:+ [repaired missing ids: $dropped_unresolved; reason: $repair_reason]}"
 }
 
 command_verify() {
