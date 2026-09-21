@@ -288,6 +288,71 @@ function replyTarget(message, items) {
   return item ? { kind: 'answer', item } : { kind: 'note', settled: true };
 }
 
+// --- may the message list claim to be complete? ---------------------------------
+// The messages are captured from the conversation record by
+// bin/fm-captain-message-sweep.py, which writes a health record every run; the
+// server serves it as `capture` on /api/messages. When capture cannot be shown
+// healthy the list must say it may be incomplete, never quietly look short -
+// that promise is the reason the capture exists. Returns the band's text, or
+// null when the list may speak for itself. The sweep's own record is the truth
+// of the last capture whoever ran it (the Stop hook runs it too); the server's
+// run_error matters only when that record is missing or stale.
+function captureBand(capture) {
+  if (!capture || capture.present === false)
+    return 'Automatic capture of what firstmate says has not reported yet'
+      + (capture && capture.run_error ? ' (' + capture.run_error + ')' : '')
+      + ' - this list may be incomplete.';
+  if (capture.ok === false)
+    return 'Automatic capture of what firstmate says is failing'
+      + (capture.error ? ': ' + capture.error : '') + ' - this list may be incomplete.';
+  if (capture.active === false)
+    return 'No conversation record was found to capture from, so only messages '
+      + 'firstmate recorded by hand appear here - this list may be incomplete.';
+  // Only a Stop hook's payload names the transcript a session actually writes.
+  // Until one has, capture is reading a directory worked out from the home's
+  // path, and a session started elsewhere writes where nothing is looking.
+  if (!capture.named)
+    return 'Automatic capture is reading a conversation directory it worked out '
+      + 'for itself; no session has confirmed where it records what firstmate '
+      + 'says, so this list may be incomplete.';
+  if (typeof capture.age_secs === 'number' && capture.age_secs > 900)
+    return 'Automatic capture last ran ' + Math.round(capture.age_secs / 60)
+      + ' minutes ago' + (capture.run_error ? ' and the page could not run it: '
+      + capture.run_error : '') + ' - messages since then may be missing.';
+  return null;
+}
+
+// --- has anything he sent changed? ----------------------------------------------
+// Delivery now always finishes behind the send, so an outcome landing on the
+// record is the ONLY way it reaches the screen. It can land on any record, not
+// just the newest: a second send while the first is still delivering pushes the
+// first one down the list. So the digest covers every row's outcome, not the
+// list's head.
+function saidDigest(rows) {
+  return (rows || []).map(r => [r.sid || '', r.kind || '', r.outcome || '',
+                                r.detail || ''].join('\u0001')).join('\u0002');
+}
+
+// --- what the page is holding of the log ----------------------------------------
+// The newest window, merged onto what the page already holds. Both are
+// newest-first runs of one append-only log, so a row that has fallen out of the
+// window since it was read is still his and stays - the two runs overlap and
+// the result is one contiguous list.
+//
+// They do NOT overlap if more than a window arrived between polls (a suspended
+// machine, a throttled tab) or if the log was rewritten underneath: everything
+// between the two runs would be missing from a list that goes on claiming to be
+// whole, and walking back pages from its oldest row, so the hole would never
+// close. The stale run is dropped instead - Show older walks back from the
+// window and search reads the whole log, so nothing becomes unreachable.
+function mergeMessages(fresh, held) {
+  const rows = fresh || [], rest = held || [];
+  const have = new Set(rows.map(m => m.id));
+  const kept = rest.filter(m => !have.has(m.id));
+  if (rows.length && rest.length && kept.length === rest.length) return rows;
+  return rows.concat(kept);
+}
+
 // The identity the server uses too (item_key in bin/command-center.py).
 function itemKey(it) {
   return [it.home, it.source, it.id, it.key || ''].join('/');
@@ -299,4 +364,4 @@ if (typeof module === 'object' && module.exports)
                      replyTarget, foldSaid, wordsAfter,
                      listSignature, mayRelease, logRead,
                      sendState, sendKeys, spokenFor, sameWords,
-                     heldWith };
+                     heldWith, captureBand, saidDigest, mergeMessages };

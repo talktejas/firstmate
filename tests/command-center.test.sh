@@ -359,17 +359,35 @@ post() {  # <port> <path> <json>
 }
 
 # The click does not wait on a shell command: the server records his words and
-# answers at once, then writes the outcome under the same sid. The page shows
-# that second row in place, and so do these tests.
-wait_outcome() {  # <home> <sid>  -> the resolved record row on stdout
+# answers at once, then writes the outcome as an amendment naming that sid.
+# The page folds the pair and shows the outcome in place, and so do these tests.
+wait_outcome() {  # <home> <sid>  -> the outcome record row on stdout
   local home=$1 sid=$2 row
   for _ in $(seq 1 160); do
-    row=$(jq -c --arg s "$sid" 'select(.sid == $s and .outcome != "sending")' \
+    row=$(jq -c --arg s "$sid" 'select(.of == $s and .outcome != "sending")' \
       "$home/data/command-center/said.jsonl" 2>/dev/null | tail -1)
     [ -n "$row" ] && { printf '%s\n' "$row"; return 0; }
     sleep 0.25
   done
   return 1
+}
+
+# A send is accepted the moment the words are durable and delivers behind the
+# acceptance, so anything delivery writes is waited for, never asserted at once.
+wait_for() {  # <failure message> <cmd...>
+  local msg=$1 i=0
+  shift
+  while [ "$i" -lt 60 ]; do
+    "$@" >/dev/null 2>&1 && return 0
+    sleep 0.5
+    i=$((i + 1))
+  done
+  fail "$msg"
+}
+
+said_has() {  # <port> <jq filter that must be non-empty>
+  curl -s -m 10 "http://127.0.0.1:$1/api/said" \
+    | jq -e "[.said[] | select($2)] | length > 0"
 }
 
 test_server_serves_the_page_and_the_records() {
@@ -531,31 +549,38 @@ test_answering_a_hold_records_the_captains_words_and_clears_the_item() {
 
   start_server "$home" || fail "the server did not start"
   port=$SERVER_PORT
+  curl -s -m 120 -o /dev/null "http://127.0.0.1:$port/api/items"
   result=$(post "$port" /api/answer \
     '{"home":"main","id":"cc-answer","source":"hold","key":"cc-answer","text":"Green. Blue reads as disabled."}')
+  # The send is accepted the moment his words are durable; delivery runs behind.
   assert_contains "$result" '"ok":true' "the answer was not accepted"
+  assert_contains "$result" '"outcome":"sending"' \
+    "the acceptance did not say delivery was still running"
+  assert_grep 'Green. Blue reads as disabled.' \
+    "$home/data/command-center/said.jsonl" \
+    "the words were not durable by the time the send was accepted"
   resolved=$(wait_outcome "$home" "$(jq -r .sid <<<"$result")") \
     || fail "the outcome of the send never reached the record"
   assert_contains "$resolved" '"outcome":"sent"' "the answer was not delivered"
   assert_contains "$resolved" 'fm-captain-hold.sh answer' \
     "a held decision was not answered through the script that owns decision records"
 
-  assert_grep 'Green. Blue reads as disabled.' "$home/data/backlog.md" \
-    "the captain's exact words did not reach the durable task record"
-  assert_grep 'cc-answer' "$home/data/command-center/said.jsonl" \
-    "the answer was not appended to the captain's own record of what he said"
+  wait_for "the captain's exact words never reached the durable task record" \
+    grep -q 'Green. Blue reads as disabled.' "$home/data/backlog.md"
   # The page's "you last sent … — …" line is derived from this record alone, so
   # it has to carry the item, his exact words, the outcome, which route ran, and
   # whether that act closed the task or lifted its hold.
-  assert_equals "main/hold/cc-answer/cc-answer|Green. Blue reads as disabled.|sent|hold|close" \
+  wait_for "the outcome never landed on the record of what he said" \
+    said_has "$port" '.item == "cc-answer" and .outcome == "sent"'
+  assert_equals "main/hold/cc-answer/cc-answer|Green. Blue reads as disabled.|sent|hold|close|fm-captain-hold.sh answer cc-answer" \
     "$(curl -s -m 30 "http://127.0.0.1:$port/api/said" \
         | jq -r '[.said[] | select(.item == "cc-answer")][0]
-                 | [.item_key, .text, .outcome, .source, .mode] | join("|")')" \
-    "the record the item line is derived from did not carry what he sent and what became of it"
-  assert_not_contains "$(curl -s -m 120 "http://127.0.0.1:$port/api/items")" '"id":"cc-answer"' \
-    "an answered decision stayed in the waiting list"
+                 | [.item_key, .text, .outcome, .source, .mode, .route] | join("|")')" \
+    "the record the item line is derived from did not carry what he sent, what became of it, and the script that owns decision records"
+  wait_for "an answered decision stayed in the waiting list" \
+    bash -c "! curl -s -m 120 'http://127.0.0.1:$port/api/items' | grep -q '\"id\":\"cc-answer\"'"
   stop_server
-  pass "an answer reaches the task record, the captain's log, and leaves the list"
+  pass "an accepted answer reaches the task record, the captain's log, and leaves the list"
 }
 
 # A question held for the captain IS the task, so answering it closes the task.
@@ -576,15 +601,14 @@ test_answering_held_work_releases_it_instead_of_closing_it() {
 
   start_server "$home" || fail "the server did not start"
   port=$SERVER_PORT
+  curl -s -m 120 -o /dev/null "http://127.0.0.1:$port/api/items"
   result=$(post "$port" /api/answer \
     '{"home":"main","id":"cc-work","source":"hold","key":"cc-work","text":"Go with green."}')
   assert_contains "$result" '"ok":true' "held work could not be answered"
   wait_outcome "$home" "$(jq -r .sid <<<"$result")" >/dev/null \
     || fail "the outcome of the send never reached the record"
-  assert_equals "release" \
-    "$(curl -s -m 30 "http://127.0.0.1:$port/api/said" \
-        | jq -r '[.said[] | select(.item == "cc-work")][0].mode')" \
-    "answering held work was not recorded as lifting its hold"
+  wait_for "answering held work was not recorded as lifting its hold" \
+    said_has "$port" '.item == "cc-work" and .mode == "release" and .outcome == "sent"'
   stop_server
 
   shown=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
@@ -609,6 +633,10 @@ test_a_held_row_with_no_kind_is_refused_rather_than_guessed() {
   port=$SERVER_PORT
   result=$(post "$port" /api/answer \
     '{"home":"main","id":"cc-bare","source":"hold","key":"cc-bare","text":"Green."}')
+  # The refusal is an outcome like any other: the send is accepted at once and
+  # the reason lands on the record of what he said.
+  assert_contains "$result" '"outcome":"sending"' \
+    "the send did not return the moment his words were durable"
   resolved=$(wait_outcome "$home" "$(jq -r .sid <<<"$result")") \
     || fail "the outcome of the send never reached the record"
   stop_server
@@ -619,6 +647,39 @@ test_a_held_row_with_no_kind_is_refused_rather_than_guessed() {
   assert_not_contains "$(cat "$home/data/backlog.md")" 'Green.' \
     "a refused send still reached the task record"
   pass "a held row with no kind is refused rather than guessed"
+}
+
+# The page clears his box the moment a send is accepted, so "accepted" has to
+# mean the words are on disk. If they are not, he must keep them.
+test_a_send_whose_words_cannot_be_recorded_is_refused() {
+  local home port result
+  if [ "$(id -u)" = 0 ]; then
+    pass "running as root; an unwritable log cannot be staged"
+    return
+  fi
+  home="$TMP_ROOT/nolog"
+  mkdir -p "$home/data" "$home/state"
+  {
+    printf '# Backlog\n'
+    printf -- '- [ ] cc-nolog - Which palette? (repo: demo) (kind: captain) (hold: pick one) (hold-kind: captain)\n'
+  } > "$home/data/backlog.md"
+  mkdir -p "$home/data/command-center"
+  : > "$home/data/command-center/said.jsonl"
+  chmod 400 "$home/data/command-center/said.jsonl"
+  start_server "$home" || fail "the server did not start"
+  port=$SERVER_PORT
+  curl -s -m 120 -o /dev/null "http://127.0.0.1:$port/api/items"
+  result=$(post "$port" /api/answer \
+    '{"home":"main","id":"cc-nolog","source":"hold","key":"cc-nolog","text":"Green."}')
+  stop_server
+  chmod 600 "$home/data/command-center/said.jsonl"
+  assert_contains "$result" '"ok":false' \
+    "a send was accepted although what he typed reached no record"
+  assert_contains "$result" 'could not be recorded' \
+    "the refusal did not say his words were not recorded"
+  assert_not_contains "$(cat "$home/data/backlog.md")" 'Green.' \
+    "words that were never recorded were delivered anyway"
+  pass "a send whose words cannot be recorded is refused, so he keeps them"
 }
 
 # A firstmate script that reads stdin must not be able to block the server on
@@ -646,6 +707,18 @@ test_a_note_of_just_a_dash_is_queued_and_never_hangs_the_server() {
   body=$(curl -s -m 15 -X POST -H 'Content-Type: application/json' \
     -d '{"text":"-"}' "http://127.0.0.1:$port/api/note")
   [ -n "$body" ] || fail "the note endpoint never answered: a child read the server's stdin"
+  # Like every other send here: accepted the moment his words are durable,
+  # delivered behind it, and the outcome lands on the record.
+  assert_contains "$body" '"outcome":"sending"' \
+    "the note did not return the moment his words were durable"
+  assert_equals 1 "$(python3 - "$home/data/command-center/said.jsonl" <<'PYEOF'
+import json, sys
+print(sum(1 for line in open(sys.argv[1], encoding="utf-8")
+          if json.loads(line).get("kind") == "note"))
+PYEOF
+)" "the note was accepted before his words were on disk"
+  wait_for "the note never reached the inbox" \
+    bash -c "[ -n \"\$(cat '$home'/state/inbox/*.note 2>/dev/null)\" ]"
   assert_contains "$(wait_outcome "$home" "$(jq -r .sid <<<"$body")")" '"outcome":"sent"' \
     "a note of exactly a dash was not reported as queued"
   assert_equals "-" \
@@ -858,6 +931,33 @@ test_a_message_names_the_project_the_worktree_and_the_branch() {
   pass "a recorded message names its project, its worktree and its branch"
 }
 
+# The automatic capture can be killed mid-write; whatever is recorded next must
+# not be glued onto what it left behind - either writer, same rule.
+test_a_recorded_message_never_glues_onto_a_torn_row() {
+  local home log
+  home="$TMP_ROOT/handtorn"
+  mkdir -p "$home/data"
+  log="$home/data/captain-messages.jsonl"
+  printf '%s\n' '{"id":"m1","at":"2026-01-01T00:00:00Z","title":"Whole","text":"A complete record."}' > "$log"
+  printf '%s' '{"id":"m2","at":"2026-01-01T00:00:00Z","title":"Torn","te' >> "$log"
+
+  say "$home" 'Recorded by hand' 'After the torn write.' >/dev/null \
+    || fail "the recorder failed on a log whose last row was torn"
+  assert_equals "Whole|Recorded by hand" \
+    "$(python3 - "$log" <<'PYEOF'
+import json, sys
+kept = []
+for line in open(sys.argv[1], encoding="utf-8"):
+    try:
+        kept.append(json.loads(line))
+    except ValueError:
+        continue
+print("|".join(r.get("title", "") for r in kept))
+PYEOF
+)" "a message recorded by hand was glued onto a torn row and lost with it"
+  pass "a recorded message never glues onto a torn row"
+}
+
 test_a_field_nothing_knows_is_recorded_as_unknown_not_guessed() {
   local home row
   home="$TMP_ROOT/unknown"
@@ -919,21 +1019,24 @@ test_a_reply_takes_the_answer_route_when_the_task_is_still_waiting() {
     || fail "the recorder refused the message"
   start_server "$home" || fail "the server did not start"
   port=$SERVER_PORT
+  curl -s -m 30 -o /dev/null "http://127.0.0.1:$port/api/items"
   body=$(post "$port" /api/reply "$(jq -cn --arg m "$id" '{msg:$m,text:"Go blue."}')")
+  assert_contains "$body" '"outcome":"sending"' "the reply was not accepted"
+  # The item a steer may reach is named at acceptance, so the page can lock it
+  # while the delivery is still running.
+  assert_equals "main/hold/cc-live/cc-live" "$(jq -r '.item_key // ""' <<<"$body")" \
+    "the accepted reply did not name the item it is about to steer"
   resolved=$(wait_outcome "$home" "$(jq -r .sid <<<"$body")") \
     || fail "the outcome of the reply never reached the record"
   stop_server
 
   assert_contains "$resolved" '"outcome":"sent"' "the reply was not delivered"
-  # The page holds its do-not-resend state by item as well as by message, so a
-  # reply that steers an item has to say which one: otherwise the same worker is
-  # reachable a second time from the waiting list while this is still in flight.
-  assert_equals "main/hold/cc-live/cc-live" "$(jq -r '.item_key // ""' <<<"$body")" \
+  assert_equals "main/hold/cc-live/cc-live" "$(jq -r '.item_key // ""' <<<"$resolved")" \
     "the reply did not name the item it steers"
   assert_contains "$resolved" 'fm-captain-hold.sh answer cc-live' \
     "a reply about a task still waiting did not take the answer route"
   assert_equals "$id" \
-    "$(jq -r 'select(.text == "Go blue.") | .msg' "$home/data/command-center/said.jsonl" | tail -1)" \
+    "$(jq -r 'select(.text == "Go blue.") | .msg' "$home/data/command-center/said.jsonl" | head -1)" \
     "the reply was not recorded against the message it answered"
   assert_contains "$(cat "$home/data/backlog.md")" 'Go blue.' \
     "his exact words did not reach the durable record"
@@ -949,12 +1052,13 @@ test_a_reply_with_nothing_waiting_is_queued_for_firstmate() {
   start_server "$home" || fail "the server did not start"
   port=$SERVER_PORT
   body=$(post "$port" /api/reply "$(jq -cn --arg m "$id" '{msg:$m,text:"Merge it."}')")
+  assert_contains "$body" '"outcome":"sending"' "the reply was not accepted"
   resolved=$(wait_outcome "$home" "$(jq -r .sid <<<"$body")") \
     || fail "the outcome of the reply never reached the record"
   stop_server
 
   assert_contains "$resolved" '"outcome":"sent"' "the reply was not queued"
-  assert_equals "" "$(jq -r '.item_key // ""' <<<"$body")" \
+  assert_equals "" "$(jq -r '.item_key // ""' <<<"$resolved")" \
     "a reply that steers nothing named an item anyway"
   assert_contains "$resolved" 'fm-inbox.sh note' \
     "a reply with nothing waiting on it did not reach firstmate as a note"
@@ -998,6 +1102,7 @@ test_a_reply_never_resolves_its_task_against_another_home() {
     || fail "the recorder refused the message"
   start_server "$home" || fail "the server did not start"
   port=$SERVER_PORT
+  curl -s -m 30 -o /dev/null "http://127.0.0.1:$port/api/items"
   body=$(post "$port" /api/reply "$(jq -cn --arg m "$id" '{msg:$m,text:"Go blue."}')")
   resolved=$(wait_outcome "$home" "$(jq -r .sid <<<"$body")") \
     || fail "the outcome of the reply never reached the record"
@@ -1012,31 +1117,6 @@ test_a_reply_never_resolves_its_task_against_another_home() {
 
 # "Every one" is the whole requirement: the list he opens is not allowed to stop
 # at the old 500-line cap and say nothing about the messages it left out.
-test_every_message_is_served_past_the_old_cap() {
-  local home port body i
-  home="$TMP_ROOT/msgmany"
-  seed_home "$home"
-  mkdir -p "$home/data"
-  for i in $(seq 1 600); do
-    jq -cn --arg id "m$i" --arg t "Message $i" \
-      '{id:$id, at:"2026-09-01T10:00:00Z", title:$t, text:$t,
-        task:null, project:null, worktree:null, branch:null}'
-  done > "$home/data/captain-messages.jsonl"
-  start_server "$home" || fail "the server did not start"
-  port=$SERVER_PORT
-  body=$(curl -s -m 30 "http://127.0.0.1:$port/api/messages")
-  stop_server
-
-  assert_equals 600 "$(jq '.messages | length' <<<"$body")" \
-    "messages past the old cap were dropped from the list"
-  assert_equals 0 "$(jq '.dropped' <<<"$body")" \
-    "a complete list claimed rows were dropped"
-  assert_equals "Message 1" \
-    "$(jq -r '.messages[-1].title' <<<"$body")" \
-    "the oldest message was not served"
-  pass "every message is served, and a shortened list would say how many are missing"
-}
-
 # THE WORST THING THIS PAGE COULD DO. A task collects several messages over its
 # life: the question, then the PR, then the result. A reply to the PR message
 # must never be written as the answer that closes the colour question.
@@ -1065,9 +1145,10 @@ test_a_reply_to_a_message_that_is_not_a_question_never_answers_a_decision() {
 }
 
 # A reply that cannot rule out the answer route must not quietly become a note:
-# he would be told his steer was delivered while the worker stayed stopped.
-test_a_reply_is_refused_while_no_scan_has_been_read() {
-  local home shim realjq port id code ready
+# he would be told his steer was delivered while the worker stayed stopped. The
+# click is accepted at once, so the refusal is the outcome on the record.
+test_a_reply_is_never_delivered_as_a_note_while_no_scan_has_been_read() {
+  local home shim realjq port id body resolved ready
   home="$TMP_ROOT/reply-unscanned"
   seed_home "$home"
   id=$(say "$home" "Blue or green?" "The colour call is yours." --task cc-live --question) \
@@ -1094,38 +1175,15 @@ EOF
   done
   [ -n "$ready" ] || fail "the server did not start"
 
-  code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' \
-    -d "$(jq -cn --arg m "$id" '{msg:$m,text:"Go blue."}')" \
-    "http://127.0.0.1:$port/api/reply")
+  body=$(post "$port" /api/reply "$(jq -cn --arg m "$id" '{msg:$m,text:"Go blue."}')")
+  resolved=$(wait_outcome "$home" "$(jq -r .sid <<<"$body")") \
+    || fail "the outcome of the reply never reached the record"
   stop_server
-  assert_equals 503 "$code" \
-    "a reply was routed off records that were never read"
+  assert_contains "$resolved" '"outcome":"failed"' \
+    "a reply that never left this machine was not reported as safe to resend"
   assert_equals "" "$(cat "$home"/state/inbox/*.note 2>/dev/null || true)" \
     "a reply fell through to the note route while no scan had been read"
-  pass "a reply is refused while no scan has been read"
-}
-
-# The page polls this on the item cadence, so an unchanged log must cost a stat
-# rather than a full parse and re-serialize of every message ever recorded.
-test_an_unchanged_message_log_answers_the_poll_without_resending_it() {
-  local home port etag code
-  home="$TMP_ROOT/msgetag"
-  seed_home "$home"
-  say "$home" "One" "First." >/dev/null
-  start_server "$home" || fail "the server did not start"
-  port=$SERVER_PORT
-  etag=$(curl -s -D - -o /dev/null "http://127.0.0.1:$port/api/messages" \
-    | sed -n 's/^[Ee][Tt]ag: *//p' | tr -d '\r')
-  [ -n "$etag" ] || fail "the message list served no change check"
-  code=$(curl -s -o /dev/null -w '%{http_code}' -H "If-None-Match: $etag" \
-    "http://127.0.0.1:$port/api/messages")
-  assert_equals 304 "$code" "an unchanged message log was served in full again"
-  say "$home" "Two" "Second." >/dev/null
-  code=$(curl -s -o /dev/null -w '%{http_code}' -H "If-None-Match: $etag" \
-    "http://127.0.0.1:$port/api/messages")
-  stop_server
-  assert_equals 200 "$code" "a new message was hidden behind a stale change check"
-  pass "an unchanged message log answers the poll without resending it"
+  pass "a reply is never delivered as a note while no scan has been read"
 }
 
 # His own words are a list too: a reply missing from a thread reads as a message
@@ -1148,24 +1206,6 @@ test_his_own_words_are_served_whole_and_never_shortened_quietly() {
   assert_equals 0 "$(jq '.dropped' <<<"$body")" \
     "a complete list of his words claimed rows were dropped"
   pass "his own words are served whole, and a shortened list would say so"
-}
-
-# A torn append is a message gone. The page may not claim this is every one.
-test_a_line_that_cannot_be_parsed_is_counted_as_dropped() {
-  local home port body
-  home="$TMP_ROOT/msgtorn"
-  seed_home "$home"
-  say "$home" "One" "First." >/dev/null
-  printf '{"id":"m-torn","at":"2026-09-0\n' >> "$home/data/captain-messages.jsonl"
-  start_server "$home" || fail "the server did not start"
-  port=$SERVER_PORT
-  body=$(curl -s -m 30 "http://127.0.0.1:$port/api/messages")
-  stop_server
-  assert_equals 1 "$(jq '.messages | length' <<<"$body")" \
-    "a torn line was served as a message"
-  assert_equals 1 "$(jq '.dropped' <<<"$body")" \
-    "a line that could not be parsed was dropped without saying so"
-  pass "a line that cannot be parsed is counted as dropped"
 }
 
 # HIS WORDS COME BACK AT ONCE. He reported the click freezing while the command
@@ -1363,6 +1403,189 @@ EOF
   pass "a reply that is not a question is sent even with no scan"
 }
 
+# The page says none of it is dropped, and search only sees what was served.
+# NOTHING IS DROPPED, and not everything is shipped at once: the page opens on
+# the newest window, walks back through the rest on demand, and searches all of
+# it. The log gains a message on every turn end, so shipping the whole of it on
+# every poll is the freeze this page exists to end.
+test_every_captured_message_is_reachable_without_serving_them_all() {
+  local home port body oldest n
+  home="$TMP_ROOT/msgmany"
+  seed_home "$home"
+  mkdir -p "$home/data"
+  python3 - "$home/data/captain-messages.jsonl" <<'PYEOF'
+import json, sys
+with open(sys.argv[1], "w", encoding="utf-8") as fh:
+    for i in range(700):
+        fh.write(json.dumps({"id": "m%03d" % i, "at": "2026-01-01T00:00:00Z",
+                             "title": "message %d" % i, "text": "body %d" % i}) + "\n")
+PYEOF
+  start_server "$home" || fail "the server did not start"
+  port=$SERVER_PORT
+
+  body=$(curl -s -m 30 "http://127.0.0.1:$port/api/messages")
+  n=$(printf '%s' "$body" | jq '.messages | length')
+  assert_equals 200 "$n" "the whole log was shipped instead of the newest window"
+  assert_equals "m699" "$(printf '%s' "$body" | jq -r '.messages[0].id')" \
+    "the window did not open on the newest message"
+  assert_equals "true" "$(printf '%s' "$body" | jq -r '.more')" \
+    "the page was not told there is more of the log behind the window"
+  # The count the page shows is the log's, not the window's: a number that
+  # shrinks to whatever was served is the missing-messages complaint in a badge.
+  assert_equals 700 "$(printf '%s' "$body" | jq -r '.total')" \
+    "the page was told the log holds only what was served to it"
+
+  # The count is kept as the log grows, counting only what arrived: a poll that
+  # credits a count to fewer bytes than it read counts them again and the total
+  # never comes back down.
+  python3 - "$home/data/captain-messages.jsonl" <<'PYEOF'
+import json, sys
+with open(sys.argv[1], "a", encoding="utf-8") as fh:
+    for i in range(700, 703):
+        fh.write(json.dumps({"id": "m%03d" % i, "at": "2026-01-01T00:00:00Z",
+                             "title": "message %d" % i, "text": "body %d" % i}) + "\n")
+PYEOF
+  assert_equals 703 "$(curl -s -m 30 "http://127.0.0.1:$port/api/messages" | jq -r '.total')" \
+    "the count did not follow the log as it grew"
+  body=$(curl -s -m 30 "http://127.0.0.1:$port/api/messages")
+
+  # Walking back reaches the very first message, a window at a time.
+  oldest=$(printf '%s' "$body" | jq -r '.messages[-1].id')
+  for _ in 1 2 3; do
+    body=$(curl -s -m 30 "http://127.0.0.1:$port/api/messages?before=$oldest")
+    oldest=$(printf '%s' "$body" | jq -r '.messages[-1].id')
+  done
+  assert_equals "m000" "$oldest" \
+    "walking back through the log never reached the oldest message"
+  assert_equals "false" "$(printf '%s' "$body" | jq -r '.more')" \
+    "the start of the log still claimed there was more behind it"
+
+  # Search reads the log itself, not what was served.
+  body=$(curl -s -m 30 "http://127.0.0.1:$port/api/messages?q=body%200")
+  stop_server
+  assert_equals "m000" "$(printf '%s' "$body" | jq -r '.messages[0].id')" \
+    "search did not reach a message far behind the window"
+  # The hit carries the whole message, so the page can open it and reply to it
+  # exactly as it would a row from the window.
+  assert_equals "message 0" "$(printf '%s' "$body" | jq -r '.messages[0].title')" \
+    "a search hit was served without the message it found"
+  assert_equals 703 "$(printf '%s' "$body" | jq -r '.total')" \
+    "a search answered with a different count of the log than the list does"
+  pass "every captured message stays reachable without serving the whole log"
+}
+
+# He can click a reply he sent months ago on My words. The page holds a window;
+# the log holds everything, so one message can be asked for by name.
+test_a_message_far_behind_the_window_is_served_by_id() {
+  local home port body
+  home="$TMP_ROOT/msgbyid"
+  seed_home "$home"
+  mkdir -p "$home/data"
+  python3 - "$home/data/captain-messages.jsonl" <<'PYEOF'
+import json, sys
+with open(sys.argv[1], "w", encoding="utf-8") as fh:
+    for i in range(400):
+        fh.write(json.dumps({"id": "m%03d" % i, "at": "2026-01-01T00:00:00Z",
+                             "title": "message %d" % i, "text": "body %d" % i}) + "\n")
+PYEOF
+  start_server "$home" || fail "the server did not start"
+  port=$SERVER_PORT
+  body=$(curl -s -m 30 "http://127.0.0.1:$port/api/messages?id=m003")
+  assert_equals "message 3" "$(printf '%s' "$body" | jq -r '.messages[0].title')" \
+    "a message far behind the window could not be asked for by name"
+  assert_equals "body 3" "$(printf '%s' "$body" | jq -r '.messages[0].text')" \
+    "the message was served without what firstmate actually said"
+  body=$(curl -s -m 30 "http://127.0.0.1:$port/api/messages?id=m999")
+  stop_server
+  assert_equals 0 "$(printf '%s' "$body" | jq -r '.messages | length')" \
+    "the log answered with a message it does not hold"
+  pass "a message far behind the window is served by name"
+}
+
+test_an_unchanged_message_poll_is_answered_without_the_log() {
+  local home port tag code body
+  home="$TMP_ROOT/msgetag"
+  seed_home "$home"
+  say "$home" "The first thing" "Body of the first thing." >/dev/null
+  start_server "$home" || fail "the server did not start"
+  port=$SERVER_PORT
+  tag=$(curl -s -m 30 -D - -o /dev/null "http://127.0.0.1:$port/api/messages" \
+    | awk 'tolower($1) == "etag:" { print $2 }' | tr -d '\r')
+  [ -n "$tag" ] || fail "the message list was served without a tag to poll against"
+  # The capture's age moves with the wall clock on every request; only a change
+  # the page would actually SAY may cost a re-read of the log.
+  sleep 2
+  code=$(curl -s -m 30 -o /dev/null -w '%{http_code}' \
+    -H "If-None-Match: $tag" "http://127.0.0.1:$port/api/messages")
+  assert_equals 304 "$code" "an unchanged poll re-served the whole message log"
+
+  say "$home" "The second thing" "Body of the second thing." >/dev/null
+  body=$(curl -s -m 30 -H "If-None-Match: $tag" "http://127.0.0.1:$port/api/messages")
+  stop_server
+  assert_contains "$body" "The second thing" \
+    "a captured message never reached a page holding the previous tag"
+  pass "an unchanged message poll costs nothing and a new message still arrives"
+}
+
+# The server is the only matcher, so a query it cannot answer is the whole
+# answer. What the message CONTAINS is what he searches by - not how the record
+# happens to be escaped on disk.
+test_a_search_finds_text_however_the_record_escapes_it() {
+  local home port body id
+  home="$TMP_ROOT/msgquote"
+  seed_home "$home"
+  say "$home" 'The gate call' 'I refused the "gate" run, so nothing was pushed.' >/dev/null
+  say "$home" 'Something else' 'A plain message with no quoting in it.' >/dev/null
+  say "$home" 'The umlaut call' 'Über den Gate habe ich entschieden.' >/dev/null
+  start_server "$home" || fail "the server did not start"
+  port=$SERVER_PORT
+  body=$(curl -s -m 30 --get --data-urlencode 'q=the "gate"' \
+    "http://127.0.0.1:$port/api/messages")
+  assert_equals 1 "$(printf '%s' "$body" | jq -r '.messages | length')" \
+    "a search for text the record escapes found nothing he could see"
+  assert_equals "The gate call" "$(printf '%s' "$body" | jq -r '.messages[0].title')" \
+    "the search answered with a message that does not contain what he typed"
+
+  # He searches the message as he reads it - a phrase that runs from the title
+  # into the body is one phrase to him, whatever punctuation the record has
+  # between them.
+  body=$(curl -s -m 30 --get --data-urlencode 'q=The gate call I refused' \
+    "http://127.0.0.1:$port/api/messages")
+  assert_equals "The gate call" "$(printf '%s' "$body" | jq -r '.messages[0].title')" \
+    "a search across the title and the body of one message found nothing"
+
+  # A thread is what firstmate said AND what he replied: he remembers his own
+  # words at least as well, and searches by them.
+  id=$(say "$home" 'The palette fix' 'The palette fix is ready to merge.')
+  body=$(post "$port" /api/reply "$(jq -cn --arg m "$id" '{msg:$m,text:"ship the blue one"}')")
+  wait_outcome "$home" "$(jq -r .sid <<<"$body")" >/dev/null \
+    || fail "the reply never reached the record"
+  body=$(curl -s -m 30 --get --data-urlencode 'q=ship the blue one' \
+    "http://127.0.0.1:$port/api/messages")
+  assert_equals "The palette fix" "$(printf '%s' "$body" | jq -r '.messages[0].title')" \
+    "a search by the words he replied did not find the message he replied to"
+
+  # Nor does it stop being findable once he has typed a great deal since: the
+  # thread under the message is drawn from the whole log, so the search reads
+  # the same log.
+  for i in $(seq 1 600); do
+    jq -cn --arg i "$i" '{kind:"note",home:"main",sid:("f"+$i),
+      at:"2026-01-01T00:00:00Z",text:("filler "+$i),outcome:"sent"}'
+  done >> "$home/data/command-center/said.jsonl"
+  body=$(curl -s -m 30 --get --data-urlencode 'q=ship the blue one' \
+    "http://127.0.0.1:$port/api/messages")
+  assert_equals "The palette fix" "$(printf '%s' "$body" | jq -r '.messages[0].title')" \
+    "a reply stopped being searchable once newer sends pushed it back"
+
+  # Nor by how it is cased, in any alphabet: he types what he remembers seeing.
+  body=$(curl -s -m 30 --get --data-urlencode 'q=über' \
+    "http://127.0.0.1:$port/api/messages")
+  assert_equals "The umlaut call" "$(printf '%s' "$body" | jq -r '.messages[0].title')" \
+    "a search missed a message because the record capitalises it differently"
+  stop_server
+  pass "a search finds text however the record escapes or cases it"
+}
+
 test_an_unreadable_message_log_is_reported_not_shown_as_empty() {
   local home port body
   if [ "$(id -u)" = 0 ]; then
@@ -1381,6 +1604,427 @@ test_an_unreadable_message_log_is_reported_not_shown_as_empty() {
   assert_contains "$body" 'could not be read' \
     "an unreadable message log was served as an empty one"
   pass "an unreadable message log is reported rather than shown as empty"
+}
+
+# --- automatic capture -------------------------------------------------------
+# The recorder above is called by hand, and a message firstmate forgets to
+# record is exactly the message he opens the page for and does not find. The
+# sweep removes the remembering: it reads the conversation record itself.
+SWEEP="$ROOT/bin/fm-captain-message-sweep.py"
+HOOK="$ROOT/bin/fm-captain-message-hook.sh"
+
+# One transcript line. Args: <req> <stop_reason> <sidechain> <at> <block-json>
+entry() {
+  jq -cn --arg req "$1" --arg stop "$2" --argjson side "$3" --arg at "$4" \
+    --argjson block "$5" \
+    '{type:"assistant", requestId:$req, uuid:($req+"-u"), isSidechain:$side,
+      timestamp:$at, sessionId:"sess-1", gitBranch:"fm/capture",
+      message:{role:"assistant", stop_reason:$stop, content:[$block]}}'
+}
+
+seed_transcripts() {  # <dir> [at for real messages] [at for pre-floor history]
+  local at=${2:-2026-01-03T10:00:00.000Z} old=${3:-2026-01-01T09:00:00.000Z}
+  mkdir -p "$1"
+  {
+    # Mid-turn narration before a tool call is not a message he was sent.
+    entry r-nar tool_use false "$at" \
+      '{"type":"text","text":"Let me look at the config first."}'
+    # One response split across entries: thinking, then its text in two blocks.
+    entry r-split end_turn false "$at" \
+      '{"type":"thinking","thinking":"private reasoning"}'
+    entry r-split end_turn false "$at" \
+      '{"type":"text","text":"The fix landed. "}'
+    entry r-split end_turn false "$at" \
+      '{"type":"text","text":"CI is green."}'
+    # A subagent transcript entry is never his chat.
+    entry r-side end_turn true "$at" \
+      '{"type":"text","text":"sidechain chatter"}'
+    # Markdown decoration must not reach the title he scans.
+    entry r-md end_turn false "$at" \
+      '{"type":"text","text":"# Done\n**Shipped** the palette fix."}'
+    # History from before the floor must not resurface as a new message.
+    entry r-old end_turn false "$old" \
+      '{"type":"text","text":"ancient history"}'
+    # The harness authors its own assistant entries; firstmate did not say them.
+    entry r-synth end_turn false "$at" \
+      '{"type":"text","text":"No response requested."}' \
+      | jq -c '.message.model = "<synthetic>"'
+  } > "$1/sess-1.jsonl"
+}
+
+sweep() {  # <home> <transcripts>
+  python3 "$SWEEP" --home "$1" --transcripts "$2" --since 2026-01-02T00:00:00Z
+}
+
+test_every_chat_message_is_captured_without_anyone_recording_it() {
+  local home tdir log
+  home="$TMP_ROOT/capture"
+  tdir="$TMP_ROOT/capture-transcripts"
+  mkdir -p "$home/state"
+  seed_transcripts "$tdir"
+
+  sweep "$home" "$tdir" || fail "the sweep failed on a seeded transcript"
+  log="$home/data/captain-messages.jsonl"
+  assert_equals 2 "$(wc -l < "$log")" \
+    "the sweep did not record exactly the two messages he was sent"
+  assert_equals "The fix landed. CI is green." \
+    "$(jq -r 'select(.req == "r-split") | .text' "$log")" \
+    "a response split across transcript entries was not joined back into one message"
+  assert_equals "Done" \
+    "$(jq -r 'select(.req == "r-md") | .title' "$log")" \
+    "the title he scans still carries markdown decoration"
+  # The transcript's gitBranch is the firstmate home's own branch, identical on
+  # every row and unrelated to what the message is about, so it is not recorded.
+  assert_equals "null" "$(jq -r 'select(.req == "r-md") | .branch' "$log")" \
+    "the home's own branch was recorded as if it were the message's"
+  assert_not_contains "$(cat "$log")" 'Let me look at the config' \
+    "mid-turn narration was recorded as if it were a message he was sent"
+  assert_not_contains "$(cat "$log")" 'sidechain chatter' \
+    "a subagent's output was recorded as firstmate's own message"
+  assert_not_contains "$(cat "$log")" 'private reasoning' \
+    "hidden reasoning was recorded as part of a message"
+  assert_not_contains "$(cat "$log")" 'ancient history' \
+    "history from before the floor resurfaced as a new message"
+  assert_not_contains "$(cat "$log")" 'No response requested' \
+    "a synthetic harness entry was recorded as firstmate's own message"
+
+  # Running again - or recovering from a lost cursor - must never duplicate.
+  sweep "$home" "$tdir"
+  rm "$home/state/.captain-message-sweep"
+  sweep "$home" "$tdir"
+  assert_equals 2 "$(wc -l < "$log")" \
+    "a repeated or cursor-less sweep recorded the same message twice"
+
+  assert_equals "true" \
+    "$(jq -r .ok "$home/state/.captain-message-capture")" \
+    "a clean sweep did not report itself healthy"
+  pass "every chat message is captured once, verbatim, with nothing that is not a message"
+}
+
+# A question firstmate records by hand is the only row that knows where his
+# reply goes; the capture of the same turn's final message must not add a bare,
+# unroutable copy beside it - and must not swallow a later turn that says the
+# same words with no hand record behind them.
+test_a_hand_recorded_question_is_not_captured_a_second_time() {
+  local home tdir log id id2 before after
+  home="$TMP_ROOT/handdedupe"
+  tdir="$TMP_ROOT/handdedupe-transcripts"
+  seed_home "$home"
+  mkdir -p "$tdir"
+  before=$(date -u -d '-60 sec' +%Y-%m-%dT%H:%M:%S.000Z)
+  id=$(say "$home" "Blue or green?" "The colour call is yours.
+Blue or green?" --task cc-live --question) || fail "the recorder refused the message"
+  after=$(date -u -d '+60 sec' +%Y-%m-%dT%H:%M:%S.000Z)
+  {
+    jq -cn --arg at "$before" '{type:"user",timestamp:$at,sessionId:"sess-1",
+      message:{role:"user",content:"what next?"}}'
+    entry r-q end_turn false "$after" \
+      '{"type":"text","text":"The colour call is yours.\nBlue or green?"}'
+    jq -cn --arg at "$(date -u -d '+120 sec' +%Y-%m-%dT%H:%M:%S.000Z)" \
+      '{type:"user",timestamp:$at,sessionId:"sess-1",
+        message:{role:"user",content:"say it again"}}'
+    entry r-again end_turn false "$(date -u -d '+180 sec' +%Y-%m-%dT%H:%M:%S.000Z)" \
+      '{"type":"text","text":"The colour call is yours.\nBlue or green?"}'
+  } > "$tdir/sess-1.jsonl"
+
+  sweep "$home" "$tdir" || fail "the sweep failed"
+  rm "$home/state/.captain-message-sweep"
+  sweep "$home" "$tdir" || fail "the cursor-less sweep failed"
+  log="$home/data/captain-messages.jsonl"
+  assert_equals "$id,r-again" "$(jq -rs 'map(.req // .id) | join(",")' "$log")" \
+    "the hand-recorded question was duplicated, or a later turn was swallowed"
+  assert_equals "true" "$(jq -r "select(.id == \"$id\") | .question" "$log")" \
+    "the routed row did not survive as the question"
+
+  # The page's own capture runs mid-turn and reads the prompt long before the
+  # turn ends, so the routed row must still stand for the message on a sweep
+  # that sees only the reply.
+  id2=$(say "$home" "Merge the PR?" "The review is clean. Merge the PR?" \
+    --task cc-live --question) || fail "the recorder refused the second message"
+  jq -cn --arg at "$(date -u -d '+240 sec' +%Y-%m-%dT%H:%M:%S.000Z)" \
+    '{type:"user",timestamp:$at,sessionId:"sess-1",
+      message:{role:"user",content:"and the PR?"}}' >> "$tdir/sess-1.jsonl"
+  sweep "$home" "$tdir" || fail "the sweep of the prompt failed"
+  entry r-pr end_turn false "$(date -u -d '+300 sec' +%Y-%m-%dT%H:%M:%S.000Z)" \
+    '{"type":"text","text":"The review is clean. Merge the PR?"}' >> "$tdir/sess-1.jsonl"
+  sweep "$home" "$tdir" || fail "the mid-turn sweep failed"
+  assert_equals "$id,r-again,$id2" "$(jq -rs 'map(.req // .id) | join(",")' "$log")" \
+    "a routed question was duplicated by a sweep that began after the prompt"
+  pass "a hand-recorded question stands for its captured message, however the sweep is split"
+}
+
+# THE REPORTED COMPLAINT: a session started from somewhere else writes its
+# transcript where the derived directory is not looking, so what firstmate said
+# there never reaches the page - and nothing says so. The hook payload names
+# the file; that name is what makes the list vouchable.
+test_a_transcript_the_payload_names_is_captured_wherever_it_lives() {
+  local home elsewhere log
+  home="$TMP_ROOT/pinned"
+  elsewhere="$TMP_ROOT/pinned-elsewhere"
+  mkdir -p "$home/state" "$elsewhere"
+  seed_transcripts "$elsewhere" "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
+
+  # Nothing has named a transcript yet, so the capture record must not claim a
+  # directory it only worked out for itself is the whole story.
+  python3 "$SWEEP" --home "$home" --transcripts "$TMP_ROOT/pinned-nowhere" \
+    || fail "the directory sweep failed"
+  assert_equals 0 "$(jq -r '.named' "$home/state/.captain-message-capture")" \
+    "a capture nothing confirmed the location of reported a confirmed one"
+
+  printf '{"transcript_path":"%s"}' "$elsewhere/sess-1.jsonl" \
+    | python3 "$SWEEP" --home "$home" --from-payload \
+    || fail "the sweep failed on a payload-named transcript"
+  log="$home/data/captain-messages.jsonl"
+  assert_grep 'CI is green.' "$log" \
+    "a transcript the payload named was not captured because of where it lives"
+  assert_equals 1 "$(jq -r '.named' "$home/state/.captain-message-capture")" \
+    "the transcript a session named was not remembered as confirmed"
+
+  # And the directory runs keep reading it afterwards, wherever it lives.
+  entry r-later end_turn false "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" \
+    '{"type":"text","text":"Said after the session was known."}' \
+    >> "$elsewhere/sess-1.jsonl"
+  python3 "$SWEEP" --home "$home" --transcripts "$TMP_ROOT/pinned-nowhere" \
+    || fail "the directory sweep failed"
+  assert_grep 'Said after the session was known.' "$log" \
+    "a named transcript was forgotten by the sweep that reads the directory"
+
+  # And the page is told: a list every session has confirmed the location of
+  # must not carry the band that says it may be incomplete.
+  start_server "$home" || fail "the server did not start"
+  assert_equals 1 "$(curl -s -m 30 "http://127.0.0.1:$SERVER_PORT/api/messages" \
+      | jq -r '.capture.named')" \
+    "the page was never told a session had confirmed where it records"
+  stop_server
+  pass "a transcript the payload names is captured wherever it lives"
+}
+
+# The server sweeps every few seconds, so it is routinely the one that reads a
+# turn's bytes first. The hook's run then has nothing new to read - and the
+# payload it carries is still the only thing that knows where this session
+# writes, so that must survive a run with no new bytes in it.
+test_a_named_transcript_is_remembered_even_with_nothing_new_to_read() {
+  local home elsewhere
+  home="$TMP_ROOT/pinned-late"
+  elsewhere="$TMP_ROOT/pinned-late-transcripts"
+  mkdir -p "$home/state" "$elsewhere"
+  seed_transcripts "$elsewhere" "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
+
+  python3 "$SWEEP" --home "$home" --transcripts "$elsewhere" \
+    || fail "the directory sweep failed"
+  assert_equals 0 "$(jq -r '.named' "$home/state/.captain-message-capture")" \
+    "a directory sweep claimed a session had confirmed its transcript"
+
+  printf '{"transcript_path":"%s"}' "$elsewhere/sess-1.jsonl" \
+    | python3 "$SWEEP" --home "$home" --from-payload \
+    || fail "the sweep failed on a payload-named transcript"
+  python3 "$SWEEP" --home "$home" --transcripts "$TMP_ROOT/pinned-late-nowhere" \
+    || fail "the directory sweep failed"
+  assert_equals 1 "$(jq -r '.named' "$home/state/.captain-message-capture")" \
+    "a session that named its transcript was forgotten because it had nothing new to say"
+  pass "a named transcript is remembered even when it has nothing new to read"
+}
+
+# One response can reach the transcript as several lines, and a sweep can land
+# between them. The log's own requestIds are what stops the second batch from
+# recording the same response again under the same id - two rows sharing one id
+# collide on everything the page keys by it.
+test_a_response_read_across_two_sweeps_is_recorded_once() {
+  local home tdir now
+  home="$TMP_ROOT/split"
+  tdir="$TMP_ROOT/split-transcripts"
+  mkdir -p "$home/state" "$tdir"
+  now=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)
+  entry r-straddle end_turn false "$now" \
+    '{"type":"text","text":"The first half."}' > "$tdir/sess-1.jsonl"
+  python3 "$SWEEP" --home "$home" --transcripts "$tdir" \
+    || fail "the first sweep failed"
+
+  entry r-straddle end_turn false "$now" \
+    '{"type":"text","text":" And the second."}' >> "$tdir/sess-1.jsonl"
+  python3 "$SWEEP" --home "$home" --transcripts "$tdir" \
+    || fail "the second sweep failed"
+
+  assert_equals 1 "$(jq -s '[.[] | select(.req == "r-straddle")] | length' \
+      "$home/data/captain-messages.jsonl")" \
+    "a response read across two sweeps was recorded twice under one id"
+  pass "a response read across two sweeps is recorded once"
+}
+
+# The Stop hook kills the sweep on its bound, so a write can stop mid-row. The
+# torn row costs itself; what the next sweep records must not be glued onto it
+# and lost with it.
+test_a_torn_row_costs_itself_and_nothing_after_it() {
+  local home tdir log
+  home="$TMP_ROOT/torn"
+  tdir="$TMP_ROOT/torn-transcripts"
+  mkdir -p "$home/state" "$home/data" "$tdir"
+  # A log whose last write stopped in the middle of a record.
+  printf '%s\n' '{"id":"m1","at":"2026-01-01T00:00:00Z","title":"Whole","text":"A complete record."}' \
+    > "$home/data/captain-messages.jsonl"
+  printf '%s' '{"id":"m2","at":"2026-01-01T00:00:00Z","title":"Torn","te' \
+    >> "$home/data/captain-messages.jsonl"
+
+  entry r-after end_turn false "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" \
+    '{"type":"text","text":"Said after the torn write."}' > "$tdir/sess-1.jsonl"
+  python3 "$SWEEP" --home "$home" --transcripts "$tdir" \
+    || fail "the sweep failed on a log whose last row was torn"
+
+  log="$home/data/captain-messages.jsonl"
+  # The log is one JSON object per line - that is the contract the page reads
+  # it by, so what it holds is read the same way here.
+  assert_equals "Whole|Said after the torn write." \
+    "$(python3 - "$log" <<'PYEOF'
+import json, sys
+kept = []
+for line in open(sys.argv[1], encoding="utf-8"):
+    try:
+        kept.append(json.loads(line))
+    except ValueError:
+        continue
+print("|".join(r.get("title", "") for r in kept))
+PYEOF
+)" "a message recorded after a torn row was glued onto it and lost with it"
+  pass "a torn row costs itself and nothing after it"
+}
+
+test_a_home_with_no_conversation_record_reports_capture_inactive() {
+  local home
+  home="$TMP_ROOT/no-record"
+  mkdir -p "$home/state"
+  python3 "$SWEEP" --home "$home" --transcripts "$TMP_ROOT/no-such-dir" \
+    || fail "the sweep failed on a home with no conversation record"
+  assert_equals "false" \
+    "$(jq -r .active "$home/state/.captain-message-capture")" \
+    "a home whose conversation cannot be read claimed capture was active"
+  pass "a home with no conversation record reports capture inactive, for the page to say so"
+}
+
+# THE GUARANTEE ITSELF: the server alone, with no agent involved anywhere,
+# brings the message he was sent onto the page and vouches for the capture.
+test_the_server_captures_the_conversation_with_no_agent_involved() {
+  local home cfg enc port body
+  home="$TMP_ROOT/auto"
+  seed_home "$home"
+  cfg="$TMP_ROOT/auto-claude"
+  enc=$(python3 -c 'import re,sys; print(re.sub(r"[^A-Za-z0-9]","-",sys.argv[1]))' "$home")
+  # The server applies the sweep's own floor (today), so the messages he must
+  # see are dated now, and the pre-floor fixture line keeps its old date.
+  seed_transcripts "$cfg/projects/$enc" "$(date -u +%FT%T).000Z"
+
+  CLAUDE_CONFIG_DIR="$cfg" start_server "$home" || fail "the server did not start"
+  port=$SERVER_PORT
+  wait_for "the message firstmate sent him never appeared on the page" \
+    bash -c "curl -s -m 10 'http://127.0.0.1:$port/api/messages' \
+      | jq -e '[.messages[] | select(.text | contains(\"Shipped\"))] | length > 0'"
+  body=$(curl -s -m 10 "http://127.0.0.1:$port/api/messages")
+  stop_server
+  assert_equals "true" "$(jq -r '.capture.ok' <<<"$body")" \
+    "the page was not told the capture is healthy"
+  assert_not_contains "$body" 'sidechain chatter' \
+    "the page was served something that is not a message he was sent"
+  pass "the server captures the conversation itself, with no agent involved"
+}
+
+test_a_delivery_orphaned_by_a_restart_reads_back_as_unknown() {
+  local home port body etag code
+  home="$TMP_ROOT/orphan"
+  seed_home "$home"
+  mkdir -p "$home/data/command-center"
+  {
+    printf '{"sid":"orphaned1","at":"2026-01-03T10:00:00Z","kind":"answer","item":"t-1","text":"lost words","outcome":"sending"}\n'
+    printf '{"sid":"finished1","at":"2026-01-03T10:01:00Z","kind":"answer","item":"t-2","text":"kept words","outcome":"sending"}\n'
+    printf '{"kind":"outcome","of":"finished1","at":"2026-01-03T10:01:05Z","outcome":"sent","route":"fm-captain-hold.sh answer t-2","mode":"close"}\n'
+  } > "$home/data/command-center/said.jsonl"
+  start_server "$home" || fail "the server did not start"
+  port=$SERVER_PORT
+  body=$(curl -s -m 30 "http://127.0.0.1:$port/api/said")
+  stop_server
+
+  assert_equals 2 "$(jq '.said | length' <<<"$body")" \
+    "the outcome bookkeeping line was served as a record of its own"
+  assert_equals "sent|fm-captain-hold.sh answer t-2" \
+    "$(jq -r '.said[] | select(.item == "t-2") | [.outcome, .route] | join("|")' <<<"$body")" \
+    "a finished delivery's outcome was not folded back onto his words"
+  assert_equals "unknown" \
+    "$(jq -r '.said[] | select(.item == "t-1") | .outcome' <<<"$body")" \
+    "a delivery orphaned by a restart still claimed to be in progress"
+  assert_contains "$(jq -r '.said[] | select(.item == "t-1") | .detail' <<<"$body")" \
+    'restarted' "the orphaned delivery did not say why it is unknown"
+  # A tab that was open across the restart polls with the tag the dead server
+  # gave it. The same bytes now read differently, so that tag cannot answer
+  # "nothing changed" over a row that has stopped being in progress.
+  start_server "$home" || fail "the server did not start again"
+  port=$SERVER_PORT
+  etag=$(curl -s -m 30 -D - -o /dev/null "http://127.0.0.1:$port/api/said" \
+    | tr -d '\r' | sed -n 's/^ETag: //p')
+  [ -n "$etag" ] || fail "the record was served without a change check"
+  code=$(curl -s -m 30 -o /dev/null -w '%{http_code}' \
+    -H "If-None-Match: $etag" "http://127.0.0.1:$port/api/said")
+  assert_equals 304 "$code" "an unchanged record was re-served to the same server"
+  stop_server
+  start_server "$home" || fail "the server did not start a third time"
+  code=$(curl -s -m 30 -o /dev/null -w '%{http_code}' \
+    -H "If-None-Match: $etag" "http://127.0.0.1:$SERVER_PORT/api/said")
+  stop_server
+  assert_equals 200 "$code" \
+    "a tag from before the restart answered 304 over a delivery nothing is carrying out"
+  pass "a delivery orphaned by a restart reads back as unknown, never as still running"
+}
+
+# The Stop hook fires in every worktree of this repo, so it must capture in a
+# genuine primary checkout and stay inert everywhere else.
+test_the_stop_hook_captures_in_a_primary_and_stays_inert_elsewhere() {
+  local prim wt cfg enc
+  prim="$TMP_ROOT/hook-primary"
+  fm_git_identity
+  fm_git_init_commit "$prim" >/dev/null 2>&1
+  mkdir -p "$prim/bin" "$prim/state"
+  touch "$prim/AGENTS.md"
+  cfg="$TMP_ROOT/hook-claude"
+  enc=$(python3 -c 'import re,sys; print(re.sub(r"[^A-Za-z0-9]","-",sys.argv[1]))' "$prim")
+  seed_transcripts "$cfg/projects/$enc"
+
+  # The payload NAMES the transcript, and that is the only thing that knows it:
+  # the turn's own message is in the log by the time the hook returns, with no
+  # cursor and nothing else having run first.
+  entry r-hook end_turn false "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '{"type":"text","text":"Said as the turn ended."}' >> "$cfg/projects/$enc/sess-1.jsonl"
+  printf '{"transcript_path":"%s"}' "$cfg/projects/$enc/sess-1.jsonl" \
+    | FM_ROOT_OVERRIDE="$prim" CLAUDE_CONFIG_DIR="$cfg" bash "$HOOK" \
+    || fail "the hook exited nonzero in a primary checkout"
+  assert_grep 'Said as the turn ended.' "$prim/data/captain-messages.jsonl" \
+    "the hook did not capture the message the turn ended with"
+
+  # A payload that names no transcript leaves the whole-directory backfill to
+  # the server rather than holding a turn end on it.
+  local bare="$TMP_ROOT/hook-bare"
+  fm_git_init_commit "$bare" >/dev/null 2>&1
+  mkdir -p "$bare/bin" "$bare/state"
+  touch "$bare/AGENTS.md"
+  printf '{}' | FM_ROOT_OVERRIDE="$bare" CLAUDE_CONFIG_DIR="$cfg" bash "$HOOK" \
+    || fail "the hook exited nonzero on a payload naming no transcript"
+  [ ! -e "$bare/state/.captain-message-capture" ] \
+    || fail "the hook swept a whole directory for a payload that named nothing"
+
+  wt="$TMP_ROOT/hook-worktree"
+  git -C "$prim" worktree add -q "$wt" -b hook-wt
+  mkdir -p "$wt/bin" "$wt/state"
+  touch "$wt/AGENTS.md"
+  printf '{}' | FM_ROOT_OVERRIDE="$wt" CLAUDE_CONFIG_DIR="$cfg" bash "$HOOK" \
+    || fail "the hook exited nonzero in a task worktree"
+  [ ! -e "$wt/state/.captain-message-capture" ] \
+    || fail "the hook ran the sweep inside a child task worktree"
+
+  local fresh="$TMP_ROOT/hook-cursor-host"
+  fm_git_init_commit "$fresh" >/dev/null 2>&1
+  mkdir -p "$fresh/bin" "$fresh/state"
+  touch "$fresh/AGENTS.md"
+  printf '{"cursor_version":"1.0"}' | FM_ROOT_OVERRIDE="$fresh" CLAUDE_CONFIG_DIR="$cfg" bash "$HOOK" \
+    || fail "the hook exited nonzero on a foreign-host payload"
+  [ ! -e "$fresh/state/.captain-message-capture" ] \
+    || fail "a Cursor-delivered payload still ran the Claude-owned sweep"
+  pass "the Stop hook captures in a primary checkout and stays inert everywhere else"
 }
 
 trap stop_server EXIT
@@ -1405,6 +2049,7 @@ test_answering_a_hold_records_the_captains_words_and_clears_the_item
 test_answering_held_work_releases_it_instead_of_closing_it
 test_a_held_row_with_no_kind_is_refused_rather_than_guessed
 test_a_note_of_just_a_dash_is_queued_and_never_hangs_the_server
+test_a_send_whose_words_cannot_be_recorded_is_refused
 test_an_unreadable_log_is_reported_not_shown_as_empty
 test_the_send_outcome_is_decided_by_the_exit_code_alone
 test_concurrent_polls_produce_one_scan
@@ -1412,22 +2057,34 @@ test_the_pages_decision_rules_hold
 test_the_server_serves_the_pages_decision_rules
 test_a_message_names_the_project_the_worktree_and_the_branch
 test_a_field_nothing_knows_is_recorded_as_unknown_not_guessed
+test_a_recorded_message_never_glues_onto_a_torn_row
 test_the_recorder_refuses_a_message_with_no_title_or_no_text
 test_every_message_sent_while_he_was_away_comes_back_in_order
 test_a_reply_takes_the_answer_route_when_the_task_is_still_waiting
 test_a_reply_with_nothing_waiting_is_queued_for_firstmate
 test_a_reply_to_a_message_this_home_never_recorded_is_refused
-test_an_unreadable_message_log_is_reported_not_shown_as_empty
 test_a_reply_never_resolves_its_task_against_another_home
-test_every_message_is_served_past_the_old_cap
 test_a_reply_to_a_message_that_is_not_a_question_never_answers_a_decision
-test_a_reply_is_refused_while_no_scan_has_been_read
-test_an_unchanged_message_log_answers_the_poll_without_resending_it
+test_a_reply_is_never_delivered_as_a_note_while_no_scan_has_been_read
 test_his_own_words_are_served_whole_and_never_shortened_quietly
-test_a_line_that_cannot_be_parsed_is_counted_as_dropped
 test_the_click_returns_before_the_command_finishes
 test_a_failed_read_is_never_cached_as_the_state_of_the_log
 test_the_recorder_takes_a_body_that_looks_like_a_flag
 test_the_ask_user_machine_line_is_stated_plainly_and_real_questions_are_not
 test_a_send_that_cannot_run_at_all_still_records_an_outcome
 test_a_reply_that_is_not_a_question_is_sent_even_with_no_scan
+test_every_captured_message_is_reachable_without_serving_them_all
+test_a_message_far_behind_the_window_is_served_by_id
+test_an_unchanged_message_poll_is_answered_without_the_log
+test_a_search_finds_text_however_the_record_escapes_it
+test_an_unreadable_message_log_is_reported_not_shown_as_empty
+test_every_chat_message_is_captured_without_anyone_recording_it
+test_a_hand_recorded_question_is_not_captured_a_second_time
+test_a_transcript_the_payload_names_is_captured_wherever_it_lives
+test_a_named_transcript_is_remembered_even_with_nothing_new_to_read
+test_a_response_read_across_two_sweeps_is_recorded_once
+test_a_torn_row_costs_itself_and_nothing_after_it
+test_a_home_with_no_conversation_record_reports_capture_inactive
+test_the_server_captures_the_conversation_with_no_agent_involved
+test_a_delivery_orphaned_by_a_restart_reads_back_as_unknown
+test_the_stop_hook_captures_in_a_primary_and_stays_inert_elsewhere

@@ -8,9 +8,14 @@
 # This appends one line per message to an append-only log so the command center
 # can show him every one of them (bin/command-center.py, docs/command-center.md).
 #
-# ONE WRITER, CALLED BY THE SUPERVISOR. There is deliberately no capture of
-# terminal output and no harness hook: firstmate calls this as it sends the
-# message. AGENTS.md section 9 carries that obligation.
+# THE BY-HAND WRITER. On a Claude primary the log is filled automatically by
+# bin/fm-captain-message-sweep.py reading the conversation record, which never
+# marks a message as a question. This script is the ROUTING path: a question
+# tied to a decision is recorded here with --question, and the capture keeps
+# this row instead of adding a copy when the turn's final message carries the
+# same text. It is also the only writer for what that record cannot see:
+# another primary harness, or something said outside the recorded
+# conversation. AGENTS.md section 9 carries that split.
 #
 # Usage:
 #   fm-captain-message.sh --title <title> [options] <text>...
@@ -109,6 +114,13 @@ fi
 id="m$(date -u +%Y%m%dT%H%M%SZ)-$$"
 
 mkdir -p "$(dirname "$LOG")"
+# The automatic capture can be killed on its Stop-hook bound mid-write, so this
+# log's last line may be a torn one. The sweep's appender mends it before adding
+# to it (bin/fm-captain-message-sweep.py), and so does this: a record glued onto
+# a torn line is unreadable, and takes the torn one's message down with it.
+if [ -s "$LOG" ] && [ -n "$(tail -c 1 "$LOG")" ]; then
+  printf '\n' >> "$LOG"
+fi
 line=$(jq -cn \
   --arg id "$id" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   --arg title "$title" --arg text "$text" --arg task "$task" \
