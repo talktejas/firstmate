@@ -23,7 +23,7 @@ The shared no-mistakes gate refusal for fleet lifecycle entrypoints is summarize
 | `command-center-scan.sh` | One JSON view of everything waiting on the captain across every local home |
 | `command-center-state.js` | The command center page's decision rules, as pure functions the tests execute |
 | `fm-captain-message.sh`  | Record by hand one message firstmate sent the captain in the durable log the command center reads |
-| `fm-captain-message-backfill.py` | Re-runnably fill missing message context from the task record the row already carries |
+| `fm-captain-message-backfill.py` | Re-runnably fill missing message context from the row's task record, or from the one task its own turn named |
 | `fm-captain-message-sweep.py` | Capture every captain-facing message from the Claude conversation record into that log, so none depends on an agent remembering |
 | `fm-captain-message-hook.sh` | Claude Stop hook that runs the capture sweep over the transcript the turn's own payload names |
 | `fm-secondmate-reconcile.sh` | Queue Bearings reconcile requests for later supervision delivery and ask each mismatched home through its durable inbox with a per-home cooldown |

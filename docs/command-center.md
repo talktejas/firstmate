@@ -137,6 +137,7 @@ When the reply steers a worker still waiting, that protection covers the item to
 
 `<home>/data/captain-messages.jsonl`, an append-only log of what firstmate said to you: when, the title, the text, and the project, worktree, branch and task it named, each recorded as unknown rather than guessed when nothing knows it.
 It has two writers: the automatic capture above (`bin/fm-captain-message-sweep.py`, which stamps each record with the conversation it came from so it is never recorded twice), and `bin/fm-captain-message.sh` by hand, whose `--task` fills the project, worktree and branch from that task's own record so all three are one flag rather than three chances to leave one out.
+`bin/fm-captain-message-backfill.py` never adds a record; it only fills a row's missing task, project and worktree in place (see Messages above). It and both writers share the log's write lock (`state/.captain-message-sweep.lock`), so the backfill's rewrite never loses a concurrent append.
 On the by-hand writer, `--question` marks a message as the question waiting on you, and `--question-key` names the stopped worker's own decision it asks about.
 
 `<home>/data/command-center/said.jsonl`, an append-only log of what you typed and where it went.
