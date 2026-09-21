@@ -560,16 +560,16 @@ def archived_messages(home):
     return states
 
 
-def message_total(home, archived=False):
-    """How many current or archived messages the log holds.
+def message_totals(home):
+    """How many current and archived messages the log holds, in one read.
 
-    The page's Messages count is this number, not the size of the window, so
-    it stays true as the log grows past what is loaded. Counted from the file
+    The page's counts are these numbers, not the size of the window, so they
+    stay true as the log grows past what is loaded. Counted from the file
     every time it is asked for: only a poll that found the log changed gets
     this far, and the file is the one thing that cannot disagree with itself.
     """
-    states = archived_messages(home)
-    total = 0
+    ids = []
+    states = {}
     try:
         with open(message_log(home), encoding="utf-8") as fh:
             for line in fh:
@@ -577,11 +577,14 @@ def message_total(home, archived=False):
                     row = json.loads(line)
                 except json.JSONDecodeError:
                     continue
-                if row.get("id") and "text" in row and bool(states.get(row["id"])) == archived:
-                    total += 1
+                if row.get("kind") in ("archive", "unarchive") and row.get("of"):
+                    states[row["of"]] = row["kind"] == "archive"
+                elif row.get("id") and "text" in row:
+                    ids.append(row["id"])
     except OSError:
         pass
-    return total
+    archived = sum(1 for i in ids if states.get(i))
+    return len(ids) - archived, archived
 
 
 def reversed_lines(fh, block=65536):
@@ -690,7 +693,7 @@ def read_messages(home, limit=MESSAGE_WINDOW, before=None, query=None, archived=
                     continue
                 if len(rows) == limit:
                     return rows, True, None
-                rows.append(row)
+                rows.append(dict(row, archived=archived))
     except FileNotFoundError:
         return [], False, None
     except OSError as exc:
@@ -827,10 +830,15 @@ def send_note(home_path, text):
 
 def record_archive(home, msg_id, archived):
     """Append one archive amendment beside the message it changes."""
+    data = (json.dumps({"kind": "archive" if archived else "unarchive",
+                        "of": msg_id, "at": utc_now()}) + "\n").encode("utf-8")
     try:
-        with open(message_log(home), "a", encoding="utf-8") as fh:
-            fh.write(json.dumps({"kind": "archive" if archived else "unarchive",
-                                 "of": msg_id, "at": utc_now()}) + "\n")
+        with open(message_log(home), "a+b", buffering=0) as fh:
+            if fh.seek(0, os.SEEK_END) > 0:
+                fh.seek(-1, os.SEEK_END)
+                if fh.read(1) != b"\n":
+                    data = b"\n" + data
+            fh.write(data)
     except OSError as exc:
         return f"the archive record could not be written: {exc}"
     return None
@@ -1012,10 +1020,11 @@ class Handler(BaseHTTPRequestHandler):
                 row, error = find_message(self.records.home, msg_id)
                 if row is not None:
                     row = dict(row, archived=archived_messages(self.records.home).get(msg_id, False))
+                current, archived_total = message_totals(self.records.home)
                 self._send(200, dump({"messages": [row] if row else [],
                                       "more": False, "error": error,
-                                      "total": message_total(self.records.home, archived),
-                                      "archived_total": message_total(self.records.home, True),
+                                      "total": archived_total if archived else current,
+                                      "archived_total": archived_total,
                                       "capture": capture}))
                 return
             # Only the plain window is polled, so only it is worth a tag; a
@@ -1034,9 +1043,10 @@ class Handler(BaseHTTPRequestHandler):
             # A read that FAILED is not the state of the log: serving it under a
             # change check would answer 304 to every later poll and leave the
             # page saying this record could not be read long after it could.
+            current, archived_total = message_totals(self.records.home)
             self._send(200, dump({"messages": rows, "more": more,
-                                  "total": message_total(self.records.home, archived),
-                                  "archived_total": message_total(self.records.home, True),
+                                  "total": archived_total if archived else current,
+                                  "archived_total": archived_total,
                                   "error": error, "capture": capture}),
                        etag=None if error else etag)
             return
@@ -1131,14 +1141,6 @@ class Handler(BaseHTTPRequestHandler):
             if message is None:
                 self._json(404, {"ok": False, "error": "no such message"})
                 return
-            # A reply is the captain's completed action on this conversation.
-            # Write its archive amendment before accepting the delivery, so an
-            # eventual delivery failure does not put the conversation back in
-            # his active list or lose the reply thread.
-            archive_error = record_archive(self.records.home, msg_id, True)
-            if archive_error:
-                self._json(503, {"ok": False, "error": archive_error})
-                return
             records = self.records
             item = unread = None
             if message.get("question"):
@@ -1185,8 +1187,12 @@ class Handler(BaseHTTPRequestHandler):
             if error:
                 self._json(503, {"ok": False, "error": error})
                 return
+            # A reply is the captain's completed action on this conversation, so
+            # it is archived once accepted; a later delivery failure does not
+            # put it back in his active list.
+            archived = record_archive(self.records.home, msg_id, True) is None
             self._json(202, {"ok": True, "sid": sid, "outcome": "sending",
-                             "item_key": entry.get("item_key"), "archived": True})
+                             "item_key": entry.get("item_key"), "archived": archived})
             return
 
         if path == "/api/answer":

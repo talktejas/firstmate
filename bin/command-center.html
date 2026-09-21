@@ -1395,7 +1395,7 @@ async function loadArchivedMessages(){
     const res = await fetch('/api/messages?archived=1');
     if (!res.ok) return false;
     const body = await res.json();
-    const fresh = (body.messages || []).map(shapeMessage).map(m => Object.assign(m, {archived:true}));
+    const fresh = (body.messages || []).map(shapeMessage);
     state.archivedMessages = mergeMessages(fresh, state.archivedMessages);
     state.archivedMore = state.archivedMessages.length > fresh.length
       ? state.archivedMore : !!body.more;
