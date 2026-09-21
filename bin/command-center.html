@@ -651,7 +651,7 @@ function renderWatcher(){
     const urgent = noteUrgency(age) === 'still-unread';
     notices.push(band(urgent ? 'hot-soft' : 'warn-soft', urgent ? 'dead' : 'unknown',
       `<b>${unreadNotes.length} note${unreadNotes.length === 1 ? '' : 's'} you sent ${
-        past ? 'had' : 'has'} not been read yet.</b> Oldest${age == null ? '' :
+        past ? 'had' : unreadNotes.length === 1 ? 'has' : 'have'} not been read yet.</b> Oldest${age == null ? '' :
         ', waiting ' + agoWords(age)}: “${esc(oldest.summary || '')}”.${asOf}`));
   }
 

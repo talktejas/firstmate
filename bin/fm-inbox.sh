@@ -371,6 +371,7 @@ cmd_list() {
 # the id a caller already has.
 cmd_unread() {
   [ -d "$INBOX" ] || return 0
+  [ -r "$INBOX" ] && [ -x "$INBOX" ] || die "inbox unreadable: $INBOX"
   local f id epoch body summary
   for f in "$INBOX"/*.note; do
     [ -e "$f" ] || break

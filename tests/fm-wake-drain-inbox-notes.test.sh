@@ -114,7 +114,28 @@ test_no_inbox_directory_is_silent() {
   pass "a home with no captain notes at all stays silent on the section"
 }
 
+test_an_unreadable_inbox_fails_loudly() {
+  local dir state out rc=0
+  if [ "$(id -u)" -eq 0 ]; then
+    pass "SKIP: root reads a chmod 000 inbox anyway"
+    return
+  fi
+  dir=$(make_case unreadable-inbox)
+  state="$dir/state"
+  out="$dir/drain.out"
+  queue_note "$dir" "resolve it now"
+  chmod 000 "$state/inbox"
+  FM_HOME="$dir" "$INBOX" unread >/dev/null 2>&1 || rc=$?
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" 2>/dev/null
+  chmod 755 "$state/inbox"
+  [ "$rc" -ne 0 ] || fail "fm-inbox.sh unread reported an unreadable inbox as empty"
+  grep -F 'CAPTAIN INBOX NOTES INCOMPLETE' "$out" >/dev/null \
+    || fail "an unreadable inbox was drained silently: $(cat "$out")"
+  pass "an unreadable inbox is a loud failure, never an empty one"
+}
+
 test_a_wake_acknowledgement_never_clears_an_unread_note
+test_an_unreadable_inbox_fails_loudly
 test_reading_the_note_is_the_only_thing_that_clears_it
 test_a_note_still_unread_past_the_threshold_grows_louder
 test_no_inbox_directory_is_silent

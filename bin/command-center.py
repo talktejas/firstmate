@@ -356,7 +356,7 @@ def record_said(home, entry):
                 fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
     except OSError as exc:
         sys.stderr.write(f"command-center: could not write {path}: {exc}\n")
-        return f"what you typed could not be recorded: {exc}"
+        return "what you typed could not be recorded, so it was not sent"
     return None
 
 

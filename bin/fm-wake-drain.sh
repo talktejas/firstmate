@@ -564,7 +564,10 @@ print_unread_inbox_notes_section() {
   local notes id epoch summary now age stale line shown=0 omitted=0
   local output='' used=0 bytes item_bytes=220 global_bytes=2000
 
-  notes=$("$SCRIPT_DIR/fm-inbox.sh" unread 2>/dev/null) || return 0
+  if ! notes=$("$SCRIPT_DIR/fm-inbox.sh" unread 2>/dev/null); then
+    printf 'CAPTAIN INBOX NOTES INCOMPLETE: state/inbox/ could not be read - notes may be waiting unseen\n'
+    return 1
+  fi
   [ -n "$notes" ] || return 0
   now=$(date +%s)
   stale=${FM_INBOX_STALE_SECS:-900}

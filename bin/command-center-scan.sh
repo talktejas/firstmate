@@ -332,13 +332,14 @@ emit_item() {  # <home-id> <state-dir> <id> <source> <key> <title> <detail> <rep
 # is what "unread" means, never a wake record - so this shells out to it
 # rather than re-reading state/inbox/ a second, driftable way.
 scan_unread_notes() {  # <home-id> <home-path>
-  local hid=$1 hpath=$2 id epoch summary
+  local hid=$1 hpath=$2 id epoch summary notes
+  notes=$(FM_HOME="$hpath" "$SCRIPT_DIR/fm-inbox.sh" unread 2>/dev/null) || return 1
   while IFS=$'\t' read -r id epoch summary; do
     [ -n "$id" ] || continue
     jq -cn --arg home "$hid" --arg id "$id" --arg epoch "$epoch" --arg summary "$summary" \
       '{_row:"unread_note",home:$home,id:$id,summary:$summary,
         since_epoch:(if $epoch == "" or $epoch == "0" then null else ($epoch|tonumber) end)}'
-  done < <(FM_HOME="$hpath" "$SCRIPT_DIR/fm-inbox.sh" unread 2>/dev/null)
+  done <<<"$notes"
 }
 
 scan_home() {  # <home-id> <home-name> <home-path>
