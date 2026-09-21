@@ -1565,6 +1565,18 @@ test_a_search_finds_text_however_the_record_escapes_it() {
   assert_equals "The palette fix" "$(printf '%s' "$body" | jq -r '.messages[0].title')" \
     "a search by the words he replied did not find the message he replied to"
 
+  # Nor does it stop being findable once he has typed a great deal since: the
+  # thread under the message is drawn from the whole log, so the search reads
+  # the same log.
+  for i in $(seq 1 600); do
+    jq -cn --arg i "$i" '{kind:"note",home:"main",sid:("f"+$i),
+      at:"2026-01-01T00:00:00Z",text:("filler "+$i),outcome:"sent"}'
+  done >> "$home/data/command-center/said.jsonl"
+  body=$(curl -s -m 30 --get --data-urlencode 'q=ship the blue one' \
+    "http://127.0.0.1:$port/api/messages")
+  assert_equals "The palette fix" "$(printf '%s' "$body" | jq -r '.messages[0].title')" \
+    "a reply stopped being searchable once newer sends pushed it back"
+
   # Nor by how it is cased, in any alphabet: he types what he remembers seeing.
   body=$(curl -s -m 30 --get --data-urlencode 'q=über' \
     "http://127.0.0.1:$port/api/messages")

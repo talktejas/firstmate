@@ -617,7 +617,7 @@ def replies_by_message(home):
     A thread is a message AND his replies to it, so both are searched; they
     live in the other log, which is read once per search rather than per line.
     """
-    rows, error, _ = read_log(said_log(home))
+    rows, error, _ = read_log(said_log(home), LOG_LIMIT)
     threads = {}
     if error:
         return threads
