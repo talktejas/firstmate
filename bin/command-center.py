@@ -392,7 +392,9 @@ def accept_said(home, entry, deliver):
         with SAID_LOCK:
             SENDING.discard(sid)
 
-    threading.Thread(target=run, daemon=True).start()
+    # Not a daemon: his words were accepted, and a delivery already started
+    # must finish even if the server is asked to stop.
+    threading.Thread(target=run).start()
     return sid, None
 
 
@@ -536,45 +538,20 @@ def band_facts(capture):
             round(age / 60) if stale else None]
 
 
-MESSAGE_COUNTS = {}
-
-
 def message_total(home):
     """How many messages the log holds, whatever a request served of it.
 
     The page's Messages count is this number, not the size of the window, so
-    it stays true as the log grows past what is loaded. The log is append-only
-    and every writer terminates its line, so a poll counts only the bytes that
-    arrived since the last one - and only as far as the size it stat'd; a log
-    that shrank or was rewritten is counted again from the top.
+    it stays true as the log grows past what is loaded. Counted from the file
+    every time it is asked for: only a poll that found the log changed gets
+    this far, and the file is the one thing that cannot disagree with itself.
     """
-    path = message_log(home)
     try:
-        st = os.stat(path)
+        with open(message_log(home), "rb") as fh:
+            return sum(chunk.count(b"\n")
+                       for chunk in iter(lambda: fh.read(1 << 20), b""))
     except OSError:
         return 0
-    cached = MESSAGE_COUNTS.get(path)
-    if cached and cached[0] == st.st_size and cached[1] == st.st_mtime_ns:
-        return cached[2]
-    start, count = (cached[0], cached[2]) \
-        if cached and st.st_size > cached[0] else (0, 0)
-    counted = start
-    try:
-        with open(path, "rb") as fh:
-            fh.seek(start)
-            while counted < st.st_size:
-                chunk = fh.read(min(1 << 20, st.st_size - counted))
-                if not chunk:
-                    break
-                counted += len(chunk)
-                count += chunk.count(b"\n")
-    except OSError:
-        return count
-    # Cached against the bytes actually counted, never the bytes that arrived
-    # while counting: a count credited to a smaller size is counted twice by
-    # the next poll and the total never comes back down.
-    MESSAGE_COUNTS[path] = (counted, st.st_mtime_ns, count)
-    return count
 
 
 def reversed_lines(fh, block=65536):
