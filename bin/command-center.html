@@ -1303,7 +1303,7 @@ async function loadMessages(){
     if (!res.ok) throw new Error('HTTP ' + res.status);
     state.msgEtag = res.headers.get('ETag');
     const body = await res.json();
-    const before = listSignature(state.messages)
+    const before = listSignature(state.messages) + '/' + state.msgError
       + '/' + JSON.stringify(captureBand(state.capture));
     // Only the newest window is polled, so it is merged into what the page
     // already holds rather than replacing it: a row that has fallen out of the
@@ -1315,7 +1315,7 @@ async function loadMessages(){
     state.msgError = body.error || null;
     state.capture = body.capture || null;
     state.msgRead = true;
-    return before !== listSignature(state.messages)
+    return before !== listSignature(state.messages) + '/' + state.msgError
       + '/' + JSON.stringify(captureBand(state.capture));
   } catch (e) {
     // Reachability already has its own band from the item poll; this only
@@ -1631,7 +1631,11 @@ async function sendReply(){
 // --- events ------------------------------------------------------------------
 document.addEventListener('click', async e => {
   const tab = e.target.closest('.tab');
-  if (tab){ state.tab = tab.dataset.tab; renderList(); return; }
+  if (tab){
+    state.tab = tab.dataset.tab;
+    if (state.tab === 'messages') searchMessages();
+    renderList(); return;
+  }
   const chip = e.target.closest('.chip');
   if (chip){
     const id = chip.dataset.home;
@@ -1673,8 +1677,12 @@ document.addEventListener('click', async e => {
 
 $('#grouping').addEventListener('change', e => { state.group = e.target.value; renderList(); });
 $('#statefilter').addEventListener('change', e => { state.sfilter = e.target.value; renderList(); });
+// Only the Messages list is answered by the server; the other two tabs filter
+// what the page already holds, so typing there asks the log for nothing.
 $('#q').addEventListener('input', e => {
-  state.q = e.target.value; searchMessages(); renderList();
+  state.q = e.target.value;
+  if (state.tab === 'messages') searchMessages();
+  renderList();
 });
 
 // The note box keeps what he typed the same way the answer box does: a note
