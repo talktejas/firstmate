@@ -1,0 +1,18 @@
+$ POST /api/archive unknown id
+{"ok":false,"error":"no such message"} [404]
+$ POST /api/archive archived:"yes" (non-bool)
+{"ok":false,"error":"unknown message"} [400]
+$ POST /api/archive msg:"../etc"
+{"ok":false,"error":"unknown message"} [400]
+$ GET /api/messages?archived=2
+{"error":"unknown message list"} [400]
+$ counts
+{"total":2,"archived_total":1,"current":["Deploy finished","FYI: nightly build green"]}
+{"archived":[{"title":"Blue or green?","archived":true}]}
+$ captain-messages.jsonl (persisted state)
+{"id":"m20260921T075940Z-27365","title":"FYI: nightly build green"}
+{"id":"m20260921T075940Z-27464","title":"Deploy finished"}
+{"id":"m20260921T075940Z-27565","title":"Blue or green?"}
+{"kind":"archive","of":"m20260921T075940Z-27365"}
+{"kind":"archive","of":"m20260921T075940Z-27565"}
+{"kind":"unarchive","of":"m20260921T075940Z-27365"}

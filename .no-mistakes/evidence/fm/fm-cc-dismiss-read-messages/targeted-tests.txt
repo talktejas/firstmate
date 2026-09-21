@@ -1,0 +1,3 @@
+ok - archiving is durable beside the message and can be restored
+ok - replying archives the conversation while preserving its delivery
+ok - a search finds text however the record escapes or cases it
