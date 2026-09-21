@@ -330,6 +330,7 @@ def said_log(home):
 # one lock keeps each line whole. SENDING holds the ids of deliveries this
 # process is still running, so a "sending" record with no outcome yet is
 # distinguishable from one a restart orphaned.
+RUN = uuid.uuid4().hex
 SAID_LOCK = threading.Lock()
 SENDING = set()
 
@@ -826,8 +827,15 @@ class Handler(BaseHTTPRequestHandler):
         successful read of the repaired file would have: caching it would answer
         304 to every later poll and leave the page saying his record could not
         be read long after it could.
+
+        The tag names this process too. What a row says is partly this
+        process's own knowledge - a delivery it is still carrying out reads
+        differently from one a restart orphaned - so a tag issued before a
+        restart must not answer 304 for a log that now reads differently.
         """
         etag = log_etag(path)
+        if etag:
+            etag = hashlib.sha256((RUN + etag).encode()).hexdigest()[:32]
         if etag and self.headers.get("If-None-Match") == etag:
             self.send_response(304)
             self.send_header("ETag", etag)

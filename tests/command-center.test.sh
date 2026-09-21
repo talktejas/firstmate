@@ -1927,7 +1927,7 @@ test_the_server_captures_the_conversation_with_no_agent_involved() {
 }
 
 test_a_delivery_orphaned_by_a_restart_reads_back_as_unknown() {
-  local home port body
+  local home port body etag code
   home="$TMP_ROOT/orphan"
   seed_home "$home"
   mkdir -p "$home/data/command-center"
@@ -1951,6 +1951,24 @@ test_a_delivery_orphaned_by_a_restart_reads_back_as_unknown() {
     "a delivery orphaned by a restart still claimed to be in progress"
   assert_contains "$(jq -r '.said[] | select(.item == "t-1") | .detail' <<<"$body")" \
     'restarted' "the orphaned delivery did not say why it is unknown"
+  # A tab that was open across the restart polls with the tag the dead server
+  # gave it. The same bytes now read differently, so that tag cannot answer
+  # "nothing changed" over a row that has stopped being in progress.
+  start_server "$home" || fail "the server did not start again"
+  port=$SERVER_PORT
+  etag=$(curl -s -m 30 -D - -o /dev/null "http://127.0.0.1:$port/api/said" \
+    | tr -d '\r' | sed -n 's/^ETag: //p')
+  [ -n "$etag" ] || fail "the record was served without a change check"
+  code=$(curl -s -m 30 -o /dev/null -w '%{http_code}' \
+    -H "If-None-Match: $etag" "http://127.0.0.1:$port/api/said")
+  assert_equals 304 "$code" "an unchanged record was re-served to the same server"
+  stop_server
+  start_server "$home" || fail "the server did not start a third time"
+  code=$(curl -s -m 30 -o /dev/null -w '%{http_code}' \
+    -H "If-None-Match: $etag" "http://127.0.0.1:$SERVER_PORT/api/said")
+  stop_server
+  assert_equals 200 "$code" \
+    "a tag from before the restart answered 304 over a delivery nothing is carrying out"
   pass "a delivery orphaned by a restart reads back as unknown, never as still running"
 }
 
