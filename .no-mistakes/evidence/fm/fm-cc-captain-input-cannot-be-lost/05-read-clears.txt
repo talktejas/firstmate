@@ -1,0 +1,13 @@
+## fm-inbox.sh drain --ack <all ids>
+acked 1789980215-OLDabc
+acked 1789981973-D1Uh6W
+acked 1789981973-YhjyZz
+exit=0
+## fm-inbox.sh unread (expect empty)
+exit=0
+## drain (expect no CAPTAIN INBOX NOTES)
+exit=0
+## /api/items unread_notes
+null
+["error","generated","homes","items","schema","unread_notes"]
+[]

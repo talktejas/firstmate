@@ -1,0 +1,6 @@
+## data/command-center chmod 500 (said.jsonl not writable if append needs dir? checking file)
+## POST /api/note
+{"ok":false,"error":"what you typed could not be recorded, so it was not sent"}
+HTTP 503
+## server log (firstmate side keeps the real text)
+command-center: could not write /tmp/cc-live.k8mj/data/command-center/said.jsonl: [Errno 13] Permission denied: '/tmp/cc-live.k8mj/data/command-center/said.jsonl'

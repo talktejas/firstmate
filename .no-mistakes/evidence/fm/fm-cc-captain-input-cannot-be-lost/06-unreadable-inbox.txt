@@ -1,0 +1,14 @@
+## state/inbox chmod 000
+## fm-inbox.sh unread
+fm-inbox: inbox unreadable: /tmp/cc-live.k8mj/state/inbox
+exit=1
+## fm-wake-drain.sh (one wake pending)
+1789982048	3	check	inbox:1789982048-59aMZe	check: captain inbox note 1789982048-59aMZe - note behind a locked door
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 3 --recovery-generation 87281.1789982048.W4wtNQ
+CAPTAIN INBOX NOTES INCOMPLETE: state/inbox/ could not be read - notes may be waiting unseen
+exit=0
+## command-center-scan.sh
+command-center-scan: the scan could not read every record; refusing to publish a partial list
+exit=1
+## /api/items error field
+{"error":"scan failed: command-center-scan: the scan could not read every record; refusing to publish a partial list","unread_notes":[]}

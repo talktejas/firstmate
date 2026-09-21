@@ -1,0 +1,13 @@
+## POST /api/note x2 (captain sends notes from the page)
+{"ok":true,"sid":"dacef7327bbc","outcome":"sending"}
+{"ok":true,"sid":"52fdb727cc38","outcome":"sending"}
+
+## fm-inbox.sh unread
+1789981973-D1Uh6W	1789981973	resolve it now
+1789981973-YhjyZz	1789981973	and please check the deploy
+
+## data/command-center/said.jsonl outcomes
+{"kind": "note", "home": "main", "text": "resolve it now", "sid": "dacef7327bbc", "at": "2026-09-21T09:12:53Z", "outcome": "sending"}
+{"kind": "note", "home": "main", "text": "and please check the deploy", "sid": "52fdb727cc38", "at": "2026-09-21T09:12:53Z", "outcome": "sending"}
+{"outcome": "sent", "route": "fm-inbox.sh note", "detail": "", "kind": "outcome", "of": "dacef7327bbc", "at": "2026-09-21T09:12:53Z"}
+{"outcome": "sent", "route": "fm-inbox.sh note", "detail": "", "kind": "outcome", "of": "52fdb727cc38", "at": "2026-09-21T09:12:53Z"}

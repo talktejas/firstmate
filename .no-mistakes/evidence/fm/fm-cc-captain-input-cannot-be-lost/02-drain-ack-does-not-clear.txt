@@ -1,0 +1,27 @@
+## drain #1 (the two note wakes)
+1789981973	1	check	inbox:1789981973-D1Uh6W	check: captain inbox note 1789981973-D1Uh6W - resolve it now
+1789981973	2	check	inbox:1789981973-YhjyZz	check: captain inbox note 1789981973-YhjyZz - and please check the deploy
+CAPTAIN INBOX NOTES (unread - a wake acknowledgement never clears this, only reading them does):
+1789981973-D1Uh6W waiting 0m: resolve it now
+1789981973-YhjyZz waiting 0m: and please check the deploy
+CAPTAIN INBOX NOTES: mark read with: bin/fm-inbox.sh drain --ack <id>...
+exit=0
+--stderr--
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 2 --recovery-generation 25086.1789981973.QLzl55
+
+## ack wakes: --ack-through 2 --recovery-generation 25086.1789981973.QLzl55
+exit=0
+
+## drain #2 (queue now empty; notes never read)
+CAPTAIN INBOX NOTES (unread - a wake acknowledgement never clears this, only reading them does):
+1789981973-D1Uh6W waiting 0m: resolve it now
+1789981973-YhjyZz waiting 0m: and please check the deploy
+CAPTAIN INBOX NOTES: mark read with: bin/fm-inbox.sh drain --ack <id>...
+exit=0
+
+## drain #3 with FM_INBOX_STALE_SECS=0 (escalation)
+CAPTAIN INBOX NOTES (unread - a wake acknowledgement never clears this, only reading them does):
+STILL UNREAD 1789981973-D1Uh6W waiting 0m: resolve it now
+STILL UNREAD 1789981973-YhjyZz waiting 0m: and please check the deploy
+CAPTAIN INBOX NOTES: mark read with: bin/fm-inbox.sh drain --ack <id>...
+exit=0
