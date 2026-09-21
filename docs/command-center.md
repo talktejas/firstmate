@@ -96,6 +96,11 @@ If a home has gone quiet, an answer you send there is still recorded but nothing
 Three things can go wrong between the page and the records, and each says what you can do about it. **It cannot reach the server** — nothing can be sent until it is back. **The server answers but no scan has ever succeeded** — there is no list, and the server refuses sends until there is one. **A scan failed over a list an earlier one read** — the list may be incomplete, and everything on it can still be answered.
 In all three the health bands stay on screen but stop speaking in the present: they say what was true at the last successful read, and when that read was. A poll merely being in flight changes nothing — the bands keep saying what the last answer established until a new one arrives.
 
+A note lands under `state/inbox/` (`bin/fm-inbox.sh`) and raises firstmate exactly one wake.
+That wake is a doorbell, not proof of anything read: firstmate can acknowledge it - as part of handling other work, or the whole queue at once - without ever having read the note itself, and once acknowledged nothing else used to remind anyone.
+The page cannot fix that on its own, so it does not pretend to: it shows a band naming every note still under `state/inbox/` that has not been moved into `handled/`, with how long the oldest one has waited, and the band gets louder rather than quieter the longer one sits - this is the honest alarm for when that machinery has failed again.
+The same truth, independent of the page, is `bin/fm-wake-drain.sh`'s CAPTAIN INBOX NOTES section: it re-reads `state/inbox/` on every drain, so an unread note keeps surfacing to firstmate no matter how many of its wakes get acknowledged, and only actually reading it - `fm-inbox.sh drain --ack <id>` - clears either view.
+
 The page itself arrives as two files from the same address: the page, and `bin/command-center-state.js`, the decision rules every band and every send verdict above is made by.
 The server refuses to start if either is missing, but a file can still fail to be served under it — during a self-update, say — so if the rules do not arrive the page says it did not load completely and sends nothing, rather than showing an empty list and a live beat it cannot stand behind. Reload; if that does not fix it, restart the command center.
 
@@ -187,5 +192,6 @@ A home whose holds are hidden from the page — one on a non-markdown backlog ba
 ## Reading it without the page
 
 `bin/command-center-scan.sh` prints the waiting view as JSON, and `--fingerprint` prints only the change check.
+Its `unread_notes[]` array is `bin/fm-inbox.sh unread`'s TSV (id, epoch, one-line summary) reshaped to JSON, one entry per home; `fm-inbox.sh unread` alone is the plain-text form.
 `<home>/data/captain-messages.jsonl` is one JSON object per message and needs nothing to read it: the whole of it is on disk whatever the page has loaded.
 Both honour `FM_HOME`.

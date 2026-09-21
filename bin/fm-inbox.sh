@@ -17,6 +17,14 @@
 #   ask     Answer a side question with a one-shot model call that never touches
 #           firstmate, the backlog, or the wake queue. A side question is not
 #           fleet work and must not become fleet work.
+#   unread  Machine-readable TSV of every note still in the inbox (not moved
+#           into handled/), oldest first: id, epoch, one-line summary. The one
+#           owner of "what is still unread and since when" - bin/fm-wake-drain.sh
+#           reads it to keep reminding firstmate past the note's single wake, and
+#           bin/command-center-scan.sh reads it so the captain can see the same
+#           truth on the page. A note's presence here, not any wake, IS the
+#           unread state: acknowledging a wake never touches it, only `drain
+#           --ack` does.
 #
 # Usage:
 #   fm-inbox.sh note <text>...          | fm-inbox.sh note -   (body from stdin)
@@ -24,6 +32,7 @@
 #   fm-inbox.sh status
 #   fm-inbox.sh ask  <question>...
 #   fm-inbox.sh list
+#   fm-inbox.sh unread
 #   fm-inbox.sh drain [--ack <id>...]
 #
 # Configuration. A region, a model id and an AWS profile name somebody's account
@@ -357,6 +366,23 @@ cmd_list() {
   [ "$any" -eq 1 ] || printf '(inbox empty)\n'
 }
 
+# The epoch is the id's own leading component (queue_note mints
+# "<epoch>-<random>"), so this needs no date parsing and cannot disagree with
+# the id a caller already has.
+cmd_unread() {
+  [ -d "$INBOX" ] || return 0
+  local f id epoch body summary
+  for f in "$INBOX"/*.note; do
+    [ -e "$f" ] || break
+    id=$(basename "$f" .note)
+    epoch=${id%%-*}
+    case "$epoch" in ''|*[!0-9]*) epoch=0 ;; esac
+    body=$(sed -n '/^--$/,$p' "$f" | tail -n +2)
+    summary=$(printf '%s' "$body" | tr '\n\t' '  ' | cut -c1-100)
+    printf '%s\t%s\t%s\n' "$id" "$epoch" "$summary"
+  done | sort -t "$(printf '\t')" -k2,2n
+}
+
 cmd_drain() {
   if [ "${1:-}" = "--ack" ]; then
     shift
@@ -385,6 +411,7 @@ case "${1:-}" in
   status) shift; cmd_status ;;
   ask)    shift; cmd_ask "$@" ;;
   list)   shift; cmd_list ;;
+  unread) shift; cmd_unread ;;
   drain)  shift; cmd_drain "$@" ;;
   ''|-h|--help|help)
     # The whole header block, found rather than counted: everything after the
