@@ -9,6 +9,7 @@ set -u
 
 SCAN="$ROOT/bin/command-center-scan.sh"
 RECORD="$ROOT/bin/fm-captain-message.sh"
+BACKFILL="$ROOT/bin/fm-captain-message-backfill.py"
 SERVER="$ROOT/bin/command-center.py"
 TMP_ROOT=$(fm_test_tmproot command-center)
 
@@ -929,6 +930,38 @@ test_a_message_names_the_project_the_worktree_and_the_branch() {
   assert_equals "Blue or green?" "$(jq -r .text <<<"$row")" \
     "the message text was not recorded"
   pass "a recorded message names its project, its worktree and its branch"
+}
+
+test_message_backfill_resolves_only_context_keyed_by_a_task_record() {
+  local home wt result row
+  home="$TMP_ROOT/backfill"
+  seed_home "$home"
+  wt="$home/wt"
+  git init -q "$wt"
+  git -C "$wt" checkout -q -b fm/backfill
+  printf 'project=/home/captain/p/demo\nworktree=%s\n' "$wt" > "$home/state/cc-live.meta"
+  printf '%s\n' \
+    '{"id":"captured","task":null,"project":null,"worktree":null,"branch":null}' \
+    '{"id":"routed","task":"cc-live","project":null,"worktree":null,"branch":null}' \
+    > "$home/data/captain-messages.jsonl"
+
+  result=$(FM_HOME="$home" "$BACKFILL") || fail "the message backfill failed"
+  assert_equals 1 "$(jq -r .changed <<<"$result")" \
+    "the task-keyed row was not backfilled"
+  assert_equals 1 "$(jq -r .unresolved <<<"$result")" \
+    "the unkeyed captured row was not left honestly unresolved"
+  assert_equals 1 "$(jq -r '.unresolved_reasons.no_task_record' <<<"$result")" \
+    "the backfill did not explain why the captured row stayed unknown"
+  row=$(jq -c 'select(.id == "routed")' "$home/data/captain-messages.jsonl")
+  assert_equals demo "$(jq -r .project <<<"$row")" \
+    "the backfill did not resolve project from task metadata"
+  assert_equals "$wt" "$(jq -r .worktree <<<"$row")" \
+    "the backfill did not resolve worktree from task metadata"
+  assert_equals fm/backfill "$(jq -r .branch <<<"$row")" \
+    "the backfill did not resolve branch from the recorded worktree"
+  assert_equals 0 "$(FM_HOME="$home" "$BACKFILL" | jq -r .changed)" \
+    "a second backfill pass was not convergent"
+  pass "message backfill resolves task-keyed context without guessing captured rows"
 }
 
 # The automatic capture can be killed mid-write; whatever is recorded next must
