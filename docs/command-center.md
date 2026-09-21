@@ -33,7 +33,7 @@ Re-run `--install-unit` after changing it, then `systemctl --user daemon-reload 
 
 ## What it shows
 
-The left list has three tabs.
+The left list has four tabs.
 
 **Messages** is the default and is what firstmate said to you: one row per message, newest first, each with its title and its time. A captured message records no project, worktree or branch - the conversation record does not say which project a sentence is about - so those read "Not recorded"; a message written by hand with `bin/fm-captain-message.sh --task` carries all three.
 Click one and the whole message opens with a box to reply in.
@@ -41,6 +41,9 @@ The list opens on the newest 200 and `Show older messages` walks back through th
 Where a reply goes depends on how the message was recorded. A message firstmate recorded by hand as a question (`bin/fm-captain-message.sh --question`) is answered as that question: your reply goes to the worker or held task still waiting on that decision, and to firstmate itself once nothing is. A message capture recorded on its own is never a question, so a reply to it always reaches firstmate as a note, never a worker.
 The reply box says which of these it is before you send.
 Your replies appear under the message, so the exchange reads as a conversation.
+An open message has an `Archive` button for a note you have read and need not answer; it moves the message to **Archived**, where the same button reads `Restore to Messages` and moves it back.
+Sending a reply archives the message too, once your reply is accepted, so a conversation you have answered leaves Messages on its own; a later delivery failure does not bring it back.
+Archived keeps its own count and its own search and `Show older messages`, answered from the whole log like Messages.
 
 These are captured automatically: `bin/fm-captain-message-sweep.py` reads the Claude conversation record on disk, which holds every message verbatim, and records every reply firstmate gave - no agent chooses or remembers to record anything. Only what firstmate said to you counts: its working narration between tool calls, a subagent's chatter, and the lines the harness wrote itself are not replies and never become messages.
 It runs from two places, and they know different things. The Claude Stop hook (`bin/fm-captain-message-hook.sh`) fires as each turn ends and hands over the hook payload, which NAMES the transcript that session writes; the sweep reads that one file and nothing else, so the hook is bounded to a few seconds and never holds a turn end. This server sweeps on its own poll cadence, over the directory it derives from the home's path plus every transcript a payload has named - that is what catches turns that ended unusually (interrupted, errored, killed) once their session moves on, and what backfills at startup.
@@ -136,8 +139,9 @@ When the reply steers a worker still waiting, that protection covers the item to
 ## What it stores
 
 `<home>/data/captain-messages.jsonl`, an append-only log of what firstmate said to you: when, the title, the text, and the project, worktree, branch and task it named, each recorded as unknown rather than guessed when nothing knows it.
-It has two writers: the automatic capture above (`bin/fm-captain-message-sweep.py`, which stamps each record with the conversation it came from so it is never recorded twice), and `bin/fm-captain-message.sh` by hand, whose `--task` fills the project, worktree and branch from that task's own record so all three are one flag rather than three chances to leave one out.
+Its messages have two writers: the automatic capture above (`bin/fm-captain-message-sweep.py`, which stamps each record with the conversation it came from so it is never recorded twice), and `bin/fm-captain-message.sh` by hand, whose `--task` fills the project, worktree and branch from that task's own record so all three are one flag rather than three chances to leave one out.
 On the by-hand writer, `--question` marks a message as the question waiting on you, and `--question-key` names the stopped worker's own decision it asks about.
+The page itself appends one more kind of row: an `archive` or `unarchive` amendment naming the message it changes, and the latest one for a message decides whether it is archived.
 
 `<home>/data/command-center/said.jsonl`, an append-only log of what you typed and where it went.
 Every send - an answer, a reply, or a note that answers nothing - returns the moment your words are on disk, so you move to the next item at once and never wait on delivery.
@@ -186,5 +190,5 @@ A home whose holds are hidden from the page — one on a non-markdown backlog ba
 ## Reading it without the page
 
 `bin/command-center-scan.sh` prints the waiting view as JSON, and `--fingerprint` prints only the change check.
-`<home>/data/captain-messages.jsonl` is one JSON object per message and needs nothing to read it: the whole of it is on disk whatever the page has loaded.
+`<home>/data/captain-messages.jsonl` is one JSON object per line - a message or an archive amendment - and needs nothing to read it: the whole of it is on disk whatever the page has loaded.
 Both honour `FM_HOME`.
