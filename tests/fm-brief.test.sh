@@ -875,6 +875,74 @@ ROWS
   pass "fm-brief.sh: scout Lavish hosting follows the bootstrap lavish-axi floor"
 }
 
+# The captain repeatedly rejected work that rebuilt from zero instead of
+# studying and extending the existing codebase (AGENTS.md section 6). That rule
+# used to live only in firstmate's notes and had to be copied into each brief by
+# hand, so every ship and scout brief must now carry it directly, positioned
+# before the task-specific `# Task` section so no worker can miss it.
+test_study_existing_first_section_present() {
+  local home id brief study_line task_line
+  home="$TMP_ROOT/study-first-home"
+  mkdir -p "$home/data"
+
+  id="brief-study-ship-e1"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --mode no-mistakes >/dev/null 2>&1
+  brief="$home/data/$id/brief.md"
+  assert_present "$brief" "ship brief was not scaffolded"
+  assert_grep "# Before you write any code" "$brief" \
+    "ship brief missing the study-existing-first section"
+  assert_grep "Say what you will EXTEND" "$brief" \
+    "ship brief missing the extend-not-duplicate instruction"
+  assert_grep "Check which branch already carries work for this area" "$brief" \
+    "ship brief missing the branch-check instruction"
+  study_line=$(grep -n "^# Before you write any code$" "$brief" | head -1 | cut -d: -f1)
+  task_line=$(grep -n "^# Task$" "$brief" | head -1 | cut -d: -f1)
+  [ -n "$study_line" ] && [ -n "$task_line" ] && [ "$study_line" -lt "$task_line" ] \
+    || fail "ship brief does not position the study-existing-first section before # Task"
+
+  id="brief-study-scout-e2"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --scout >/dev/null 2>&1
+  brief="$home/data/$id/brief.md"
+  assert_present "$brief" "scout brief was not scaffolded"
+  assert_grep "# Before you write any code" "$brief" \
+    "scout brief missing the study-existing-first section"
+  study_line=$(grep -n "^# Before you write any code$" "$brief" | head -1 | cut -d: -f1)
+  task_line=$(grep -n "^# Task$" "$brief" | head -1 | cut -d: -f1)
+  [ -n "$study_line" ] && [ -n "$task_line" ] && [ "$study_line" -lt "$task_line" ] \
+    || fail "scout brief does not position the study-existing-first section before # Task"
+
+  pass "fm-brief.sh: every ship and scout brief carries the study-existing-first section before # Task"
+}
+
+# Promotion re-publishes the scout brief's own bytes (fm-promote.sh) before
+# appending the ship-time contract, so the study-existing-first section must
+# survive unchanged in the promoted brief.
+test_study_existing_first_section_survives_promotion() {
+  local home id meta brief content
+  home="$TMP_ROOT/study-first-promote-home"
+  mkdir -p "$home/data" "$home/state"
+  id="brief-study-promote-f1"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --scout >/dev/null 2>&1
+  brief="$home/data/$id/brief.md"
+  content=$(cat "$brief")
+  content=${content//'{TASK}'/'Investigate the widget pipeline.'}
+  content=${content//'{FIRSTMATE_SPEC}'/'Report findings only.'}
+  printf '%s\n' "$content" > "$brief"
+
+  meta="$home/state/$id.meta"
+  printf 'window=fm-%s\nkind=scout\nworktree=/tmp/wt-%s\n' "$id" "$id" > "$meta"
+
+  FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
+    "$ROOT/bin/fm-promote.sh" "$id" --mode direct-PR --yolo off >/dev/null 2>&1 \
+    || fail "promotion should succeed"
+
+  assert_grep "# Before you write any code" "$brief" \
+    "promoted brief lost the study-existing-first section"
+  assert_grep "Say what you will EXTEND" "$brief" \
+    "promoted brief lost the extend-not-duplicate instruction"
+  pass "fm-promote.sh: promotion preserves the study-existing-first section from the scout brief"
+}
+
 # Scout and secondmate paths still scaffold well-formed briefs.
 test_scout_and_secondmate_scaffold() {
   local brief
@@ -949,3 +1017,5 @@ test_ship_and_scout_teach_validation_round_pause
 test_scout_and_secondmate_load_decision_hold_policy
 test_scout_and_secondmate_scaffold
 test_scout_lavish_line_follows_presentation_floor
+test_study_existing_first_section_present
+test_study_existing_first_section_survives_promotion
