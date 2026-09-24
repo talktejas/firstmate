@@ -9,7 +9,7 @@ const {
   pollFacts, tense, transportFailure, verdictFor, releaseVerdicts, itemKey,
   shapeMessage, orderRows, replyTarget, foldSaid, wordsAfter,
   listSignature, mayRelease, logRead, sendState, sendKeys, spokenFor, sameWords,
-  heldWith, captureBand, saidDigest, mergeMessages,
+  heldWith, captureBand, saidDigest, mergeMessages, noteUrgency, oldestNote,
 } = require(path.join(__dirname, '..', 'bin', 'command-center-state.js'));
 
 // Quiet on success: tests/command-center.test.sh runs this and reports the
@@ -557,6 +557,28 @@ test('two runs that do not overlap are never stitched across the gap', () => {
     'the list kept rows with a hole between them and no way to fill it');
   assert.deepStrictEqual(mergeMessages([], [m('m9')]).map(r => r.id), ['m9'],
     'a poll that answered nothing must not empty the list');
+});
+
+// --- how insistent an unread note has become ------------------------------------
+// The band must grow louder, never quieter, and never go silent over an unread
+// clock it could not parse.
+test('an unread note grows insistent with age, never quiet with it', () => {
+  assert.strictEqual(noteUrgency(0), 'unread');
+  assert.strictEqual(noteUrgency(899), 'unread');
+  assert.strictEqual(noteUrgency(900), 'still-unread');
+  assert.strictEqual(noteUrgency(9000), 'still-unread');
+});
+
+test('the oldest unread note is found by since_epoch, undated first', () => {
+  assert.strictEqual(oldestNote([]), null);
+  assert.strictEqual(oldestNote(null), null);
+  assert.deepStrictEqual(
+    oldestNote([{ id: 'b', since_epoch: 200 }, { id: 'a', since_epoch: 100 }]),
+    { id: 'a', since_epoch: 100 });
+  // An unreadable clock is never quietly skipped: it counts as the alarm.
+  assert.deepStrictEqual(
+    oldestNote([{ id: 'b', since_epoch: 100 }, { id: 'a', since_epoch: null }]),
+    { id: 'a', since_epoch: null });
 });
 
 process.exit(failures ? 1 : 0);

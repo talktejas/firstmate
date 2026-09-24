@@ -329,6 +329,61 @@ test_fingerprint_changes_only_when_a_record_moves() {
   pass "the change check is stable when idle and notices a moved record"
 }
 
+# A note lands under state/inbox/ (bin/fm-inbox.sh), not the backlog or a
+# status log - a wake acknowledgement never clears it, only reading it does
+# (bin/fm-wake-drain.sh's CAPTAIN INBOX NOTES section is the same durable
+# truth on firstmate's side). The scan is the page's only way to see this.
+test_unread_notes_are_surfaced_by_the_scan() {
+  local home out
+  home="$TMP_ROOT/unread-notes"
+  mkdir -p "$home/data" "$home/state"
+  printf '# Backlog\n' > "$home/data/backlog.md"
+  FM_HOME="$home" "$ROOT/bin/fm-inbox.sh" note "resolve it now" >/dev/null \
+    || fail "queueing a note failed"
+
+  out=$(scan "$home")
+  assert_equals "1" "$(printf '%s' "$out" | jq -r '.unread_notes | length')" \
+    "an unread note was missing from the scan"
+  assert_equals "resolve it now" \
+    "$(printf '%s' "$out" | jq -r '.unread_notes[0].summary')" \
+    "the note's own words did not reach the scan"
+  assert_equals "true" \
+    "$(printf '%s' "$out" | jq -r '.unread_notes[0].since_epoch != null')" \
+    "an unread note reported no waiting time"
+
+  local id
+  id=$(printf '%s' "$out" | jq -r '.unread_notes[0].id')
+  FM_HOME="$home" "$ROOT/bin/fm-inbox.sh" drain --ack "$id" >/dev/null \
+    || fail "acking the note failed"
+  out=$(scan "$home")
+  assert_equals "0" "$(printf '%s' "$out" | jq -r '.unread_notes | length')" \
+    "a note moved into handled/ was still reported as unread"
+  pass "an unread captain note is surfaced by the scan and clears only when read"
+}
+
+test_fingerprint_reacts_to_a_note_arriving_and_being_read() {
+  local home first second third
+  home="$TMP_ROOT/fingerprint-note"
+  mkdir -p "$home/data" "$home/state"
+  printf '# Backlog\n' > "$home/data/backlog.md"
+  first=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$SCAN" --fingerprint)
+
+  FM_HOME="$home" "$ROOT/bin/fm-inbox.sh" note "a note worth seeing" >/dev/null \
+    || fail "queueing a note failed"
+  second=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$SCAN" --fingerprint)
+  assert_not_equals "$first" "$second" \
+    "the change check missed a new captain note"
+
+  local id
+  id=$(FM_HOME="$home" "$ROOT/bin/fm-inbox.sh" unread | cut -f1)
+  FM_HOME="$home" "$ROOT/bin/fm-inbox.sh" drain --ack "$id" >/dev/null \
+    || fail "acking the note failed"
+  third=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$SCAN" --fingerprint)
+  assert_not_equals "$second" "$third" \
+    "the change check missed a note being read"
+  pass "the change check reacts to a captain note arriving and being read"
+}
+
 # --- HTTP boundary -----------------------------------------------------------
 # Sets SERVER_PORT and SERVER_PID in the CALLER's shell. It must not be used in
 # a command substitution: that runs in a subshell, the pid never comes back, and
@@ -729,6 +784,44 @@ PYEOF
   pass "a note of exactly a dash is queued, and no child can hang the server"
 }
 
+# The incident this closes: fm-inbox.sh's own failure text can name an
+# internal path ("note N is saved at STATE/inbox/N.note but firstmate was NOT
+# woken", or a bare mkdir/mktemp error), and that text used to reach the
+# browser verbatim as the send's detail. No raw command output may ever reach
+# him; the real text still reaches firstmate, in the server's own log.
+test_an_inbox_failure_never_leaks_a_raw_path_to_the_browser() {
+  local home port body sid outcome detail
+  if [ "$(id -u)" = 0 ]; then
+    pass "running as root; the unwritable-inbox case cannot be staged"
+    return
+  fi
+  home="$TMP_ROOT/inbox-failure"
+  seed_home "$home"
+  mkdir -p "$home/state/inbox"
+  chmod 000 "$home/state/inbox"
+  start_server "$home" || { chmod 700 "$home/state/inbox"; fail "the server did not start"; }
+  port=$SERVER_PORT
+
+  body=$(post "$port" /api/note '{"text":"will this leak a path"}')
+  sid=$(jq -r .sid <<<"$body")
+  outcome=$(wait_outcome "$home" "$sid")
+  chmod 700 "$home/state/inbox"
+  stop_server
+
+  assert_contains "$outcome" '"outcome":"unknown"' \
+    "an inbox write failure was not reported as unknown"
+  detail=$(jq -r .detail <<<"$outcome")
+  assert_not_contains "$detail" "$home" \
+    "the browser-facing detail leaked the home's own filesystem path"
+  assert_not_contains "$detail" ".sh" \
+    "the browser-facing detail named an internal script"
+  assert_not_contains "$detail" "mktemp" \
+    "the browser-facing detail leaked the raw command that failed"
+  assert_contains "$(cat "$home/server.log")" "$home/state/inbox" \
+    "firstmate's own log lost the real diagnostic that named the failing path"
+  pass "an inbox write failure reaches him as plain words, never the raw command error"
+}
+
 # The log is the sole surviving copy of his steers and notes. A log that cannot
 # be READ is not a log with nothing in it, and must not read as one.
 test_an_unreadable_log_is_reported_not_shown_as_empty() {
@@ -822,6 +915,44 @@ sent
 unknown" "$out" \
     "the outcome or route was not taken from the route that actually ran"
   pass "each route's outcome is decided by its own exit code alone"
+}
+
+# Structural half of "no raw machine text reaches him, ever": whatever breaks
+# INSIDE a route - not only the failures handled inline - must never put its
+# own words, including a filesystem path, on the wire.
+test_an_unforeseen_route_exception_never_reaches_the_wire() {
+  local out
+  out=$(python3 - "$SERVER" <<'PYEOF'
+import importlib.util, json, sys
+spec = importlib.util.spec_from_file_location("cc", sys.argv[1])
+cc = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(cc)
+
+sent = []
+
+class FakeSelf:
+    command = "GET"
+    path = "/api/items"
+    def _json(self, code, obj):
+        sent.append((code, obj))
+
+def boom():
+    raise RuntimeError("/home/tds/p/firstmate/state/secret.meta could not be opened")
+
+cc.Handler._guarded(FakeSelf(), boom)
+code, obj = sent[0]
+print(code)
+print(json.dumps(obj))
+PYEOF
+)
+  assert_contains "$out" "500" "an unforeseen route exception was not answered with a safe status"
+  assert_not_contains "$out" "secret.meta" \
+    "an unforeseen exception's own text leaked onto the wire"
+  assert_not_contains "$out" "/home/tds" \
+    "an unforeseen exception's own path leaked onto the wire"
+  assert_contains "$out" "firstmate has the" \
+    "an unforeseen exception was not answered with the plain safe sentence"
+  pass "an unforeseen route exception never reaches the wire, whatever it says"
 }
 
 # The module header promises the expensive scan runs once per actual change
@@ -2174,6 +2305,8 @@ test_status_decision_since_prefers_the_opening_line_timestamp
 test_steering_records_report_delivered_and_picked_up
 test_a_scan_that_cannot_read_everything_fails_instead_of_truncating
 test_fingerprint_changes_only_when_a_record_moves
+test_unread_notes_are_surfaced_by_the_scan
+test_fingerprint_reacts_to_a_note_arriving_and_being_read
 test_server_serves_the_page_and_the_records
 test_server_refuses_bad_input_before_running_anything
 test_a_server_with_no_scan_yet_refuses_both_the_list_and_a_send
@@ -2181,9 +2314,11 @@ test_answering_a_hold_records_the_captains_words_and_clears_the_item
 test_answering_held_work_releases_it_instead_of_closing_it
 test_a_held_row_with_no_kind_is_refused_rather_than_guessed
 test_a_note_of_just_a_dash_is_queued_and_never_hangs_the_server
+test_an_inbox_failure_never_leaks_a_raw_path_to_the_browser
 test_a_send_whose_words_cannot_be_recorded_is_refused
 test_an_unreadable_log_is_reported_not_shown_as_empty
 test_the_send_outcome_is_decided_by_the_exit_code_alone
+test_an_unforeseen_route_exception_never_reaches_the_wire
 test_concurrent_polls_produce_one_scan
 test_the_pages_decision_rules_hold
 test_the_server_serves_the_pages_decision_rules

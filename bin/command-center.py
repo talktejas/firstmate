@@ -68,6 +68,7 @@ import sys
 import tempfile
 import threading
 import time
+import traceback
 import urllib.parse
 import uuid
 from datetime import datetime, timezone
@@ -355,7 +356,7 @@ def record_said(home, entry):
                 fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
     except OSError as exc:
         sys.stderr.write(f"command-center: could not write {path}: {exc}\n")
-        return f"what you typed could not be recorded: {exc}"
+        return "what you typed could not be recorded, so it was not sent"
     return None
 
 
@@ -386,7 +387,14 @@ def accept_said(home, entry, deliver):
         try:
             update = deliver()
         except Exception as exc:  # noqa: BLE001 - the record must say something
-            update = {"outcome": "unknown", "route": "", "detail": str(exc)}
+            # An unforeseen failure's own text can carry an internal path or
+            # module name (a bare FileNotFoundError names the executable it
+            # could not find) - never send that to the page; log it here, where
+            # firstmate reads it, and tell him the plain, safe truth instead.
+            log_internal(f"delivery for sid={sid} raised", repr(exc))
+            update = {"outcome": "unknown", "route": "",
+                      "detail": "an unexpected internal error stopped this - "
+                                "firstmate has the details in its own log"}
         # The amendment lands before the id leaves SENDING, so no read can see
         # a live delivery as a restart-orphaned one.
         record_said(home, dict(update, kind="outcome", of=sid, at=utc_now()))
@@ -766,6 +774,14 @@ def send_answer(home_path, item, text):
     return outcome, route, detail[:600], mode
 
 
+def log_internal(context, detail):
+    """The real diagnostic text, kept on this server's own log rather than the
+    wire. He has been shown a raw command error naming a data directory before
+    - firstmate still needs that exact text, the page never does."""
+    if detail:
+        sys.stderr.write(f"command-center: {context}: {detail}\n")
+
+
 def send_note(home_path, text):
     # Approved proposal section 3: the captain's words are logged even when they
     # answer no item, so a note with no addressee is a channel this surface owes.
@@ -778,14 +794,21 @@ def send_note(home_path, text):
         input=text, capture_output=True, text=True, timeout=SEND_TIMEOUT,
         env=dict(os.environ, FM_HOME=home_path), check=False,
     )
-    detail = (proc.stdout + proc.stderr).strip()[:600]
+    log_internal(f"fm-inbox.sh note (exit {proc.returncode})",
+                 (proc.stdout + proc.stderr).strip())
+    if proc.returncode == 0:
+        return "sent", "fm-inbox.sh note", ""
     # fm-inbox.sh publishes the note record BEFORE it wakes firstmate and exits
     # nonzero if only the wake failed, so its exit code cannot tell nothing-saved
     # from saved-but-unannounced. Saying "not queued" about words already on disk
     # is the false claim this page exists to end, and a second note is not the
     # same note - queue_note mints a fresh id, so this route is not idempotent.
-    outcome = "sent" if proc.returncode == 0 else "unknown"
-    return outcome, "fm-inbox.sh note", detail
+    # What actually failed is fm-inbox.sh's own words, logged above for firstmate
+    # rather than shown here: they can name an internal script or state path,
+    # which never belongs on this page (no raw machine text reaches him, ever).
+    return ("unknown", "fm-inbox.sh note",
+            "could not be confirmed - it may or may not have reached firstmate; "
+            "sending it again is safe, a note is never merged with an earlier one")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -901,7 +924,33 @@ class Handler(BaseHTTPRequestHandler):
         return text, None
 
     # --- routes --------------------------------------------------------------
+    # Every route is reached only through this pair: whatever goes wrong inside
+    # _route_GET/_route_POST - a bug nobody foresaw, not just the failures
+    # handled inline below - is caught here, logged for firstmate with its real
+    # text, and answered with one safe sentence. This is the structural half of
+    # "no raw machine text reaches him, ever": the outward surface itself cannot
+    # emit an internal error, whatever breaks inside it.
     def do_GET(self):
+        self._guarded(self._route_GET)
+
+    def do_POST(self):
+        self._guarded(self._route_POST)
+
+    def _guarded(self, route):
+        try:
+            route()
+        except Exception as exc:  # noqa: BLE001 - this IS the safety net
+            log_internal(f"unhandled error on {self.command} {self.path}",
+                         "".join(traceback.format_exception(
+                             type(exc), exc, exc.__traceback__)))
+            try:
+                self._json(500, {"ok": False, "error":
+                    "something went wrong on this end - firstmate has the "
+                    "details in its own log"})
+            except Exception:  # noqa: BLE001 - the connection is already gone
+                pass
+
+    def _route_GET(self):
         path = self.path.split("?", 1)[0]
         if not self._local_request():
             self._send(403, b"not your server", "text/plain; charset=utf-8")
@@ -913,7 +962,9 @@ class Handler(BaseHTTPRequestHandler):
                 with open(src, "rb") as fh:
                     body = fh.read()
             except OSError as exc:
-                self._send(500, f"cannot read {src}: {exc}".encode(),
+                log_internal(f"cannot read {src}", str(exc))
+                self._send(500, b"this page could not be loaded - firstmate "
+                           b"has the details in its own log",
                            "text/plain; charset=utf-8")
                 return
             self._send(200, body, ctype + "; charset=utf-8")
@@ -992,7 +1043,7 @@ class Handler(BaseHTTPRequestHandler):
 
     do_HEAD = do_GET
 
-    def do_POST(self):
+    def _route_POST(self):
         path = self.path.split("?", 1)[0]
         payload = self._body()
         ctype = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()

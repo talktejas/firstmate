@@ -638,6 +638,23 @@ function renderWatcher(){
       `<b>The last read of the records failed.</b> ${esc(state.error)} This list may be
        incomplete — what is on it can still be answered.`));
 
+  // Notes HE SENT that firstmate has not read yet (bin/fm-inbox.sh,
+  // unread_notes[] from bin/command-center-scan.sh). This is the honest alarm
+  // for the machinery this band exists to watch: a note's wake is a one-time
+  // doorbell, so nothing else on the page would ever say one went unheard.
+  // noteUrgency/oldestNote come from bin/command-center-state.js and grow this
+  // band louder with age rather than letting it go quiet.
+  const unreadNotes = state.view.unread_notes || [];
+  if (unreadNotes.length){
+    const oldest = oldestNote(unreadNotes);
+    const age = oldest.since_epoch == null ? null : readAt - oldest.since_epoch;
+    const urgent = noteUrgency(age) === 'still-unread';
+    notices.push(band(urgent ? 'hot-soft' : 'warn-soft', urgent ? 'dead' : 'unknown',
+      `<b>${unreadNotes.length} note${unreadNotes.length === 1 ? '' : 's'} you sent ${
+        past ? 'had' : unreadNotes.length === 1 ? 'has' : 'have'} not been read yet.</b> Oldest${age == null ? '' :
+        ', waiting ' + agoWords(age)}: “${esc(oldest.summary || '')}”.${asOf}`));
+  }
+
   // Holds HIDDEN from him - an unsupported backend, or a backlog that is there
   // and cannot be read. A home with no backlog file yet simply holds nothing.
   const unread = homes.filter(h => h.backlog_readable === false);

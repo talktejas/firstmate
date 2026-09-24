@@ -548,6 +548,63 @@ EOF
   printf 'RECORD DIVERGENCE: reconcile each one - record the captain'"'"'s own words with bin/fm-captain-hold.sh answer <task> --decision-file <path>, or re-open the status decision when that resolution was not the captain'"'"'s word.\n' || return 1
 }
 
+# Print the CAPTAIN INBOX NOTES section: every note the captain sent through
+# bin/fm-inbox.sh (state/inbox/*.note, including via the command center's
+# note/reply routes) that has not been moved into handled/. A note's own wake
+# is a one-time doorbell (fm-inbox.sh's queue_note): nothing kept ringing it
+# once that single wake was acknowledged, so an unhandled note could sit
+# unread forever with the acknowledgement already spent - the incident this
+# closes. This section reads state/inbox/ live, via `fm-inbox.sh unread`, on
+# every drain including the empty-queue fast path, so a note stays visible for
+# as long as it is unread, independent of any wake acknowledgement - the same
+# durability OPEN DECISIONS already has independent of the queue. It grows
+# LOUDER rather than quieter: a note still unread past FM_INBOX_STALE_SECS
+# (default 900) is prefixed STILL UNREAD instead of dropping out of sight.
+print_unread_inbox_notes_section() {
+  local notes id epoch summary now age stale line shown=0 omitted=0
+  local output='' used=0 bytes item_bytes=220 global_bytes=2000
+
+  if ! notes=$("$SCRIPT_DIR/fm-inbox.sh" unread 2>/dev/null); then
+    printf 'CAPTAIN INBOX NOTES INCOMPLETE: state/inbox/ could not be read - notes may be waiting unseen\n'
+    return 0
+  fi
+  [ -n "$notes" ] || return 0
+  now=$(date +%s)
+  stale=${FM_INBOX_STALE_SECS:-900}
+  case "$stale" in ''|*[!0-9]*) stale=900 ;; esac
+
+  while IFS=$(printf '\t') read -r id epoch summary; do
+    [ -n "$id" ] || continue
+    case "$epoch" in
+      ''|*[!0-9]*) age=0 ;;
+      *) age=$((now - epoch)); [ "$age" -ge 0 ] || age=0 ;;
+    esac
+    line="$id waiting $((age / 60))m: $summary"
+    [ "$age" -lt "$stale" ] || line="STILL UNREAD $line"
+    fm_cap_line_var "$line" $((item_bytes - 1))
+    line=$FM_LINE_CAP_LINE
+    bytes=$(( ${#line} + 1 ))
+    if [ $((used + bytes)) -gt "$global_bytes" ]; then
+      omitted=$((omitted + 1))
+      continue
+    fi
+    output="$output$line
+"
+    used=$((used + bytes))
+    shown=$((shown + 1))
+  done <<EOF
+$notes
+EOF
+
+  [ "$shown" -gt 0 ] || [ "$omitted" -gt 0 ] || return 0
+  printf 'CAPTAIN INBOX NOTES (unread - a wake acknowledgement never clears this, only reading them does):\n' || return 1
+  printf '%s' "$output" || return 1
+  if [ "$omitted" -gt 0 ]; then
+    printf 'CAPTAIN INBOX NOTES: %d more omitted (byte cap)\n' "$omitted" || return 1
+  fi
+  printf 'CAPTAIN INBOX NOTES: mark read with: bin/fm-inbox.sh drain --ack <id>...\n' || return 1
+}
+
 print_status_sections() {
   local snapshot=${1:-} fully_presented=${2:-} acknowledged prepared
   if [ -z "$snapshot" ]; then snapshot=$(status_presentation_snapshot "$STATE") || return 1; fi
@@ -597,6 +654,10 @@ print_status_presentation() {  # [<deduped-raw-rows>]
     printf 'STATUS PRESENTATION INCOMPLETE: status snapshot could not be read.\n'
     rc=1
   }
+  # Independent of the status snapshot above: a fresh home with no task status
+  # log yet can still hold an unread captain note, and that note must not wait
+  # on the first worker to exist before it is ever shown.
+  print_unread_inbox_notes_section || rc=1
   if [ "$rc" -eq 0 ] && [ -n "$rows" ]; then
     fm_wake_print_annotations "$rows" "$snapshot" || rc=1
     if [ "$rc" -eq 0 ]; then

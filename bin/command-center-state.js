@@ -358,10 +358,34 @@ function itemKey(it) {
   return [it.home, it.source, it.id, it.key || ''].join('/');
 }
 
+// --- how insistent an unread note has become -------------------------------------
+// bin/command-center-scan.sh's unread_notes[] carries every captain note
+// (bin/fm-inbox.sh, state/inbox/) firstmate has not yet acknowledged as read -
+// a wake acknowledgement alone never clears one (bin/fm-wake-drain.sh's
+// CAPTAIN INBOX NOTES section is the same durable truth on firstmate's side).
+// The page must not go quiet just because it has shown this before: the tone
+// escalates with age instead, matching the drain's own STILL UNREAD threshold.
+const NOTE_STILL_UNREAD_SECS = 900;
+function noteUrgency(ageSecs) {
+  return (typeof ageSecs === 'number' && ageSecs >= NOTE_STILL_UNREAD_SECS)
+    ? 'still-unread' : 'unread';
+}
+
+// The oldest of a list of unread notes, by since_epoch - undated notes (a
+// clock that could not be read) count as the most urgent rather than being
+// silently skipped, so a bad timestamp can never hide the alarm.
+function oldestNote(notes) {
+  if (!notes || !notes.length) return null;
+  return notes.reduce((a, b) =>
+    (a.since_epoch == null) ? a : (b.since_epoch == null) ? b
+      : (a.since_epoch <= b.since_epoch ? a : b));
+}
+
 if (typeof module === 'object' && module.exports)
   module.exports = { pollFacts, tense, transportFailure, verdictFor,
                      releaseVerdicts, itemKey, shapeMessage, orderRows,
                      replyTarget, foldSaid, wordsAfter,
                      listSignature, mayRelease, logRead,
                      sendState, sendKeys, spokenFor, sameWords,
-                     heldWith, captureBand, saidDigest, mergeMessages };
+                     heldWith, captureBand, saidDigest, mergeMessages,
+                     noteUrgency, oldestNote };
