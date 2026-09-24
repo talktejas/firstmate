@@ -122,7 +122,7 @@
 # stores. `binding` prints the stored value verbatim and `answers` accepts it,
 # so the process-event runner's feed seam is unchanged.
 #
-# A successful answer also writes an id-bound receipt under
+# A successful closing (non --release) answer also writes an id-bound receipt under
 # `state/captain-hold-resolutions/`. The receipt contains no decision text and
 # survives Done-history pruning, so verify can distinguish a genuinely answered
 # call from a typo after its backlog row is gone.
