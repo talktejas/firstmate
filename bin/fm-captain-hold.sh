@@ -537,18 +537,9 @@ resolution_receipt_matches() {  # <task-id>
 }
 
 record_resolution_receipt() {  # <task-id> <answer-mode>
-  local id=$1 mode=$2 path tmp now existing_mode='' existing_digest=''
+  local id=$1 mode=$2 path tmp now
   case "$mode" in answered|repaired|routed) : ;; *) return 0 ;; esac
   path="$RESOLUTION_RECEIPT_DIR/$id.receipt"
-  if [ -e "$path" ] || [ -L "$path" ]; then
-    resolution_receipt_matches "$id" \
-      || fail "captain answer receipt for $id is malformed; refusing to replace durable evidence"
-    existing_mode=$(sed -n 's/^mode=//p' "$path" | tail -1)
-    existing_digest=$(sed -n 's/^decision_digest=//p' "$path" | tail -1)
-    [ "$existing_mode" = "$mode" ] && [ "$existing_digest" = "$DECISION_DIGEST" ] \
-      || fail "captain answer receipt for $id conflicts with this resolution"
-    return 0
-  fi
   mkdir -p "$RESOLUTION_RECEIPT_DIR" \
     || fail "cannot create the captain answer receipt directory"
   chmod 700 "$RESOLUTION_RECEIPT_DIR" 2>/dev/null || true
@@ -1137,13 +1128,13 @@ command_answer() {
         || fail "task $id records this resolution with mode ${recorded_mode:-unknown}; it is not a captain-answer replay"
       [ "$release" = 0 ] \
         || fail "task $id records this answer with mode ${recorded_mode:-unknown}; --release cannot reopen a closed task"
-      record_resolution_receipt "$id" "$recorded_mode"
       remove_interrupted_answer_stamp "$id"
       if [ "$recorded_mode" = repaired ]; then
         publish_parent_resolution_then_retire "$id" $((occurrence - 1)) "answered (repaired)"
       else
         publish_parent_resolution_then_retire "$id" $((occurrence - 1)) answered
       fi
+      record_resolution_receipt "$id" "$recorded_mode"
       printf 'answered: %s\n' "$id"
       return 0
     fi
@@ -1154,7 +1145,6 @@ command_answer() {
     [ "$hold_kind" = captain ] \
       || fail "task $id was never held for the captain; nothing to record an answer on"
     write_resolution_record "$id" repaired "$body"
-    record_resolution_receipt "$id" repaired
     remove_interrupted_answer_stamp "$id"
     task_show "$id" || fail "task $id disappeared while recording the answer"
     show=$TASK_SHOW_OUTPUT
@@ -1162,6 +1152,7 @@ command_answer() {
     body_has_resolution_record "$(show_field "$show" body)" \
       || fail "captain-held task $id did not retain its durable resolution record"
     publish_parent_resolution_then_retire "$id" "$occurrence" "answered (repaired)"
+    record_resolution_receipt "$id" repaired
     printf 'repaired: %s\n' "$id"
     return 0
   fi
@@ -1184,14 +1175,13 @@ command_answer() {
       if ! close_answered "$id" "$release"; then
         fail "could not close answered captain-held task $id"
       fi
-      [ "$release" = 1 ] || record_resolution_receipt "$id" "$recorded_mode"
       remove_interrupted_answer_stamp "$id"
       publish_parent_resolution_then_retire "$id" $((occurrence - 1)) "$outcome"
+      [ "$release" = 1 ] || record_resolution_receipt "$id" "$recorded_mode"
       printf '%s: %s\n' "$outcome" "$id"
       return 0
     fi
     write_resolution_record "$id" "$outcome" "$body"
-    [ "$release" = 1 ] || record_resolution_receipt "$id" "$outcome"
     if ! close_answered "$id" "$release"; then
       fail "could not close answered captain-held task $id"
     fi
@@ -1201,6 +1191,7 @@ command_answer() {
     body_has_resolution_record "$(show_field "$show" body)" \
       || fail "captain-held task $id did not retain its durable resolution record"
     publish_parent_resolution_then_retire "$id" "$occurrence" "$outcome"
+    [ "$release" = 1 ] || record_resolution_receipt "$id" "$outcome"
     printf '%s: %s\n' "$outcome" "$id"
     return 0
   fi

@@ -993,6 +993,36 @@ test_pruned_answer_receipt_allows_teardown_but_missing_id_refuses() {
   pass "pruned answered calls verify through receipts while never-existent ids still refuse"
 }
 
+# A re-held call answered a second time with different words must close and
+# publish as usual: the receipt only proves the id was answered, so the earlier
+# one is replaced rather than treated as a conflict that strands the answer.
+test_reheld_call_accepts_a_second_closing_answer() {
+  local home call show
+  home=$(make_home reheld-second-answer)
+  call=sample-reheld-call
+  run_captain "$home" hold "$call" --title "Pick a supplier" \
+    --reason "captain must choose" --repo sample >/dev/null \
+    || fail "could not hold the re-held fixture call"
+  printf 'Use the first supplier.\n' > "$home/first.txt"
+  run_captain "$home" answer "$call" --decision-file "$home/first.txt" >/dev/null \
+    || fail "could not answer the call the first time"
+  assert_present "$home/state/captain-hold-resolutions/$call.receipt" \
+    "the first closing answer did not persist its receipt"
+  tasks_in "$home" reopen "$call" >/dev/null || fail "could not reopen the answered call"
+  run_captain "$home" hold "$call" --reason "captain must choose again" >/dev/null \
+    || fail "could not re-hold the reopened call"
+  printf 'Switch to the second supplier.\n' > "$home/second.txt"
+  run_captain "$home" answer "$call" --decision-file "$home/second.txt" >/dev/null \
+    || fail "a re-held call refused a second closing answer"
+  show=$(tasks_in "$home" show "$call" --full)
+  assert_contains "$show" "state: done" "the second closing answer left the call open"
+  assert_contains "$show" "Switch to the second supplier." \
+    "the second closing answer was not recorded"
+  assert_present "$home/state/captain-hold-resolutions/$call.receipt" \
+    "the second closing answer lost the answer receipt"
+  pass "a re-held call accepts a second closing answer and keeps its receipt"
+}
+
 
 # A wedged backend is not an empty one either. The readability probe runs while
 # this origin's metadata lock is held, so it carries the same read bound every
@@ -4338,6 +4368,7 @@ test_completion_gate_attests_and_transfers
 test_answer_records_and_closes
 test_answered_inventory_allows_repair_and_teardown
 test_pruned_answer_receipt_allows_teardown_but_missing_id_refuses
+test_reheld_call_accepts_a_second_closing_answer
 test_unreadable_backlog_does_not_drift_clear_an_inventory
 test_wedged_backlog_listing_does_not_hang_the_completion_gate
 test_release_frees_held_work

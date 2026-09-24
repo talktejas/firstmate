@@ -21,7 +21,7 @@ A matching retry also completes any resolution-first normalization left unfinish
 An exact retry is idempotent only when the requested close mode matches the newest record; a drifted answer or mode mismatch is rejected, while a re-held task accepts a new answer as a new record on top.
 On a task closed outside the script, `answer` records the missing block only when the captain-hold annotations tasks-axi preserves through a close prove the captain owned it, and it verifies the task stays closed.
 A hold whose `--until` date has passed keeps those annotations while tasks-axi reports it no longer held, so an expired deferral remains answerable.
-For a closing answer, the same path writes an id-bound, decision-text-free receipt under `state/captain-hold-resolutions/` after recording the task-body resolution and before closing the row.
+For a closing answer, the same path writes an id-bound, decision-text-free receipt under `state/captain-hold-resolutions/` once the resolution is recorded, closed, and published, and a re-held task's new answer replaces the earlier receipt.
 The receipt carries its schema, task id, answer mode, digest, and timestamp, and is the narrow proof `verify` accepts only when a retained Done row has been pruned.
 An id with neither a readable task nor a valid matching receipt remains an error, so absence never becomes an answer.
 
