@@ -898,7 +898,7 @@ verify_entry_durable() {  # <origin-or-empty> <entry>; prints "<id> <how>"
   resolved=$(resolve_entry "$origin" "$entry" 2>&1) || resolve_status=$?
   if [ "$resolve_status" -ne 0 ]; then
     [ "$resolve_status" -ne 124 ] \
-      || fail "the backlog backend exceeded its read bound resolving $entry"
+      || { printf '%s\n' "$resolved" >&2; fail "the backlog backend exceeded its read bound resolving $entry"; }
     if resolved=$(receipt_resolves_entry "$origin" "$entry"); then
       printf '%s\n' "$resolved"
       return 0
