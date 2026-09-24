@@ -1,0 +1,114 @@
+===== SCENARIO 1: three answered calls pruned; verify + teardown =====
+$ fm-captain-hold.sh complete jt-mfg-module-plan jt-mfg-karigar-wage-metal jt-mfg-mould-in-house jt-mfg-mould-ownership jt-mfg-stone-setting jt-mfg-polish-line
+complete: jt-mfg-module-plan captain-call inventory reviewed (jt-mfg-karigar-wage-metal,jt-mfg-mould-in-house,jt-mfg-mould-ownership,jt-mfg-polish-line,jt-mfg-stone-setting)
+[exit 0]
+$ fm-captain-hold.sh answer jt-mfg-karigar-wage-metal --decision-file /tmp/fm-drive.6iy78O/s1/ans-jt-mfg-karigar-wage-metal.txt
+answered: jt-mfg-karigar-wage-metal
+[exit 0]
+$ fm-captain-hold.sh answer jt-mfg-mould-in-house --decision-file /tmp/fm-drive.6iy78O/s1/ans-jt-mfg-mould-in-house.txt
+answered: jt-mfg-mould-in-house
+[exit 0]
+$ fm-captain-hold.sh answer jt-mfg-mould-ownership --decision-file /tmp/fm-drive.6iy78O/s1/ans-jt-mfg-mould-ownership.txt
+answered: jt-mfg-mould-ownership
+[exit 0]
+$ tasks-axi prune --keep 0
+ok: prune done -> archived 3 (kept 0)
+help[1]:
+  - Run `tasks-axi list --state done` to see retained Done items
+$ tasks-axi show jt-mfg-karigar-wage-metal
+error: "Task \"jt-mfg-karigar-wage-metal\" not found in this backlog"
+code: NOT_FOUND
+help[1]: Run `tasks-axi list` to see existing tasks
+$ tasks-axi show jt-mfg-mould-in-house
+error: "Task \"jt-mfg-mould-in-house\" not found in this backlog"
+code: NOT_FOUND
+help[1]: Run `tasks-axi list` to see existing tasks
+$ tasks-axi show jt-mfg-mould-ownership
+error: "Task \"jt-mfg-mould-ownership\" not found in this backlog"
+code: NOT_FOUND
+help[1]: Run `tasks-axi list` to see existing tasks
+$ fm-captain-hold.sh answer jt-mfg-stone-setting --decision-file /tmp/fm-drive.6iy78O/s1/ans-jt-mfg-stone-setting.txt
+answered: jt-mfg-stone-setting
+[exit 0]
+$ fm-captain-hold.sh answer jt-mfg-polish-line --decision-file /tmp/fm-drive.6iy78O/s1/ans-jt-mfg-polish-line.txt
+answered: jt-mfg-polish-line
+[exit 0]
+decision_keys=jt-mfg-karigar-wage-metal,jt-mfg-mould-in-house,jt-mfg-mould-ownership,jt-mfg-polish-line,jt-mfg-stone-setting
+ls: cannot access '/tmp/fm-drive.6iy78O/s1/state/captain-hold-resolutions': No such file or directory
+cat: /tmp/fm-drive.6iy78O/s1/state/captain-hold-resolutions/jt-mfg-mould-in-house.receipt: No such file or directory
+$ fm-captain-hold.sh verify jt-mfg-module-plan
+fm-captain-hold: no captain-held task jt-mfg-karigar-wage-metal and no migrated hold for it in this home's configured backlog (data directory /tmp/fm-drive.6iy78O/s1/data); the nearest legacy identity jt-mfg-module-plan-decision-jt-mfg-karigar-wage-metal also resolves to nothing
+[exit 1]
+$ fm-teardown.sh jt-mfg-module-plan
+fm-captain-hold: no captain-held task jt-mfg-karigar-wage-metal and no migrated hold for it in this home's configured backlog (data directory /tmp/fm-drive.6iy78O/s1/data); the nearest legacy identity jt-mfg-module-plan-decision-jt-mfg-karigar-wage-metal also resolves to nothing
+REFUSED: scout task jt-mfg-module-plan has not passed the captain-call completion gate.
+Inventory its report and any visual review through bin/fm-captain-hold.sh before teardown.
+[exit 1]
+
+===== SCENARIO 2: id that was never answered (no receipt) still refuses =====
+$ fm-captain-hold.sh complete jt-mfg-module-plan jt-mfg-real-call
+complete: jt-mfg-module-plan captain-call inventory reviewed (jt-mfg-real-call)
+[exit 0]
+$ fm-captain-hold.sh answer jt-mfg-real-call --decision-file /tmp/fm-drive.6iy78O/s2/ans-jt-mfg-real-call.txt
+answered: jt-mfg-real-call
+[exit 0]
+$ fm-captain-hold.sh verify jt-mfg-module-plan
+fm-captain-hold: no captain-held task jt-mfg-typo-call and no migrated hold for it in this home's configured backlog (data directory /tmp/fm-drive.6iy78O/s2/data); the nearest legacy identity jt-mfg-module-plan-decision-jt-mfg-typo-call also resolves to nothing
+[exit 1]
+$ fm-teardown.sh jt-mfg-module-plan
+fm-captain-hold: no captain-held task jt-mfg-typo-call and no migrated hold for it in this home's configured backlog (data directory /tmp/fm-drive.6iy78O/s2/data); the nearest legacy identity jt-mfg-module-plan-decision-jt-mfg-typo-call also resolves to nothing
+REFUSED: scout task jt-mfg-module-plan has not passed the captain-call completion gate.
+Inventory its report and any visual review through bin/fm-captain-hold.sh before teardown.
+[exit 1]
+
+===== SCENARIO 3: forged/malformed receipt does not satisfy verify =====
+$ fm-captain-hold.sh answer jt-mfg-a --decision-file /tmp/fm-drive.6iy78O/s3/ans-jt-mfg-a.txt
+answered: jt-mfg-a
+[exit 0]
+$ fm-captain-hold.sh verify jt-mfg-module-plan
+fm-captain-hold: no captain-held task jt-mfg-forged and no migrated hold for it in this home's configured backlog (data directory /tmp/fm-drive.6iy78O/s3/data); the nearest legacy identity jt-mfg-module-plan-decision-jt-mfg-forged also resolves to nothing
+[exit 1]
+$ fm-captain-hold.sh verify jt-mfg-module-plan
+fm-captain-hold: no captain-held task jt-mfg-baddigest and no migrated hold for it in this home's configured backlog (data directory /tmp/fm-drive.6iy78O/s3/data); the nearest legacy identity jt-mfg-module-plan-decision-jt-mfg-baddigest also resolves to nothing
+[exit 1]
+
+===== SCENARIO 4: pre-change pruned calls (no receipts) repaired via corrected complete =====
+$ fm-captain-hold.sh verify jt-mfg-module-plan
+fm-captain-hold: no captain-held task jt-mfg-karigar-wage-metal and no migrated hold for it in this home's configured backlog (data directory /tmp/fm-drive.6iy78O/s4/data); the nearest legacy identity jt-mfg-module-plan-decision-jt-mfg-karigar-wage-metal also resolves to nothing
+[exit 1]
+$ fm-captain-hold.sh complete jt-mfg-module-plan jt-mfg-stone-setting jt-mfg-polish-line
+complete: jt-mfg-module-plan captain-call inventory reviewed (jt-mfg-polish-line,jt-mfg-stone-setting) [dropped ids that resolve to no task: jt-mfg-karigar-wage-metal jt-mfg-mould-in-house jt-mfg-mould-ownership]
+[exit 0]
+$ fm-captain-hold.sh complete jt-mfg-module-plan --repair-reason answered and pruned before receipts existed jt-mfg-stone-setting jt-mfg-polish-line
+fm-captain-hold: task-id must be a non-empty privacy-safe slug: answered and pruned before receipts existed
+[exit 1]
+decision_keys=jt-mfg-karigar-wage-metal,jt-mfg-mould-in-house,jt-mfg-mould-ownership,jt-mfg-polish-line,jt-mfg-stone-setting
+decision_keys=jt-mfg-polish-line,jt-mfg-stone-setting
+$ fm-captain-hold.sh verify jt-mfg-module-plan
+verified: jt-mfg-module-plan captain-call inventory
+[exit 0]
+$ fm-teardown.sh jt-mfg-module-plan
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+teardown jt-mfg-module-plan complete (window firstmate:fm-jt-mfg-module-plan, worktree /tmp/fm-drive.6iy78O/s4/projects/missing-jt-mfg-module-plan)
+Backlog: jt-mfg-module-plan is closed in /tmp/fm-drive.6iy78O/s4/data/backlog.md. Run bin/fm-tasks-axi.sh ready for dependency-cleared candidates, check date gates, and dispatch only work whose blockers are gone and date is due.
+[exit 0]
+
+===== SCENARIO 5: trailing --none after ids is refused, inventory untouched =====
+$ fm-captain-hold.sh complete jt-mfg-module-plan jt-mfg-x --none
+fm-captain-hold: --none cannot be combined with task ids
+[exit 1]
+$ fm-captain-hold.sh complete jt-mfg-module-plan --none jt-mfg-x
+fm-captain-hold: --none cannot be combined with task ids
+[exit 1]
+decision_keys=jt-mfg-x
+
+===== SCENARIO 6: re-held call accepts a second different answer =====
+$ fm-captain-hold.sh answer jt-mfg-re --decision-file /tmp/fm-drive.6iy78O/s6/ans-jt-mfg-re.txt
+answered: jt-mfg-re
+[exit 0]
+$ fm-captain-hold.sh answer jt-mfg-re --decision-file /tmp/fm-drive.6iy78O/s6/b.txt
+answered: jt-mfg-re
+[exit 0]
+  state: done
+  body: "Resolution recorded by fm-captain-hold.\nDecision digest: 17733e81e370f9c3a47d73d7341bfebcd745a81da25484aaf65652351e900127\nResolution mode: answered\n\nCaptain decision:\nSwitch to option B.\n\nResolution recorded by fm-captain-hold.\nDecision digest: 983484e9442a05ae8c15aca9128efba9480b1978ae9e94559176ce46c51a1640\nResolution mode: answered\n\nCaptain decision:\nCaptain chose option A for jt-mfg-re."
+cat: /tmp/fm-drive.6iy78O/s6/state/captain-hold-resolutions/jt-mfg-re.receipt: No such file or directory
