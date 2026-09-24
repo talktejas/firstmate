@@ -905,12 +905,26 @@ test_answered_inventory_allows_repair_and_teardown() {
   # A mistyped id that resolves to no row at all is repairable drift, not a
   # settled call: --none clears it but says so, so the mistype stays visible.
   printf 'decision_keys=%s\n' "$active,$missing" >> "$home/state/$id.meta"
-  out=$(run_captain "$home" complete "$id" --none) \
+  set +e
+  err=$(run_captain "$home" complete "$id" "$active" --none 2>&1 >/dev/null)
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "--none after a task id attested the supplied ids instead of refusing"
+  assert_contains "$err" "--none cannot be combined with task ids" \
+    "a trailing --none was not refused for the same reason as a leading one"
+  assert_equals "decision_keys=$active,$missing" \
+    "$(grep '^decision_keys=' "$home/state/$id.meta" | tail -1)" \
+    "the refused trailing --none still rewrote the attested inventory"
+
+  out=$(run_captain "$home" complete "$id" --repair-reason "remove the mistyped fixture id" --none) \
     || fail "completion refused --none with every attested call answered"
   assert_contains "$out" "$missing" "the drift report did not name the dropped unresolved id"
   assert_equals "decision_keys=" \
     "$(grep '^decision_keys=' "$home/state/$id.meta" | tail -1)" \
     "--none did not clear the attested inventory"
+  assert_grep "dropped=$missing reason=remove the mistyped fixture id" \
+    "$home/state/$id.meta" \
+    "the explicit missing-id repair did not retain its reason"
 
   run_teardown "$home" "$id" > "$home/teardown.out" 2> "$home/teardown.err" \
     || fail "answered inventory still refused scout teardown: $(cat "$home/teardown.err")"
@@ -929,6 +943,84 @@ test_answered_inventory_allows_repair_and_teardown() {
   [ "$rc" -ne 0 ] || fail "verify accepted an inventory id with no task or resolution"
   assert_contains "$err" "$missing" "the missing inventory refusal did not name its id"
   pass "answered inventories verify, corrected completion replaces them without dropping a live call, teardown proceeds, and missing ids refuse"
+}
+
+# A receipt written only by answer survives a Done-history prune. That is
+# intentionally narrower than accepting any absent id: verify still refuses a
+# spelling no answer path ever recorded, while teardown can now retire a scout
+# whose genuinely settled call aged out of retained history.
+test_pruned_answer_receipt_allows_teardown_but_missing_id_refuses() {
+  local home id answered missing rc err
+  home=$(make_home pruned-answer-receipt)
+  id=sample-pruned-answer-scout
+  answered=sample-pruned-answer-call
+  missing=sample-never-a-call
+  mkdir -p "$home/data/$id"
+  tasks_in "$home" add "$id" "Investigate pruned answered calls" --kind scout \
+    --repo sample --start >/dev/null || fail "could not create the receipt scout"
+  write_origin_meta "$home" "$id"
+  printf 'done: report complete\n' > "$home/state/$id.status"
+  printf '# Pruned answer receipt\n\nThe investigation is complete.\n' > "$home/data/$id/report.md"
+  run_captain "$home" hold "$answered" --title "Choose the retained option" \
+    --reason "captain must choose before pruning" --repo sample >/dev/null \
+    || fail "could not hold the receipt call"
+  run_captain "$home" complete "$id" "$answered" >/dev/null \
+    || fail "could not attest the receipt call"
+  printf 'The captain chose the retained option.\n' > "$home/answer.txt"
+  run_captain "$home" answer "$answered" --decision-file "$home/answer.txt" >/dev/null \
+    || fail "could not answer the receipt call"
+  assert_present "$home/state/captain-hold-resolutions/$answered.receipt" \
+    "answer did not persist its prune-surviving receipt"
+  tasks_in "$home" prune --keep 0 >/dev/null \
+    || fail "could not prune the answered Done row"
+  if tasks_in "$home" show "$answered" --full >/dev/null 2>&1; then
+    fail "the answered fixture row survived its zero-retention prune"
+  fi
+  run_captain "$home" verify "$id" >/dev/null \
+    || fail "a pruned answered call receipt did not satisfy verify"
+  run_teardown "$home" "$id" > "$home/teardown.out" 2> "$home/teardown.err" \
+    || fail "teardown refused a scout whose answered call was pruned: $(cat "$home/teardown.err")"
+
+  mkdir -p "$home/state"
+  fm_write_meta "$home/state/$missing.meta" \
+    "window=firstmate:fm-$missing" "worktree=$home/projects/missing" \
+    "project=$home/projects/sample" "harness=codex" "kind=scout" "mode=scout" \
+    "spawn_gen=fixture-$missing" "decisions_reviewed=1" "decision_keys=$missing"
+  rc=0
+  err=$(run_captain "$home" verify "$missing" 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "verify accepted an id with neither a task nor an answer receipt"
+  assert_contains "$err" "$missing" "the missing receipt refusal did not name its id"
+  pass "pruned answered calls verify through receipts while never-existent ids still refuse"
+}
+
+# A re-held call answered a second time with different words must close and
+# publish as usual: the receipt only proves the id was answered, so the earlier
+# one is replaced rather than treated as a conflict that strands the answer.
+test_reheld_call_accepts_a_second_closing_answer() {
+  local home call show
+  home=$(make_home reheld-second-answer)
+  call=sample-reheld-call
+  run_captain "$home" hold "$call" --title "Pick a supplier" \
+    --reason "captain must choose" --repo sample >/dev/null \
+    || fail "could not hold the re-held fixture call"
+  printf 'Use the first supplier.\n' > "$home/first.txt"
+  run_captain "$home" answer "$call" --decision-file "$home/first.txt" >/dev/null \
+    || fail "could not answer the call the first time"
+  assert_present "$home/state/captain-hold-resolutions/$call.receipt" \
+    "the first closing answer did not persist its receipt"
+  tasks_in "$home" reopen "$call" >/dev/null || fail "could not reopen the answered call"
+  run_captain "$home" hold "$call" --reason "captain must choose again" >/dev/null \
+    || fail "could not re-hold the reopened call"
+  printf 'Switch to the second supplier.\n' > "$home/second.txt"
+  run_captain "$home" answer "$call" --decision-file "$home/second.txt" >/dev/null \
+    || fail "a re-held call refused a second closing answer"
+  show=$(tasks_in "$home" show "$call" --full)
+  assert_contains "$show" "state: done" "the second closing answer left the call open"
+  assert_contains "$show" "Switch to the second supplier." \
+    "the second closing answer was not recorded"
+  assert_present "$home/state/captain-hold-resolutions/$call.receipt" \
+    "the second closing answer lost the answer receipt"
+  pass "a re-held call accepts a second closing answer and keeps its receipt"
 }
 
 
@@ -4275,6 +4367,8 @@ test_retained_body_keeps_its_utf8_bytes
 test_completion_gate_attests_and_transfers
 test_answer_records_and_closes
 test_answered_inventory_allows_repair_and_teardown
+test_pruned_answer_receipt_allows_teardown_but_missing_id_refuses
+test_reheld_call_accepts_a_second_closing_answer
 test_unreadable_backlog_does_not_drift_clear_an_inventory
 test_wedged_backlog_listing_does_not_hang_the_completion_gate
 test_release_frees_held_work
