@@ -876,7 +876,8 @@ ROWS
 }
 
 # The captain repeatedly rejected work that rebuilt from zero instead of
-# studying and extending the existing codebase (AGENTS.md section 6). That rule
+# studying and extending the existing codebase (captain 2026-09-24: study and
+# extend the existing code, never rebuild it). That rule
 # used to live only in firstmate's notes and had to be copied into each brief by
 # hand, so every ship and scout brief must now carry it directly, positioned
 # before the task-specific `# Task` section so no worker can miss it.

@@ -372,8 +372,8 @@ EOF
 TASK_SECTION=${TASK_SECTION%$'\n'}
 
 # The captain has repeatedly rejected work that rebuilt from zero instead of
-# studying and extending what the repository already has (AGENTS.md section
-# 6, "Extend existing code, never rebuild"). That rule used to live only in
+# studying and extending what the repository already has (captain 2026-09-24:
+# study and extend the existing code, never rebuild it). That rule used to live only in
 # firstmate's own notes and had to be copied into each brief by hand, so it
 # kept being forgotten; it is now part of every generated brief instead.
 IFS= read -r -d '' STUDY_SECTION <<'EOF' || true
