@@ -1,0 +1,114 @@
+=== $ FM_HOME=$H bin/fm-brief.sh ship-no-mistakes demo-repo --mode no-mistakes
+scaffolded: /tmp/tmp.S6UKq48u4X/data/ship-no-mistakes/brief.md (ship, mode=no-mistakes; replace {TASK} and {FIRSTMATE_SPEC})
+exit=0
+--- first 12 lines of generated brief:
+You are a crewmate: an autonomous worker agent managed by firstmate. Work on your own; do not wait for a human.
+
+# Before you write any code
+1. Find and read what already exists for this area in this repository: the services, screens, tables, settings and tests that already do part of this job. Name them in your first status line.
+2. Say what you will EXTEND. Creating a second implementation of something that already exists is a failure, not a choice: if you find yourself about to write one, stop and report it instead.
+3. Check which branch already carries work for this area (feature/*, integration/*) and say whether your base is the right one. If work for this area lives on another branch, stop and report before building.
+4. Reuse the project's existing patterns, helpers and configuration mechanism rather than inventing a parallel one.
+
+# Task
+## Captain's intent
+{TASK}
+
+--- heading order:
+3:# Before you write any code
+9:# Task
+16:# Herdr lifecycle declaration - NOT ENABLED
+21:# Setup
+=== $ FM_HOME=$H bin/fm-brief.sh ship-direct-PR demo-repo --mode direct-PR
+scaffolded: /tmp/tmp.S6UKq48u4X/data/ship-direct-PR/brief.md (ship, mode=direct-PR; replace {TASK} and {FIRSTMATE_SPEC})
+exit=0
+--- first 12 lines of generated brief:
+You are a crewmate: an autonomous worker agent managed by firstmate. Work on your own; do not wait for a human.
+
+# Before you write any code
+1. Find and read what already exists for this area in this repository: the services, screens, tables, settings and tests that already do part of this job. Name them in your first status line.
+2. Say what you will EXTEND. Creating a second implementation of something that already exists is a failure, not a choice: if you find yourself about to write one, stop and report it instead.
+3. Check which branch already carries work for this area (feature/*, integration/*) and say whether your base is the right one. If work for this area lives on another branch, stop and report before building.
+4. Reuse the project's existing patterns, helpers and configuration mechanism rather than inventing a parallel one.
+
+# Task
+## Captain's intent
+{TASK}
+
+--- heading order:
+3:# Before you write any code
+9:# Task
+16:# Herdr lifecycle declaration - NOT ENABLED
+21:# Setup
+=== $ FM_HOME=$H bin/fm-brief.sh ship-local-only demo-repo --mode local-only
+scaffolded: /tmp/tmp.S6UKq48u4X/data/ship-local-only/brief.md (ship, mode=local-only; replace {TASK} and {FIRSTMATE_SPEC})
+exit=0
+--- first 12 lines of generated brief:
+You are a crewmate: an autonomous worker agent managed by firstmate. Work on your own; do not wait for a human.
+
+# Before you write any code
+1. Find and read what already exists for this area in this repository: the services, screens, tables, settings and tests that already do part of this job. Name them in your first status line.
+2. Say what you will EXTEND. Creating a second implementation of something that already exists is a failure, not a choice: if you find yourself about to write one, stop and report it instead.
+3. Check which branch already carries work for this area (feature/*, integration/*) and say whether your base is the right one. If work for this area lives on another branch, stop and report before building.
+4. Reuse the project's existing patterns, helpers and configuration mechanism rather than inventing a parallel one.
+
+# Task
+## Captain's intent
+{TASK}
+
+--- heading order:
+3:# Before you write any code
+9:# Task
+16:# Herdr lifecycle declaration - NOT ENABLED
+21:# Setup
+=== scout
+scaffolded: /tmp/tmp.S6UKq48u4X/data/scout-1/brief.md (scout; replace {TASK} and {FIRSTMATE_SPEC})
+exit=0
+You are a crewmate: an autonomous worker agent managed by firstmate. Work on your own; do not wait for a human.
+
+# Before you write any code
+1. Find and read what already exists for this area in this repository: the services, screens, tables, settings and tests that already do part of this job. Name them in your first status line.
+2. Say what you will EXTEND. Creating a second implementation of something that already exists is a failure, not a choice: if you find yourself about to write one, stop and report it instead.
+3. Check which branch already carries work for this area (feature/*, integration/*) and say whether your base is the right one. If work for this area lives on another branch, stop and report before building.
+4. Reuse the project's existing patterns, helpers and configuration mechanism rather than inventing a parallel one.
+
+# Task
+## Captain's intent
+{TASK}
+
+3:# Before you write any code
+9:# Task
+16:# Herdr lifecycle declaration - NOT ENABLED
+21:# Setup
+=== herdr-lab ship
+scaffolded: /tmp/tmp.S6UKq48u4X/data/ship-herdr/brief.md (ship, mode=no-mistakes; replace {TASK} and {FIRSTMATE_SPEC})
+3:# Before you write any code
+9:# Task
+16:# Herdr isolation - HARD SAFETY CONTRACT
+35:# Setup
+=== secondmate (charter; not a worker brief)
+scaffolded: /tmp/tmp.S6UKq48u4X/data/sm-1/brief.md (secondmate charter)
+exit=0
+0
+=== promotion of scout-1
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+promoted scout-1 to ship mode=direct-PR yolo=off (teardown protection restored)
+wrote ship instructions for mode=direct-PR: /tmp/tmp.S6UKq48u4X/data/scout-1/ship-instructions.md
+next: FM_HOME=/tmp/tmp.S6UKq48u4X bin/fm-send.sh fm-scout-1 "$(cat /tmp/tmp.S6UKq48u4X/data/scout-1/ship-instructions.md)"
+exit=0
+3:# Before you write any code
+4-1. Find and read what already exists for this area in this repository: the services, screens, tables, settings and tests that already do part of this job. Name them in your first status line.
+5-2. Say what you will EXTEND. Creating a second implementation of something that already exists is a failure, not a choice: if you find yourself about to write one, stop and report it instead.
+6-3. Check which branch already carries work for this area (feature/*, integration/*) and say whether your base is the right one. If work for this area lives on another branch, stop and report before building.
+7-4. Reuse the project's existing patterns, helpers and configuration mechanism rather than inventing a parallel one.
+8-
+1
+=== refuse overwrite still works
+error: /tmp/tmp.S6UKq48u4X/data/ship-no-mistakes/brief.md already exists
+exit=1
