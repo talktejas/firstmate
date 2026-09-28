@@ -630,10 +630,10 @@ classify_gh() {
   local word=$1 env_repo=$2 group='' sub='' pos3='' method='' fields=0 targets='' tok s op path t owner repo project=''
   local apiargs='' apipaths='' n=0 rawmedia=0
   shift 2
+  case "$(printf '%s ' "$@" | LC_ALL=C tr '[:upper:]' '[:lower:]')" in
+    *vnd.github*.diff*|*vnd.github*.patch*|*vnd.github*.raw*) rawmedia=1 ;;
+  esac
   for tok in "$@"; do
-    case "$(printf '%s' "$tok" | LC_ALL=C tr '[:upper:]' '[:lower:]')" in
-      *vnd.github*.diff*|*vnd.github*.patch*|*vnd.github*.raw*) rawmedia=1 ;;
-    esac
     case "$tok" in
       repos/*/*|/repos/*/*|*://*) apipaths="$apipaths $tok" ;;
     esac
@@ -708,8 +708,14 @@ classify_gh() {
         [ "$path" != "$t" ] || path='' ;;
       *)
         if [ "$n" -le 1 ]; then
-          [ "$method" = GET ] && return 0
-          forge_refuse "$op $method" "" "it writes outside a repository the guard can name"
+          if [ "$method" != GET ]; then
+            forge_refuse "$op $method" "" "it writes outside a repository the guard can name"
+            return 0
+          fi
+          case "$path" in
+            user|rate_limit|meta|notifications|octocat|zen) return 0 ;;
+          esac
+          forge_refuse "$op $method" "" "its path may reach a repository the guard cannot name"
           return 0
         fi ;;
     esac

@@ -721,6 +721,9 @@ test_forge_unclassifiable_is_refused_with_its_reason() {
     *) fail "an unclassifiable forge call must say so and name the dispatch path: $msg" ;;
   esac
   expect_deny "a non-repo api write" --tool Bash --command "gh api -X POST orgs/acme/repos"
+  expect_deny "a code search by api" \
+    --tool Bash --command "gh api 'search/code?q=repo:talktejas/koin+secret' -H Accept:application/vnd.github.text-match+json"
+  expect_deny "a repository by numeric id" --tool Bash --command "gh api repositories/12345/contents/app.php"
   pass "a forge call the guard cannot place is refused and the refusal says why"
 }
 
@@ -769,6 +772,7 @@ test_forge_supervision_and_own_repo_stay_allowed() {
   expect_allow "gh auth status" --tool Bash --command "gh auth status"
   expect_allow "gh-axi dashboard" --tool Bash --command "gh-axi"
   expect_allow "api rate limit" --tool Bash --command "gh api rate_limit"
+  expect_allow "api user" --tool Bash --command "gh api user"
   expect_allow "creating a new project repo" --tool Bash --command "gh-axi repo create talktejas/newthing --private"
   expect_allow "cloning a new project" --tool Bash --command "git clone $url $PRIMARY/projects/koin"
   expect_allow "local git in the home" --tool Bash --command "git status; git log -1 --oneline"
