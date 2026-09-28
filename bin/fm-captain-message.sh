@@ -11,11 +11,11 @@
 # THE BY-HAND WRITER. On a Claude primary the log is filled automatically by
 # bin/fm-captain-message-sweep.py reading the conversation record, which never
 # marks a message as a question. This script is the ROUTING path: a question
-# tied to a decision is recorded here with --question, and the capture keeps
-# this row instead of adding a copy when the same turn's final message says
-# the same thing. It is also the only writer for what that record cannot see:
-# another primary harness, or something said outside the recorded
-# conversation. AGENTS.md section 9 carries that split.
+# tied to a decision is recorded here with --question, and an answer to one of
+# his notes with --answers; the capture keeps this row instead of adding a copy
+# when the same turn's final message says the same thing. It is also the only
+# writer for what that record cannot see: another primary harness, or something
+# said outside the recorded conversation. AGENTS.md section 9 carries that split.
 #
 # Usage:
 #   fm-captain-message.sh --title <title> [options] <text>...
@@ -34,6 +34,14 @@
 #   --question-key <k>   the stopped worker's own decision key it asks about;
 #                        implies --question. Omit it for a captain hold, which
 #                        has no key.
+#   --answers <note-id>  the captain's inbox note this message answers: the id
+#                        fm-inbox.sh list and drain print above the note, and
+#                        the one drain --ack takes. A note from the command
+#                        center is headed 'Reply to message <msg-id> - ...';
+#                        pass the note's own id, not that msg-id. The page
+#                        threads this message under his. An id with no note in
+#                        state/inbox/ or state/inbox/handled/ is refused.
+#                        Recorded as "answers"; left out entirely when absent.
 #
 # WHETHER A MESSAGE IS A QUESTION IS RECORDED, NEVER GUESSED. A task collects
 # several messages over its life - the question, then the PR, then the result -
@@ -72,7 +80,7 @@ fail() {
 command -v jq >/dev/null 2>&1 || fail "jq is required"
 command -v python3 >/dev/null 2>&1 || fail "python3 is required"
 
-title='' task='' general=0 project='' worktree='' branch='' question=0 question_key=''
+title='' task='' general=0 project='' worktree='' branch='' question=0 question_key='' answers=''
 while [ $# -gt 0 ]; do
   case "$1" in
     --title)    title=${2-}; shift 2 ;;
@@ -83,6 +91,7 @@ while [ $# -gt 0 ]; do
     --branch)   branch=${2-}; shift 2 ;;
     --question) question=1; shift ;;
     --question-key) question_key=${2-}; question=1; shift 2 ;;
+    --answers)  answers=${2-}; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     --) shift; break ;;
     # Anything else begins the message. A body is often a bullet list, so an
@@ -99,6 +108,12 @@ if [ -n "$task" ] && [ "$general" -eq 1 ]; then
 fi
 [ -n "$task" ] || [ "$general" -eq 1 ] \
   || fail "a message about work needs --task <id>, a task recorded in state/*.meta; pass --general only for a message about no task"
+
+if [ -n "$answers" ]; then
+  case "$answers" in */*|.*) fail "--answers $answers is not an inbox note id" ;; esac
+  [ -f "$FM_HOME/state/inbox/$answers.note" ] || [ -f "$FM_HOME/state/inbox/handled/$answers.note" ] \
+    || fail "--answers $answers matches no note in state/inbox/ or state/inbox/handled/: pass the id fm-inbox.sh list or drain printed above his note"
+fi
 
 if [ "$1" = - ] && [ $# -eq 1 ]; then
   text=$(cat)
@@ -136,12 +151,13 @@ line=$(jq -cn \
   --arg title "$title" --arg text "$text" --arg task "$task" \
   --arg project "$project" --arg worktree "$worktree" \
   --arg branch "$branch" --argjson question "$question" \
-  --arg question_key "$question_key" '
+  --arg question_key "$question_key" --arg answers "$answers" '
   def n: if . == "" then null else . end;
   {id:$id, at:$at, title:$title, text:$text,
    task:($task|n), project:($project|n), worktree:($worktree|n),
    branch:($branch|n), question:($question == 1),
-   question_key:($question_key|n)}')
+   question_key:($question_key|n)}
+  + (if $answers == "" then {} else {answers:$answers} end)')
 # The automatic capture can be killed on its Stop-hook bound mid-write, so this
 # log's last line may be a torn one. The sweep's appender mends it before adding
 # to it (bin/fm-captain-message-sweep.py), and so does this: a record glued onto

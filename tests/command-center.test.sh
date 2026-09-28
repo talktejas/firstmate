@@ -1863,7 +1863,7 @@ reply_line() {  # <req> <at> <text>
 }
 
 test_a_hand_recorded_question_is_not_captured_a_second_time() {
-  local home tdir log id id2
+  local home tdir log id id2 id3
   home="$TMP_ROOT/handdedupe"
   tdir="$TMP_ROOT/handdedupe-transcripts"
   seed_home "$home"
@@ -1908,7 +1908,28 @@ Should the site be blue or green? My default if you say nothing is blue, because
   sweep "$home" "$tdir" || fail "the mid-turn sweep failed"
   assert_equals "$id,r-again,$id2" "$(jq -rs 'map(.req // .id) | join(",")' "$log")" \
     "a routed question was duplicated by a sweep that began after the recorder ran"
-  pass "a hand-recorded question stands for its captured message, however the sweep is split"
+
+  # An answer to one of his notes folds by the same rule, and a note id that
+  # names nothing is refused rather than threading the answer under nothing.
+  say "$home" "Done" "Footer is blue now." --task cc-live --project demo --answers 1-nope >/dev/null 2>&1 \
+    && fail "the recorder threaded an answer under a note that does not exist"
+  mkdir -p "$home/state/inbox/handled"
+  : > "$home/state/inbox/handled/1700000000-abc.note"
+  id3=$(say "$home" "Done" "Footer is blue now." --task cc-live --project demo --answers 1700000000-abc) \
+    || fail "the recorder refused an answer to a handled note"
+  assert_equals 1700000000-abc "$(jq -r "select(.id == \"$id3\") | .answers" "$log")" \
+    "the answer row did not name the note it answers"
+  {
+    prompt_line "$(ts +360)" "is the footer done?"
+    recorder_call call-3 "$(ts -30)" "$(ts +30)" "$id3"
+    reply_line r-ans "$(ts +420)" "Footer is **blue** now."
+  } >> "$tdir/sess-1.jsonl"
+  sweep "$home" "$tdir" || fail "the sweep of the answer failed"
+  assert_equals "$id,r-again,$id2,$id3" "$(jq -rs 'map(.req // .id) | join(",")' "$log")" \
+    "a hand-recorded answer was captured a second time, unthreaded"
+  assert_equals null "$(jq -c "select(.id == \"$id2\") | .answers" "$log")" \
+    "a message recorded without --answers carries an answers field"
+  pass "a hand-recorded question or answer stands for its captured message, however the sweep is split"
 }
 
 # Folding may leave a duplicate but must never lose a message: a reply that
