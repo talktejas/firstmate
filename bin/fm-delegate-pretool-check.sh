@@ -628,11 +628,14 @@ forge_cwd_target() {
 # classify_gh <word> <GH_REPO value> <args...>
 classify_gh() {
   local word=$1 env_repo=$2 group='' sub='' pos3='' method='' fields=0 targets='' tok s op path t owner repo project=''
-  local apiargs='' n=0 rawmedia=0
+  local apiargs='' apipaths='' n=0 rawmedia=0
   shift 2
   for tok in "$@"; do
-    case "$tok" in
+    case "$(printf '%s' "$tok" | LC_ALL=C tr '[:upper:]' '[:lower:]')" in
       *vnd.github*.diff*|*vnd.github*.patch*|*vnd.github*.raw*) rawmedia=1 ;;
+    esac
+    case "$tok" in
+      repos/*/*|/repos/*/*|*://*) apipaths="$apipaths $tok" ;;
     esac
   done
   [ -z "$env_repo" ] || targets=" ${env_repo}"
@@ -670,25 +673,27 @@ classify_gh() {
   if [ "$group" = api ]; then
     op="$word api"
     path=''
-    for t in $apiargs; do
+    for t in $apipaths; do
       n=$((n + 1))
+      [ -n "$path" ] || path=$t
       case "$t" in
-        repos/*|/repos/*|*://*) [ -n "$path" ] || path=$t ;;
+        repos/\{owner\}/\{repo\}*|/repos/\{owner\}/\{repo\}*) ;;
+        *://*) targets="$targets $(forge_slug "$t")" ;;
+        *) t=${t#/}; t=${t#repos/}; owner=${t%%/*}; t=${t#*/}; targets="$targets $owner/${t%%/*}" ;;
       esac
     done
     if [ -z "$path" ]; then
       path=$sub
+      for t in $apiargs; do n=$((n + 1)); done
       [ "$path" = graphql ] || [ "$n" -le 1 ] || {
         forge_refuse "$op" "" "its api path cannot be told apart from its option values"
         return 0
       }
+      n=0
     fi
     case "$path" in
       graphql) forge_refuse "$op graphql" "" "a GraphQL request can reach any repository"; return 0 ;;
-      *://*)
-        s=$(forge_slug "$path")
-        [ -n "$s" ] && targets="$targets $s"
-        path=${path#*://}; path=${path#*/} ;;
+      *://*) path=${path#*://}; path=${path#*/} ;;
     esac
     path=${path#/}
     path=${path%%\?*}
@@ -698,16 +703,17 @@ classify_gh() {
       repos/\{owner\}/\{repo\}*) path=${path#repos/\{owner\}/\{repo\}} ;;
       repos/*/*)
         t=${path#repos/}
-        owner=${t%%/*}
         t=${t#*/}
-        repo=${t%%/*}
-        path=${t#"$repo"}
-        targets="$targets $owner/$repo" ;;
+        path=${t#*/}
+        [ "$path" != "$t" ] || path='' ;;
       *)
-        [ "$method" = GET ] && return 0
-        forge_refuse "$op $method" "" "it writes outside a repository the guard can name"
-        return 0 ;;
+        if [ "$n" -le 1 ]; then
+          [ "$method" = GET ] && return 0
+          forge_refuse "$op $method" "" "it writes outside a repository the guard can name"
+          return 0
+        fi ;;
     esac
+    [ "$n" -le 1 ] || path='?'
     path=${path#/}
     sub="$method /$path"
   elif [ "$group" = repo ]; then
@@ -741,7 +747,7 @@ classify_gh() {
       [ "$rawmedia" -eq 0 ] || { forge_refuse "$op" "$project"; return 0; }
       path=${sub#GET /}
       case "$path" in
-        pulls/*/files*) ;;
+        pulls/*/files*|pulls/*/comments*|pulls/comments*) ;;
         pulls|pulls/*|issues|issues/*|check-runs/*|check-suites/*|actions/runs|actions/runs/*|actions/jobs/*|actions/workflows|actions/workflows/*|statuses/*|commits/*/check-runs*|commits/*/check-suites*|commits/*/status|commits/*/statuses*)
           return 0 ;;
       esac ;;

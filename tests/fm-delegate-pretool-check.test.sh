@@ -687,6 +687,14 @@ test_forge_project_work_is_refused() {
   expect_deny "a spaced jq before the path" --tool Bash --command "gh api --jq '.[] | .name' repos/$k/branches"
   expect_deny "a pull request read as a diff" --tool Bash --command "gh api repos/$k/pulls/5 -H 'Accept: application/vnd.github.diff'"
   expect_deny "a pull request read as a patch" --tool Bash --command "gh api --header=Accept:application/vnd.github.v3.patch repos/$k/pulls/5"
+  expect_deny "an uppercase diff media type" --tool Bash --command "gh api repos/$k/pulls/5 -H 'Accept: application/vnd.github.v3.DIFF'"
+  expect_deny "pull request review comments carry diff hunks" --tool Bash --command "gh api repos/$k/pulls/5/comments"
+  expect_deny "a home repo word in a value hides the project path" \
+    --tool Bash --command "gh api -X POST -f 'title=see repos/talktejas/firstmate' repos/$k/git/refs"
+  expect_deny "a home repo url in a header hides a project read" \
+    --tool Bash --command "gh api -H 'X: https://github.com/talktejas/firstmate' repos/$k/contents/app.php"
+  expect_deny "a project url in a home comment body is the accepted safe failure" \
+    --tool Bash --command "gh api -f 'body=merged $url/pull/3' repos/talktejas/firstmate/issues/5/comments"
   expect_deny "gh repo view reads the readme" --tool Bash --command "gh repo view $k"
   expect_deny "gh search code" --tool Bash --command "gh search code secret --repo $k"
   expect_deny "curl raw contents" --tool Bash --command "curl -sL https://raw.githubusercontent.com/$k/develop/app.php"
