@@ -50,12 +50,26 @@
 #
 # A MESSAGE FIRSTMATE ALSO RECORDED BY HAND. A question tied to a decision is
 # recorded by firstmate itself with bin/fm-captain-message.sh --question, which
-# is the only row that knows where a reply to it goes. The routed row and the
-# captured one are the same words, so the words are what match them: a final
-# message whose text a by-hand row already carries is not added beside it. Each
-# by-hand row stands for one captured message and no more - which ones have
-# already done so is kept with the cursor, so saying the same thing again in a
-# later turn is still recorded. This never decides a message is a question.
+# is the only row that knows where a reply to it goes, and AGENTS.md section 9
+# has it record exactly that turn's final message. In practice the two are
+# often reworded, re-punctuated, or re-formatted, so words alone cannot say
+# which row a reply belongs to. The turn itself says it: the recorder prints
+# the new row's id, and that output sits in the transcript as the result of the
+# tool call that ran it. So the final message is not added beside a by-hand row
+# - the by-hand row stands, untouched, as the one record of it - exactly when
+#   - its own turn ran the recorder and got back exactly one row id, read
+#     from the result of a tool call that named the recorder, and stamped
+#     inside that call's own run (the id carries its write time), so an id the
+#     turn merely printed from the log is never taken for one it wrote,
+#   - that row is in the log marked as a question, and
+#   - it is the first final message of that turn, and
+#   - its text says the same as the row (same_message): the same links,
+#     numbers and identifiers, and nearly the same words.
+# Anything else - no recorder call, two of them, a row that is not a question,
+# a later reply in the same turn, the same words in another turn, a reply that
+# says something the row does not - is captured as usual, so this can leave a
+# duplicate but never merge two turns' messages, two recorded rows, or two
+# different things said in one turn. This never decides a message is a question.
 #
 # WHICH WORK A MESSAGE IS ABOUT. A message's words never say it reliably, so
 # they are never read for it. The only evidence is what firstmate did in the
@@ -92,8 +106,9 @@
 #                   transcript it names; a payload naming none does nothing
 #
 # State (all under <home>/state/, atomically replaced, safe to delete):
-#   .captain-message-sweep       per-transcript byte cursor, which transcripts
-#                                a payload has named, and the stored floor
+#   .captain-message-sweep       per-transcript byte cursor and unfinished
+#                                turn, which transcripts a payload has named,
+#                                and the stored floor
 #   .captain-message-sweep.lock  serializes concurrent sweeps
 #   .captain-message-capture     the last run's outcome, read by the page
 #
@@ -147,14 +162,10 @@ def derive_title(text):
     return text.strip()[:100] or "(no text)"
 
 
-def same_text(text):
-    return " ".join(text.split())
-
-
 def recorded(log_path):
     """The log itself is the dedupe record: the requestIds already captured,
-    and the by-hand rows as {text: [id, ...]}."""
-    reqs, hand = set(), {}
+    and the rows recorded by hand as questions, as {id: text}."""
+    reqs, questions = set(), {}
     try:
         with open(log_path, "rb") as fh:
             for line in fh:
@@ -166,15 +177,91 @@ def recorded(log_path):
                     row = json.loads(line)
                 except ValueError:
                     continue
-                if isinstance(row, dict) and isinstance(row.get("text"), str) \
-                        and row.get("id"):
-                    hand.setdefault(same_text(row["text"]), []).append(row["id"])
+                if isinstance(row, dict) and row.get("question") is True \
+                        and isinstance(row.get("id"), str) \
+                        and isinstance(row.get("text"), str):
+                    questions[row["id"]] = row["text"]
     except OSError:
         pass
-    return reqs, hand
+    return reqs, questions
+
+
+URL = re.compile(r"https?://[^\s<>()\[\]*`\"']+")
+LIST_MARKER = re.compile(r"(?m)^\s*(?:\d+[.)]|[-*>])\s+")
+TOKEN = re.compile(r"[A-Za-z0-9][\w./:#@-]*[\w/]|\d")
+SPECIFIC = re.compile(r"\d|[A-Za-z0-9][./_:#@][A-Za-z0-9]")
+SHORT = 20          # distinct words below which only the same words fold
+OVERLAP = 0.7       # share of the reply's words the row must also carry
+
+
+def specifics(text):
+    """The links, numbers and identifiers a message names: where two messages
+    of one turn genuinely differ, and what folding must never lose."""
+    found = {u.rstrip(".,;:!?") for u in URL.findall(text)}
+    text = LIST_MARKER.sub(" ", URL.sub(" ", text))
+    found |= {w.strip(".,;:!? ") for w in re.findall(r"`([^`]+)`", text)}
+    return found | {w for w in TOKEN.findall(text) if SPECIFIC.search(w)}
+
+
+def plain_words(text):
+    return re.findall(r"[a-z0-9]+", URL.sub(" ", text).lower())
+
+
+def same_message(reply, row):
+    """Whether a captured reply says the same as a by-hand row.
+
+    Formatting never counts: markdown, dashes, quotes, list numbering and line
+    breaks are dropped before anything is compared. Then the two must name
+    exactly the same links, numbers and identifiers, both ways. A reply of
+    fewer than SHORT distinct words must be the same words in the same order,
+    because there a word or two is most of what it says and an overlap share
+    would fold a two-line message into an unrelated one. A longer reply folds
+    when at least OVERLAP of its distinct words are also in the row, which is
+    what rewording between the recorder and the chat leaves intact.
+    ponytail: a long reply that adds one short line with no link, number or
+    identifier can fold, and that line then shows in chat only; tighten
+    OVERLAP if that bites.
+    """
+    if specifics(reply) != specifics(row):
+        return False
+    words, other = plain_words(reply), plain_words(row)
+    distinct = set(words)
+    if len(distinct) < SHORT:
+        return words == other
+    return len(distinct & set(other)) >= OVERLAP * len(distinct)
 
 
 TASK_RECORD = re.compile(r"\bstate/([A-Za-z0-9][A-Za-z0-9_-]*)\.(?:meta|status)\b")
+RECORDER = "fm-captain-message.sh"
+# The id bin/fm-captain-message.sh prints for the row it wrote.
+HAND_ID = re.compile(r"\bm\d{8}T\d{6}Z-\d+\b")
+
+
+def new_turn(saved=None):
+    """What one turn has done so far, kept with the cursor between batches:
+    the task ids its tool calls named, its pending recorder calls, the row ids
+    the recorder printed, and the first final reply with the rows it took."""
+    saved = saved if isinstance(saved, dict) else {}
+    return {"tasks": set(saved.get("tasks") or []),
+            "calls": dict(saved.get("calls") or {}),
+            "hand": list(saved.get("hand") or []),
+            "reply": saved.get("reply")}
+
+
+def saved_turn(turn):
+    return {"tasks": sorted(turn["tasks"]), "calls": turn["calls"],
+            "hand": turn["hand"], "reply": turn["reply"]}
+
+
+def written_during(content, started, ended):
+    """The recorder row ids in a call's output that were written while it ran."""
+    text = content if isinstance(content, str) else "\n".join(
+        b["text"] for b in (content if isinstance(content, list) else [])
+        if isinstance(b, dict) and isinstance(b.get("text"), str))
+    if not started or not ended:
+        return []
+    return [i for i in HAND_ID.findall(text) if started <= "%s-%s-%sT%s:%s:%sZ" % (
+        i[1:5], i[5:7], i[7:9], i[10:12], i[12:14], i[14:16]) <= ended]
 
 
 def task_refs(value):
@@ -232,12 +319,13 @@ def parse_batch(lines, turn=None):
 
     Groups the lines of each final response by requestId and joins its text
     blocks; a response with no text (interrupted, or thinking only so far)
-    yields nothing and is left for a later batch to complete. `turn` is the set
-    of task ids the current turn's tool calls have named so far; it carries
-    across batches, and each message is returned with the set as it stood.
+    yields nothing and is left for a later batch to complete. `turn` is the
+    current turn's state (new_turn); it carries across batches, and each message
+    is returned with the task ids as they stood and, for the turn's first final
+    reply only, the row ids its recorder calls printed.
     """
     if turn is None:
-        turn = set()
+        turn = new_turn()
     groups = {}
     for raw in lines:
         try:
@@ -247,7 +335,14 @@ def parse_batch(lines, turn=None):
         if not isinstance(entry, dict) or entry.get("isSidechain"):
             continue
         if entry.get("type") == "user" and is_prompt(entry):
-            turn.clear()
+            turn.update(new_turn())
+            continue
+        if entry.get("type") == "user":
+            for block in (entry.get("message") or {}).get("content") or []:
+                if isinstance(block, dict) and block.get("tool_use_id") in turn["calls"]:
+                    turn["hand"] += written_during(
+                        block.get("content"), turn["calls"].pop(block["tool_use_id"]),
+                        clean_ts(entry.get("timestamp")))
             continue
         if entry.get("type") != "assistant" or entry.get("isApiErrorMessage"):
             continue
@@ -256,7 +351,9 @@ def parse_batch(lines, turn=None):
             continue
         for block in message.get("content") or []:
             if isinstance(block, dict) and block.get("type") == "tool_use":
-                turn.update(task_refs(block.get("input")))
+                turn["tasks"].update(task_refs(block.get("input")))
+                if RECORDER in json.dumps(block.get("input")) and block.get("id"):
+                    turn["calls"][block["id"]] = clean_ts(entry.get("timestamp"))
         if message.get("stop_reason") not in FINAL_STOPS:
             continue
         if message.get("model") == "<synthetic>":
@@ -264,8 +361,14 @@ def parse_batch(lines, turn=None):
         req = entry.get("requestId") or entry.get("uuid") or ""
         if not req:
             continue
+        if req not in groups:
+            # The turn's first final reply takes the recorder's rows; a reply
+            # read again in a later batch takes the same ones, any other none.
+            if turn["reply"] is None:
+                turn["reply"] = [req, list(turn["hand"])]
+            hand = turn["reply"][1] if turn["reply"][0] == req else []
         g = groups.setdefault(req, {"parts": [], "at": "", "session": "",
-                                    "tasks": set(turn)})
+                                    "tasks": set(turn["tasks"]), "hand": hand})
         for block in message.get("content") or []:
             if isinstance(block, dict) and block.get("type") == "text":
                 g["parts"].append(block.get("text") or "")
@@ -275,7 +378,7 @@ def parse_batch(lines, turn=None):
     for req, g in groups.items():
         text = "".join(g["parts"]).strip()
         if text:
-            out.append((req, g["at"], g["session"], text, g["tasks"]))
+            out.append((req, g["at"], g["session"], text, g["tasks"], g["hand"]))
     return out
 
 
@@ -328,10 +431,6 @@ def sweep(home, since, paths=None, directory=None):
     if cursor is None:
         cursor = {"v": 2, "floor": since or local_midnight_utc(), "files": {}}
     floor = cursor.get("floor") or ""
-    # Which by-hand rows have already stood for a captured message: kept here
-    # because a run reads the log afresh and cannot otherwise tell a routed row
-    # that is spoken for from one that is not.
-    used = set(cursor.get("used") or [])
     named = [p for p, f in cursor["files"].items() if isinstance(f, dict) and f.get("named")]
 
     if paths:
@@ -351,7 +450,7 @@ def sweep(home, since, paths=None, directory=None):
         return {"active": False, "dir": directory, "transcripts": 0, "new": 0,
                 "named": len(named)}
 
-    seen, hand = set(), {}
+    seen, questions = set(), {}
     deduped = False
     new = 0
     for path in targets:
@@ -359,10 +458,10 @@ def sweep(home, since, paths=None, directory=None):
         entry = dict(entry) if isinstance(entry, dict) else {}
         offset = entry.get("off", 0)
         size = os.path.getsize(path)
-        turn = set(entry.get("turn") or [])
+        turn = new_turn(entry.get("turn"))
         if size < offset:
             offset = 0          # truncated or rewritten; the log still dedupes
-            turn = set()
+            turn = new_turn()
         if paths:
             entry["named"] = True
         if size == offset:
@@ -378,7 +477,7 @@ def sweep(home, since, paths=None, directory=None):
         # the log holds, and a response whose blocks straddle this offset is
         # read again as part of the next batch.
         if not deduped:
-            seen, hand = recorded(log_path)
+            seen, questions = recorded(log_path)
             deduped = True
         with open(path, "rb") as fh:
             fh.seek(offset)
@@ -389,16 +488,13 @@ def sweep(home, since, paths=None, directory=None):
         lines = chunk[:end + 1].splitlines()
 
         rows = []
-        for req, at, session, text, tasks in parse_batch(lines, turn):
+        for req, at, session, text, tasks, hand in parse_batch(lines, turn):
             if req in seen or (floor and at and at < floor):
                 continue
             seen.add(req)
-            routed = next((i for i in hand.get(same_text(text), [])
-                           if i not in used), None)
-            if routed:
-                used.add(routed)
-                cursor["used"] = sorted(used)
-                continue
+            if len(hand) == 1 and hand[0] in questions \
+                    and same_message(text, questions[hand[0]]):
+                continue        # the routed row already carries this message
             task = turn_task(tasks)
             record = (task_record(state_dir, task) if task else None) or {}
             rows.append({
@@ -417,7 +513,7 @@ def sweep(home, since, paths=None, directory=None):
         # Advance the cursor only after this file's messages are on disk, one
         # file at a time, so a killed sweep loses progress, never messages.
         entry["off"] = offset + end + 1
-        entry["turn"] = sorted(turn)
+        entry["turn"] = saved_turn(turn)
         cursor["files"][path] = entry
         write_cursor(cursor_path, cursor)
 

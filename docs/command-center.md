@@ -49,7 +49,9 @@ The messages already in the log are the dedupe record, so the two runners can ne
 Its first ever run backfills the log from today's local midnight, so the list starts complete for the day it arrives rather than from the moment it landed.
 When capture cannot be shown healthy - it failed, never ran, has not run recently, or found no conversation record to read (a firstmate running on a harness whose conversation record it cannot read) - the Messages list says it may be incomplete rather than quietly showing a short one.
 On such a harness, and for anything said outside the recorded conversation, `bin/fm-captain-message.sh` remains the by-hand recorder (`AGENTS.md` section 9).
-It is also how a question is routed on a Claude primary: firstmate records a question tied to a decision by hand, and a captured message whose words a by-hand row already carries is not added beside it - each by-hand row stands for one captured message and no more, so saying the same thing again later is still recorded.
+It is also how a question is routed on a Claude primary: firstmate records a question tied to a decision by hand, and that turn's reply is not captured beside it when it says the same thing - the by-hand row, which carries the routing, is the one that stays.
+The capture ties the two by the row id the recorder printed in that same turn, never by words alone, and folds only a reply naming exactly the row's links, numbers and identifiers and nearly its words; the exact test is in `bin/fm-captain-message-sweep.py`'s header.
+A reply that says anything the row does not, or the same words said again in a later turn, is still recorded.
 
 **Waiting on you** is the queue firstmate is still holding, from two kinds of durable record:
 
