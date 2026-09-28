@@ -49,7 +49,7 @@ The messages already in the log are the dedupe record, so the two runners can ne
 Its first ever run backfills the log from today's local midnight, so the list starts complete for the day it arrives rather than from the moment it landed.
 When capture cannot be shown healthy - it failed, never ran, has not run recently, or found no conversation record to read (a firstmate running on a harness whose conversation record it cannot read) - the Messages list says it may be incomplete rather than quietly showing a short one.
 On such a harness, and for anything said outside the recorded conversation, `bin/fm-captain-message.sh` remains the by-hand recorder (`AGENTS.md` section 9).
-It is also how a question is routed on a Claude primary: firstmate records a question tied to a decision by hand, and that turn's reply is not captured beside it when it says the same thing - the by-hand row, which carries the routing, is the one that stays.
+It is also how a question is routed on a Claude primary: firstmate records a question tied to a decision (or an answer to one of your notes, with `--answers`) by hand, and that turn's reply is not captured beside it when it says the same thing - the by-hand row, which carries the routing, is the one that stays.
 A reply folds into the row in one of two ways, the exact test being in `bin/fm-captain-message-sweep.py`'s header: the recorder printed that row's id in the same turn, and the reply names exactly the row's links, numbers and identifiers and exactly its negations, modals and auxiliaries (not, never, can't, did, will, should and the like), both ways, and has no word the row lacks beyond a fixed list of filler words; or, with no such id, the row was written during that turn and its text is the reply's exactly once markdown, list markers, dash and quote variants, whitespace and case are set aside.
 Each row stands for one reply at most. A reply that says anything the row does not, or the same words said again in a later turn, is still recorded.
 
@@ -141,6 +141,7 @@ When the reply steers a worker still waiting, that protection covers the item to
 It has two writers: the automatic capture above (`bin/fm-captain-message-sweep.py`, which stamps each record with the conversation it came from so it is never recorded twice), and `bin/fm-captain-message.sh` by hand, whose `--task` fills the project, worktree and branch from that task's own record so all three are one flag rather than three chances to leave one out.
 `bin/fm-captain-message-backfill.py` never adds a record; it only fills a row's missing task, project and worktree in place (see Messages above). It and both writers share the log's write lock (`state/.captain-message-sweep.lock`), so the backfill's rewrite never loses a concurrent append.
 On the by-hand writer, `--question` marks a message as the question waiting on you, and `--question-key` names the stopped worker's own decision it asks about.
+`--answers <note-id>` names the inbox note of yours a message answers, so the page shows it under your note.
 
 `<home>/data/command-center/said.jsonl`, an append-only log of what you typed and where it went.
 Every send - an answer, a reply, or a note that answers nothing - returns the moment your words are on disk, so you move to the next item at once and never wait on delivery.

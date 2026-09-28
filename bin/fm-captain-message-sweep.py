@@ -50,14 +50,16 @@
 #
 # A MESSAGE FIRSTMATE ALSO RECORDED BY HAND. A question tied to a decision is
 # recorded by firstmate itself with bin/fm-captain-message.sh --question, which
-# is the only row that knows where a reply to it goes, and AGENTS.md section 9
+# is the only row that knows where a reply to it goes; an answer to one of his
+# notes is recorded with --answers, the only row that knows which note it
+# threads under. Both are folded by the same rule below, and AGENTS.md section 9
 # has it record exactly that turn's final message. In practice the two are
 # often reworded, re-punctuated, or re-formatted, so words alone cannot say
 # which row a reply belongs to. The turn itself says it: the recorder prints
 # the new row's id, and that output sits in the transcript as the result of the
 # tool call that ran it. So the final message is not added beside a by-hand
-# question row - the row stands, untouched, as the one record of it - when
-# either
+# question or answer row - the row stands, untouched, as the one record of it -
+# when either
 #   (a) its own turn ran the recorder and got back exactly one row id, read
 #       from the result of a tool call that named the recorder, and stamped
 #       inside that call's own run (the id carries its write time), so an id
@@ -67,7 +69,7 @@
 #       identifiers, and exactly the same negations, modals and auxiliaries
 #       (CLAIM, and every n't contraction), both ways, and not one word the
 #       row lacks beyond a fixed list of filler words (FILLER), or
-#   (b) no such id ties it to a row, and a question row written inside that
+#   (b) no such id ties it to a row, and a by-hand row written inside that
 #       turn - between its opening prompt and the reply - has exactly the
 #       reply's text once markdown, backticks, list markers, dash and quote
 #       variants, whitespace and case are dropped (normalized).
@@ -172,7 +174,8 @@ def derive_title(text):
 
 def recorded(log_path):
     """The log itself is the dedupe record: the requestIds already captured,
-    and the rows recorded by hand as questions, as {id: (text, at)}."""
+    and the rows recorded by hand as questions or as answers to his notes, as
+    {id: (text, at)}."""
     reqs, questions = set(), {}
     try:
         with open(log_path, "rb") as fh:
@@ -185,7 +188,9 @@ def recorded(log_path):
                     row = json.loads(line)
                 except ValueError:
                     continue
-                if isinstance(row, dict) and row.get("question") is True \
+                if isinstance(row, dict) \
+                        and (row.get("question") is True
+                             or isinstance(row.get("answers"), str)) \
                         and isinstance(row.get("id"), str) \
                         and isinstance(row.get("text"), str):
                     questions[row["id"]] = (row["text"], row.get("at") or "")
