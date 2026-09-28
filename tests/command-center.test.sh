@@ -1046,6 +1046,25 @@ test_message_backfill_resolves_only_context_keyed_by_a_task_record() {
   pass "message backfill resolves task-keyed context without guessing captured rows"
 }
 
+test_backfill_clears_the_failed_marker_once_the_project_resolves() {
+  local home wt row
+  home="$TMP_ROOT/backfill-marker"
+  seed_home "$home"
+  wt="$home/wt"
+  git init -q "$wt"
+  git -C "$wt" checkout -q -b fm/late
+  say "$home" "Early" "Before the spawn." --task cc-late >/dev/null 2>&1 \
+    || fail "a message about a task with no record yet was refused"
+  assert_equals failed "$(tail -1 "$home/data/captain-messages.jsonl" | jq -r .resolution)" \
+    "an unresolved task was not marked as failed"
+  printf 'project=/home/captain/p/demo\nworktree=%s\n' "$wt" > "$home/state/cc-late.meta"
+  FM_HOME="$home" "$BACKFILL" >/dev/null || fail "the message backfill failed"
+  row=$(tail -1 "$home/data/captain-messages.jsonl")
+  assert_equals "demo|$wt|absent" "$(jq -r '[.project, .worktree, (if has("resolution") then .resolution else "absent" end)] | join("|")' <<<"$row")" \
+    "a backfilled project left the failed-resolution marker behind"
+  pass "the backfill clears the failed marker once the project resolves"
+}
+
 # The automatic capture can be killed mid-write; whatever is recorded next must
 # not be glued onto what it left behind - either writer, same rule.
 test_a_recorded_message_never_glues_onto_a_torn_row() {
@@ -1087,28 +1106,79 @@ test_a_field_nothing_knows_is_recorded_as_unknown_not_guessed() {
   pass "a field nothing knows is recorded as unknown rather than guessed"
 }
 
-test_the_recorder_refuses_a_message_with_no_title_or_no_text() {
+test_the_recorder_refuses_only_a_message_with_no_text() {
   local home
   home="$TMP_ROOT/refuse"
   seed_home "$home"
-  ! FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$RECORD" "no title given" 2>/dev/null \
-    || fail "a message with no title was recorded anyway"
   ! say "$home" "A title" "   " 2>/dev/null \
     || fail "an empty message was recorded anyway"
-  local err
-  err=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$RECORD" --title "A title" "About some work." 2>&1) \
-    && fail "a message naming neither --task nor --general was recorded anyway"
-  case $err in *"--task <id>"*"state/*.meta"*) ;; *)
-    fail "the refusal did not name --task <id> and state/*.meta: $err" ;; esac
   [ ! -s "$home/data/captain-messages.jsonl" ] \
-    || fail "a refused message still reached the log"
-  err=$(say "$home" "A title" "About a typo." --task cc-nosuch 2>&1) \
-    && fail "a message about a task with no record was recorded anyway"
-  case $err in *"--task <id>"*"state/*.meta"*) ;; *)
-    fail "the unknown-task refusal did not name --task <id> and state/*.meta: $err" ;; esac
-  [ ! -s "$home/data/captain-messages.jsonl" ] \
-    || fail "a message about an unrecorded task still reached the log"
-  pass "the recorder refuses a message with no title, no text, or no --task/--general"
+    || fail "an empty message still reached the log"
+  if [ "$(id -u)" != 0 ]; then
+    chmod 500 "$home/data"
+    ! say "$home" "A title" "Nowhere to write this." 2>/dev/null \
+      || { chmod 700 "$home/data"; fail "a message to an unwritable log reported success"; }
+    chmod 700 "$home/data"
+  fi
+  pass "the recorder refuses only a message with no words or nowhere to write it"
+}
+
+# A missing label must never cost him the message: whatever about the work
+# cannot be resolved is recorded as unknown, and the message is recorded anyway.
+test_a_message_whose_work_cannot_be_resolved_is_still_recorded() {
+  local home log wt row id expected
+  home="$TMP_ROOT/unresolved"
+  seed_home "$home"
+  log="$home/data/captain-messages.jsonl"
+  wt="$home/wt"
+  git init -q "$wt"
+  git -C "$wt" checkout -q -b fm/colour
+  printf 'project=/home/captain/p/demo\nworktree=%s\n' "$wt" > "$home/state/cc-live.meta"
+
+  # The ordinary resolvable case writes exactly the record it always has.
+  id=$(say "$home" "The colour call" "Blue or green?" --task cc-live) \
+    || fail "the recorder refused a resolvable message"
+  row=$(tail -1 "$log")
+  expected=$(printf '{"id":"%s","at":"%s","title":"The colour call","text":"Blue or green?","task":"cc-live","project":"demo","worktree":"%s","branch":"fm/colour","question":false,"question_key":null}' \
+    "$id" "$(jq -r .at <<<"$row")" "$wt")
+  assert_equals "$expected" "$row" "a resolvable message was not recorded byte for byte as before"
+
+  # Neither --task nor --general: recorded, every label unknown, no marker.
+  FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$RECORD" --title "About some work" "Something he must see." >/dev/null \
+    || fail "a message naming neither --task nor --general was refused"
+  assert_equals "Something he must see.|null|null|null|null|null" \
+    "$(tail -1 "$log" | jq -r '[.text, .task, .project, .worktree, .branch, .resolution] | map(. // "null") | join("|")')" \
+    "a message naming no task was not recorded with its labels unknown"
+
+  # A --task with no record anywhere: recorded under the id firstmate named.
+  say "$home" "A typo" "About a typo." --task cc-nosuch >/dev/null 2>&1 \
+    || fail "a message about a task with no record was refused"
+  assert_equals "About a typo.|cc-nosuch|null|null|null|failed" \
+    "$(tail -1 "$log" | jq -r '[.text, .task, .project, .worktree, .branch, .resolution] | map(. // "null") | join("|")')" \
+    "a message about an unrecorded task lost its claimed id or its failed-resolution marker"
+
+  # A task whose record names no project: what does resolve is kept.
+  printf 'worktree=%s\n' "$wt" > "$home/state/cc-noproject.meta"
+  say "$home" "No project" "Project unknown." --task cc-noproject >/dev/null 2>&1 \
+    || fail "a message about a task with no project was refused"
+  assert_equals "cc-noproject|null|$wt|fm/colour|failed" \
+    "$(tail -1 "$log" | jq -r '[.task, .project, .worktree, .branch, .resolution] | map(. // "null") | join("|")')" \
+    "a task whose project cannot be determined lost what did resolve, or its marker"
+
+  # A task with no state record resolves its project from its backlog line.
+  say "$home" "Queued" "Region call." --task cc-deferred >/dev/null \
+    || fail "a message about a queued task was refused"
+  assert_equals "cc-deferred|demo|null" \
+    "$(tail -1 "$log" | jq -r '[.task, .project, .resolution] | map(. // "null") | join("|")')" \
+    "a queued task's project was not read from its backlog line"
+
+  # No --title, and an --answers naming no note: recorded, standing on its own.
+  FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$RECORD" --answers 1-nope "  First line here.
+Second line." >/dev/null 2>&1 || fail "a message with no title or a stray --answers was refused"
+  assert_equals "First line here.|null" \
+    "$(tail -1 "$log" | jq -r '[.title, (.answers // "null")] | join("|")')" \
+    "a message with no title or an unknown note was not recorded on its own"
+  pass "a message whose work cannot be resolved is recorded with its label unknown"
 }
 
 # THE ONE THING THAT DECIDES WHETHER THIS IS DONE. He was away; firstmate spoke
@@ -1988,10 +2058,7 @@ Should the site be blue or green? My default if you say nothing is blue, because
   assert_equals "$id,r-again,$id2" "$(jq -rs 'map(.req // .id) | join(",")' "$log")" \
     "a routed question was duplicated by a sweep that began after the recorder ran"
 
-  # An answer to one of his notes folds by the same rule, and a note id that
-  # names nothing is refused rather than threading the answer under nothing.
-  say "$home" "Done" "Footer is blue now." --task cc-live --project demo --answers 1-nope >/dev/null 2>&1 \
-    && fail "the recorder threaded an answer under a note that does not exist"
+  # An answer to one of his notes folds by the same rule.
   mkdir -p "$home/state/inbox/handled"
   : > "$home/state/inbox/handled/1700000000-abc.note"
   id3=$(say "$home" "Done" "Footer is blue now." --task cc-live --project demo --answers 1700000000-abc) \
@@ -2427,11 +2494,13 @@ test_the_server_serves_the_pages_decision_rules
 test_a_message_names_the_project_the_worktree_and_the_branch
 test_a_message_about_a_second_mate_names_the_project_it_owns
 test_message_backfill_resolves_only_context_keyed_by_a_task_record
+test_backfill_clears_the_failed_marker_once_the_project_resolves
 test_message_backfill_attributes_by_the_same_turn_evidence
 test_a_captured_message_carries_the_one_task_its_turn_touched
 test_a_field_nothing_knows_is_recorded_as_unknown_not_guessed
 test_a_recorded_message_never_glues_onto_a_torn_row
-test_the_recorder_refuses_a_message_with_no_title_or_no_text
+test_the_recorder_refuses_only_a_message_with_no_text
+test_a_message_whose_work_cannot_be_resolved_is_still_recorded
 test_every_message_sent_while_he_was_away_comes_back_in_order
 test_a_reply_takes_the_answer_route_when_the_task_is_still_waiting
 test_a_reply_with_nothing_waiting_is_queued_for_firstmate

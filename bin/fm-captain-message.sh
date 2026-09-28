@@ -21,13 +21,14 @@
 #   fm-captain-message.sh --title <title> [options] <text>...
 #   fm-captain-message.sh --title <title> [options] -        (body from stdin)
 #
-#   --title <t>     the short line the captain sees in the list. required.
+#   --title <t>     the short line the captain sees in the list; when left out,
+#                   the message's first line stands in for it.
 #   --task <id>     a task in this home; fills project, worktree and branch from
-#                   its own record (state/<id>.meta) unless the flags below
-#                   override them. A task with no record yet (a queued hold)
-#                   needs --project; any other unrecorded id is refused.
-#   --general       this message is about no task. A message needs exactly one
-#                   of --task and --general.
+#                   its own record (state/<id>.meta), else its project from its
+#                   backlog line's (repo: r), unless the flags below override
+#                   them. An id nothing resolves is still recorded (see below).
+#   --general       this message is about no task. Optional: a message naming
+#                   no task is recorded the same way, and --task wins over it.
 #   --project <p>   --worktree <path>   --branch <b>
 #   --question           this message IS the question waiting on him, so his
 #                        reply in the command center answers it.
@@ -39,9 +40,11 @@
 #                        the one drain --ack takes. A note from the command
 #                        center is headed 'Reply to message <msg-id> - ...';
 #                        pass the note's own id, not that msg-id. The page
-#                        threads this message under his. An id with no note in
-#                        state/inbox/ or state/inbox/handled/ is refused.
-#                        Recorded as "answers"; left out entirely when absent.
+#                        threads this message under his. Recorded as "answers";
+#                        left out entirely when absent, and left out with a
+#                        warning when no note in state/inbox/ or
+#                        state/inbox/handled/ has that id, so the message shows
+#                        on its own rather than under a note that is not there.
 #
 # WHETHER A MESSAGE IS A QUESTION IS RECORDED, NEVER GUESSED. A task collects
 # several messages over its life - the question, then the PR, then the result -
@@ -51,9 +54,15 @@
 #
 # The captain's standing rule is that every item names its project, its worktree
 # and its branch, so --task exists to make supplying all three one flag rather
-# than three chances to leave one out, and a message that names neither --task
-# nor --general is refused rather than recorded without them. A field nothing
-# knows is recorded as null and shown as unknown; it is never guessed.
+# than three chances to leave one out. A missing label never costs him the
+# message: nothing about the work being unresolvable refuses a message, because
+# a message never recorded is a message he never sees. A field nothing knows is
+# recorded as null and shown as unknown; it is never guessed. When a --task was
+# given and still no project resolves, the id stays as the task firstmate named
+# and the record gains "resolution":"failed" (absent on every other record), so
+# the page can show it as an ordinary message whose label is unknown. The only
+# failures left are a destination that cannot be written and a message with no
+# words in it.
 #
 # Every write to the log, and the backfill's rewrite of it, holds
 # state/.captain-message-sweep.lock, so no writer's line is lost to another.
@@ -80,12 +89,12 @@ fail() {
 command -v jq >/dev/null 2>&1 || fail "jq is required"
 command -v python3 >/dev/null 2>&1 || fail "python3 is required"
 
-title='' task='' general=0 project='' worktree='' branch='' question=0 question_key='' answers=''
+title='' task='' project='' worktree='' branch='' question=0 question_key='' answers=''
 while [ $# -gt 0 ]; do
   case "$1" in
     --title)    title=${2-}; shift 2 ;;
     --task)     task=${2-}; shift 2 ;;
-    --general)  general=1; shift ;;
+    --general)  shift ;;  # naming no task says the same; kept for its callers
     --project)  project=${2-}; shift 2 ;;
     --worktree) worktree=${2-}; shift 2 ;;
     --branch)   branch=${2-}; shift 2 ;;
@@ -101,19 +110,11 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-[ -n "$title" ] || fail "a message needs --title: it is the line he reads in the list"
-[ $# -gt 0 ] || fail "no message text"
-if [ -n "$task" ] && [ "$general" -eq 1 ]; then
-  fail "a message is either about --task <id> or --general, not both"
-fi
-[ -n "$task" ] || [ "$general" -eq 1 ] \
-  || fail "a message about work needs --task <id>, a task recorded in state/*.meta; pass --general only for a message about no task"
+warn() {
+  printf 'fm-captain-message: %s\n' "$*" >&2
+}
 
-if [ -n "$answers" ]; then
-  case "$answers" in */*|.*) fail "--answers $answers is not an inbox note id" ;; esac
-  [ -f "$FM_HOME/state/inbox/$answers.note" ] || [ -f "$FM_HOME/state/inbox/handled/$answers.note" ] \
-    || fail "--answers $answers matches no note in state/inbox/ or state/inbox/handled/: pass the id fm-inbox.sh list or drain printed above his note"
-fi
+[ $# -gt 0 ] || fail "no message text"
 
 if [ "$1" = - ] && [ $# -eq 1 ]; then
   text=$(cat)
@@ -121,32 +122,50 @@ else
   text="$*"
 fi
 [ -n "${text//[[:space:]]/}" ] || fail "an empty message is not a message"
+if [ -z "${title//[[:space:]]/}" ]; then
+  title=$(printf '%s\n' "$text" | awk 'NF { sub(/^[[:space:]]+/, ""); print substr($0, 1, 80); exit }')
+  warn "no --title; recorded under its first line: $title"
+fi
+
+if [ -n "$answers" ]; then
+  case "$answers" in
+    */*|.*) found=0 ;;
+    *) found=1; [ -f "$FM_HOME/state/inbox/$answers.note" ] || [ -f "$FM_HOME/state/inbox/handled/$answers.note" ] || found=0 ;;
+  esac
+  if [ "$found" -eq 0 ]; then
+    warn "--answers $answers matches no note in state/inbox/ or state/inbox/handled/; recorded on its own, not under a note"
+    answers=''
+  fi
+fi
 
 # The task's own record answers project and worktree, read by the capture's
 # resolver so both writers name the same work (task_record in
 # bin/fm-captain-message-sweep.py, which also turns a second mate's home into
 # the project it owns). An ordinary task's branch is recorded nowhere, so it is
-# read live from the worktree, exactly as the command center's scan does. Each
-# is filled only where the caller left it empty.
-rec_project='' rec_worktree='' rec_branch=''
+# read live from the worktree, exactly as the command center's scan does. A task
+# with no record falls back to its backlog line's project (backlog_project).
+# Each is filled only where the caller left it empty.
+rec_project='' rec_worktree='' rec_branch='' resolution=''
 if [ -n "$task" ]; then
-  meta="$FM_HOME/state/$task.meta"
-  [ -f "$meta" ] || [ -n "$project" ] \
-    || fail "--task $task has no task record: pass --task <id> for a task listed in state/*.meta, or name its --project for a task that has none yet (a queued hold)"
-  if [ -f "$meta" ]; then
-    { IFS= read -r rec_project; IFS= read -r rec_worktree; IFS= read -r rec_branch; } < <(
-      python3 - "$SCRIPT_DIR/fm-captain-message-sweep.py" "$FM_HOME/state" "$task" <<'PYEOF'
-import importlib.util, sys
+  { IFS= read -r rec_project; IFS= read -r rec_worktree; IFS= read -r rec_branch; } < <(
+    python3 - "$SCRIPT_DIR/fm-captain-message-sweep.py" "$FM_HOME" "$task" <<'PYEOF'
+import importlib.util, os, sys
 spec = importlib.util.spec_from_file_location("fm_captain_message_sweep", sys.argv[1])
 capture = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(capture)
-record = capture.task_record(sys.argv[2], sys.argv[3]) or {}
+home, task = sys.argv[2], sys.argv[3]
+record = capture.task_record(os.path.join(home, "state"), task) or {}
+if not record.get("project"):
+    record["project"] = capture.backlog_project(home, task)
 for field in ("project", "worktree", "branch"):
     print((record.get(field) or "").replace("\n", " "))
 PYEOF
-    ) || true
-    [ -n "$project" ] || project=$rec_project
-    [ -n "$worktree" ] || worktree=$rec_worktree
+  ) || true
+  [ -n "$project" ] || project=$rec_project
+  [ -n "$worktree" ] || worktree=$rec_worktree
+  if [ -z "$project" ]; then
+    resolution=failed
+    warn "--task $task resolved to no project; recorded with its project unknown"
   fi
 fi
 if [ -z "$branch" ] && [ -n "$worktree" ] && [ -d "$worktree" ]; then
@@ -164,13 +183,15 @@ line=$(jq -cn \
   --arg title "$title" --arg text "$text" --arg task "$task" \
   --arg project "$project" --arg worktree "$worktree" \
   --arg branch "$branch" --argjson question "$question" \
-  --arg question_key "$question_key" --arg answers "$answers" '
+  --arg question_key "$question_key" --arg answers "$answers" \
+  --arg resolution "$resolution" '
   def n: if . == "" then null else . end;
   {id:$id, at:$at, title:$title, text:$text,
    task:($task|n), project:($project|n), worktree:($worktree|n),
    branch:($branch|n), question:($question == 1),
    question_key:($question_key|n)}
-  + (if $answers == "" then {} else {answers:$answers} end)')
+  + (if $answers == "" then {} else {answers:$answers} end)
+  + (if $resolution == "" then {} else {resolution:$resolution} end)')
 # The automatic capture can be killed on its Stop-hook bound mid-write, so this
 # log's last line may be a torn one. The sweep's appender mends it before adding
 # to it (bin/fm-captain-message-sweep.py), and so does this: a record glued onto
