@@ -370,6 +370,36 @@ def task_record(state_dir, task):
     return values
 
 
+def backlog_project(fm_home, task):
+    """The project a task's own backlog line names as its (repo: r), from the
+    markdown backend's backlog or its done archive; None when neither names it
+    or the home uses another backend. It answers for a task with no state record:
+    a queued hold not yet spawned, or a task whose record cleanup removed. Only
+    the by-hand recorder asks it, so no row already in the log reads differently."""
+    code_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    try:
+        with open(os.path.join(code_root, ".tasks.toml"), encoding="utf-8") as fh:
+            config = fh.read()
+    except (OSError, UnicodeDecodeError):
+        return None
+    backend = re.search(r'^backend *= *"([^"]*)"', config, re.M)
+    if not backend or backend.group(1) != "markdown":
+        return None
+    line = re.compile(r"^\s*- \[[ xX]\] " + re.escape(task) + r" - .*\(repo: ([^()]+)\)")
+    for key, default in (("path", "data/backlog.md"), ("archive", "data/done-archive.md")):
+        rel = re.search(r'^' + key + r' *= *"([^"]*)"', config, re.M)
+        try:
+            with open(os.path.join(fm_home, rel.group(1) if rel else default),
+                      encoding="utf-8") as fh:
+                for text in fh:
+                    match = line.match(text)
+                    if match:
+                        return match.group(1).strip() or None
+        except (OSError, UnicodeDecodeError):
+            continue
+    return None
+
+
 def project_branch(fm_home, mate_home, project):
     """The project's development branch, read from the mate's clone of it, else
     this home's, with this home's registry as the fallback; None when the
