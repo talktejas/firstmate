@@ -1,0 +1,42 @@
+== S1 recorder: --task koin (the captain's case)
+{"task":"koin","project":"koin","worktree":null,"branch":"develop"}
+== S3 recorder: --task b2b (mate owning two projects)
+{"task":"b2b","project":"b2b","worktree":null,"branch":null}
+== S4 recorder: --task books (no clone anywhere, branch only in data/projects.md)
+{"task":"books","project":"ledger","worktree":null,"branch":"trunk"}
+== S4b recorder: --task far (remote mate, home on another host)
+{"task":"far","project":"koin","worktree":null,"branch":"develop"}
+== S6 recorder: --task cc-live (ordinary worker, unchanged behaviour)
+{"task":"cc-live","project":"demo","worktree":"/tmp/nm-live.3Yq2/wt","branch":"fm/colour"}
+== S7 recorder: --task koin with explicit --project/--branch overrides
+{"task":"koin","project":"koin-web","worktree":null,"branch":"fm/x"}
+== S2 sweep: transcript turn that read state/koin.meta (catch-up and Stop-hook payload)
+-- catch-up:
+{"req":"r-koin","task":"koin","project":"koin","worktree":null,"branch":"develop"}
+{"req":"r-b2b","task":"b2b","project":"b2b","worktree":null,"branch":null}
+-- stop-hook payload:
+{"req":"r-koin","task":"koin","project":"koin","worktree":null,"branch":"develop"}
+{"req":"r-b2b","task":"b2b","project":"b2b","worktree":null,"branch":null}
+== S5 backfill: the exact pre-fix row the captain saw, plus adversarial rows
+-- first run:
+{"busy":false,"rows":7,"changed":3,"relabelled":3,"unresolved":4,"malformed_rows":0,"unresolved_reasons":{"branch_not_recorded":4}}
+
+{"id":"captain-saw","project":"koin","worktree":null,"branch":"develop"}
+{"id":"remote-old","project":"koin","worktree":null,"branch":"develop"}
+{"id":"b2b-old","project":"b2b","worktree":null,"branch":null}
+{"id":"unregistered-mate","project":"firstmate","worktree":"/tmp/nm-live.3Yq2/treehouse/firstmate-b19abf/2/firstmate","branch":null}
+{"id":"not-mate-home","project":"firstmate","worktree":"/some/other/home","branch":null}
+{"id":"wrong-project","project":"koin-typo","worktree":"/tmp/nm-live.3Yq2/treehouse/firstmate-b19abf/2/firstmate","branch":null}
+{"id":"worker","project":"demo","worktree":"/tmp/nm-live.3Yq2/wt","branch":"fm/colour"}
+-- unchanged fields of captain-saw (all except project/worktree/branch):
+identical
+-- untouched rows byte-identical:
+unregistered-mate identical
+not-mate-home identical
+wrong-project identical
+worker identical
+-- second run:
+{"busy":false,"rows":7,"changed":0,"relabelled":0,"unresolved":4,"malformed_rows":0,"unresolved_reasons":{"branch_not_recorded":4}}
+
+log byte-identical after rerun (converged)
+LIVE_ROOT=/tmp/nm-live.3Yq2

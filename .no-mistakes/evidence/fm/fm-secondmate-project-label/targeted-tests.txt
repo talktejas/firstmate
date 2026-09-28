@@ -1,0 +1,4 @@
+ok - a message names a worker's project, a second mate's owned project or domain, and no project for no task
+ok - message backfill resolves task-keyed context without guessing captured rows
+ok - a recorded message names its project, its worktree and its branch
+ok - a captured message carries the one task its own turn touched, its branch only at turn end, and no guess otherwise
