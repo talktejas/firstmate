@@ -693,6 +693,7 @@ else
   if [ "$lock_rc" -eq 124 ]; then
     printf 'WAKE DRAIN SKIPPED: queue lock remains held by live pid %s after %ss; retry on the next drain.\n' \
       "${FM_LOCK_HELD_PID:-unknown}" "$PRESENTATION_LOCK_TIMEOUT"
+    print_captain_notes_section
     exit 0
   fi
   printf 'wake drain: queue lock could not be acquired safely\n' >&2

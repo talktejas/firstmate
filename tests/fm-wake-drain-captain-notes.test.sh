@@ -230,6 +230,40 @@ test_unreadable_inbox_keeps_every_note_wake() {
   pass "an unreadable inbox is reported and keeps every captain-note wake queued"
 }
 
+test_lock_skipped_drain_still_lists_notes() {
+  local dir state out holder id i
+  dir=$(make_case lock-skipped)
+  state="$dir/state"
+  out="$dir/drain.out"
+  id=$(write_old_note "$state" 600 Contended "answer me while the queue is busy")
+
+  FM_STATE_OVERRIDE="$state" bash -c '
+    . "$1"
+    fm_lock_acquire_wait "$2"
+    printf "ready\n" > "$3"
+    exec sleep 30
+  ' _ "$ROOT/bin/fm-wake-lib.sh" "$state/.wake-queue.lock" "$dir/queue.ready" &
+  holder=$!
+  i=0
+  while [ "$i" -lt 100 ] && [ ! -s "$dir/queue.ready" ]; do
+    sleep 0.05
+    i=$((i + 1))
+  done
+  [ -s "$dir/queue.ready" ] || { kill "$holder" 2>/dev/null || true; fail "queue holder never acquired its lock"; }
+
+  FM_STATE_OVERRIDE="$state" FM_STATUS_PRESENTATION_LOCK_TIMEOUT=1 "$DRAIN" > "$out" 2>&1 \
+    || { kill "$holder" 2>/dev/null || true; fail "contended drain failed"; }
+  kill "$holder" 2>/dev/null || true
+  wait "$holder" 2>/dev/null || true
+
+  grep -F "WAKE DRAIN SKIPPED: queue lock remains held by live pid $holder" "$out" >/dev/null \
+    || fail "setup error: the drain was not skipped on lock contention: $(cat "$out")"
+  grep -E "^$id waiting [0-9]+m: answer me while the queue is busy$" "$out" >/dev/null \
+    || fail "a drain skipped on lock contention did not list the waiting note: $(cat "$out")"
+  [ -f "$state/inbox/$id.note" ] || fail "the skipped drain acknowledged the note"
+  pass "a drain skipped because the queue lock is held still lists every waiting note"
+}
+
 test_note_with_no_wake_is_listed
 test_filtered_drain_cannot_acknowledge_a_note
 test_note_whose_wake_was_already_acknowledged
@@ -237,3 +271,4 @@ test_notes_of_different_ages_are_listed_oldest_first
 test_note_acknowledged_normally_clears_everything
 test_acknowledging_one_note_leaves_the_other_waiting
 test_unreadable_inbox_keeps_every_note_wake
+test_lock_skipped_drain_still_lists_notes
