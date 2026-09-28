@@ -121,6 +121,8 @@ def resolve(row, state, turns, mates):
                 row[field] = record[field]
         if missing(row, "branch") and record.get("branch") and row.get("project") == record["project"]:
             row["branch"] = record["branch"]
+    if not missing(row, "project"):
+        row.pop("resolution", None)
 
     required = ("project", "branch") if mate else ("project", "worktree", "branch")
     if all(not missing(row, field) for field in required):

@@ -1046,6 +1046,25 @@ test_message_backfill_resolves_only_context_keyed_by_a_task_record() {
   pass "message backfill resolves task-keyed context without guessing captured rows"
 }
 
+test_backfill_clears_the_failed_marker_once_the_project_resolves() {
+  local home wt row
+  home="$TMP_ROOT/backfill-marker"
+  seed_home "$home"
+  wt="$home/wt"
+  git init -q "$wt"
+  git -C "$wt" checkout -q -b fm/late
+  say "$home" "Early" "Before the spawn." --task cc-late >/dev/null 2>&1 \
+    || fail "a message about a task with no record yet was refused"
+  assert_equals failed "$(tail -1 "$home/data/captain-messages.jsonl" | jq -r .resolution)" \
+    "an unresolved task was not marked as failed"
+  printf 'project=/home/captain/p/demo\nworktree=%s\n' "$wt" > "$home/state/cc-late.meta"
+  FM_HOME="$home" "$BACKFILL" >/dev/null || fail "the message backfill failed"
+  row=$(tail -1 "$home/data/captain-messages.jsonl")
+  assert_equals "demo|$wt|absent" "$(jq -r '[.project, .worktree, (if has("resolution") then .resolution else "absent" end)] | join("|")' <<<"$row")" \
+    "a backfilled project left the failed-resolution marker behind"
+  pass "the backfill clears the failed marker once the project resolves"
+}
+
 # The automatic capture can be killed mid-write; whatever is recorded next must
 # not be glued onto what it left behind - either writer, same rule.
 test_a_recorded_message_never_glues_onto_a_torn_row() {
@@ -2475,6 +2494,7 @@ test_the_server_serves_the_pages_decision_rules
 test_a_message_names_the_project_the_worktree_and_the_branch
 test_a_message_about_a_second_mate_names_the_project_it_owns
 test_message_backfill_resolves_only_context_keyed_by_a_task_record
+test_backfill_clears_the_failed_marker_once_the_project_resolves
 test_message_backfill_attributes_by_the_same_turn_evidence
 test_a_captured_message_carries_the_one_task_its_turn_touched
 test_a_field_nothing_knows_is_recorded_as_unknown_not_guessed
