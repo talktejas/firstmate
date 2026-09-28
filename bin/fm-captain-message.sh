@@ -122,24 +122,37 @@ else
 fi
 [ -n "${text//[[:space:]]/}" ] || fail "an empty message is not a message"
 
-# The task's own record answers project and worktree; the branch is recorded
-# nowhere, so it is read live from the worktree, exactly as the command center's
-# scan does. Each is filled only where the caller left it empty.
+# The task's own record answers project and worktree, read by the capture's
+# resolver so both writers name the same work (task_record in
+# bin/fm-captain-message-sweep.py, which also turns a second mate's home into
+# the project it owns). An ordinary task's branch is recorded nowhere, so it is
+# read live from the worktree, exactly as the command center's scan does. Each
+# is filled only where the caller left it empty.
+rec_project='' rec_worktree='' rec_branch=''
 if [ -n "$task" ]; then
   meta="$FM_HOME/state/$task.meta"
   [ -f "$meta" ] || [ -n "$project" ] \
     || fail "--task $task has no task record: pass --task <id> for a task listed in state/*.meta, or name its --project for a task that has none yet (a queued hold)"
   if [ -f "$meta" ]; then
-    if [ -z "$project" ]; then
-      project=$(sed -n 's/^project=//p' "$meta" | head -1)
-      project=${project##*/}
-    fi
-    [ -n "$worktree" ] || worktree=$(sed -n 's/^worktree=//p' "$meta" | head -1)
+    { IFS= read -r rec_project; IFS= read -r rec_worktree; IFS= read -r rec_branch; } < <(
+      python3 - "$SCRIPT_DIR/fm-captain-message-sweep.py" "$FM_HOME/state" "$task" <<'PYEOF'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("fm_captain_message_sweep", sys.argv[1])
+capture = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(capture)
+record = capture.task_record(sys.argv[2], sys.argv[3]) or {}
+for field in ("project", "worktree", "branch"):
+    print((record.get(field) or "").replace("\n", " "))
+PYEOF
+    ) || true
+    [ -n "$project" ] || project=$rec_project
+    [ -n "$worktree" ] || worktree=$rec_worktree
   fi
 fi
 if [ -z "$branch" ] && [ -n "$worktree" ] && [ -d "$worktree" ]; then
   branch=$(git -C "$worktree" symbolic-ref --quiet --short HEAD 2>/dev/null) || branch=
 fi
+[ -n "$branch" ] || branch=$rec_branch
 
 # ponytail: the id is the append time plus the pid, which is unique enough for a
 # log one supervisor appends to; a counter would need a lock this does not need.
