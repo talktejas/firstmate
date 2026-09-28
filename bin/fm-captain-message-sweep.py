@@ -332,7 +332,9 @@ def task_record(state_dir, task):
     (the same reading bin/command-center-scan.sh makes). One project is named
     with its development branch from bin/fm-project-base.sh; several are named
     by the mate's own domain, the task id, rather than one picked at random.
-    Its worktree stays unknown, because a mate works in many."""
+    Its worktree stays unknown, because a mate works in many. The mate's home
+    and owned projects ride along as home= and projects= for the backfill's
+    relabelling of rows written before this reading."""
     try:
         with open(os.path.join(state_dir, task + ".meta"), encoding="utf-8") as fh:
             lines = fh.read().splitlines()
@@ -346,9 +348,9 @@ def task_record(state_dir, task):
             values[key] = value.strip() or None
     if values.pop("kind", None) == "secondmate":
         owned = (values.get("projects") or "").replace(",", " ").split()
-        home = values.get("home") or values.get("project")
+        home = values.get("home") or values.get("project") or values.get("worktree")
         values = {"project": owned[0] if len(owned) == 1 else task,
-                  "worktree": None, "branch": None}
+                  "worktree": None, "branch": None, "home": home, "projects": owned}
         if len(owned) == 1:
             values["branch"] = project_branch(
                 os.path.dirname(os.path.normpath(state_dir)), home, owned[0])
@@ -362,8 +364,8 @@ def task_record(state_dir, task):
 
 def project_branch(fm_home, mate_home, project):
     """The project's development branch, read from the mate's clone of it, else
-    this home's, with this home's registry as the fallback; None when neither
-    holds a clone or the project declares none."""
+    this home's, with this home's registry as the fallback; None when the
+    project declares none."""
     script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fm-project-base.sh")
     for home in (mate_home, fm_home):
         clone = os.path.join(home, "projects", project) if home else ""
@@ -374,7 +376,11 @@ def project_branch(fm_home, mate_home, project):
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, check=False)
         return result.stdout.strip() or None
-    return None
+    result = subprocess.run(
+        [os.path.join(os.path.dirname(script), "fm-project-mode.sh"), "--base", project],
+        env=dict(os.environ, FM_HOME=fm_home), stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, check=False)
+    return result.stdout.strip() or None
 
 
 def live_branch(worktree):

@@ -971,16 +971,36 @@ test_a_message_about_a_second_mate_names_the_project_it_owns() {
     "$(tail -1 "$home/data/captain-messages.jsonl" | jq -r '[.task, .project, .worktree, .branch] | map(. // "null") | join("|")')" \
     "a message about no task was given a project"
 
+  printf -- '- koin - expenses (home: %s; scope: koin; projects: koin; added 2026-09-01)\n' \
+    "$mate" > "$home/data/secondmates.md"
+  printf 'kind=secondmate\nproject=%s\nworktree=%s\nhome=%s\nprojects=koin\n' \
+    "$mate" "$mate" "$mate" > "$home/state/stray.meta"
+  local base
+  base=$(basename "$mate")
   printf '%s\n' \
-    '{"id":"old","task":"koin","project":"firstmate","worktree":"/old/home","branch":null}' \
+    "{\"id\":\"old\",\"at\":\"2026-09-01T00:00:00Z\",\"title\":\"Stack\",\"text\":\"The stack\",\"task\":\"koin\",\"project\":\"$base\",\"worktree\":\"$mate\",\"branch\":null,\"source\":\"transcript\"}" \
+    "{\"id\":\"unregistered\",\"task\":\"stray\",\"project\":\"$base\",\"worktree\":\"$mate\",\"branch\":null}" \
+    '{"id":"elsewhere","task":"koin","project":"firstmate","worktree":"/old/home","branch":null}' \
     '{"id":"new","task":"koin","project":null,"worktree":null,"branch":null}' \
     > "$home/data/captain-messages.jsonl"
-  FM_HOME="$home" "$BACKFILL" >/dev/null || fail "the message backfill failed"
+  local result before
+  result=$(FM_HOME="$home" "$BACKFILL") || fail "the message backfill failed"
+  assert_equals 1 "$(jq -r .relabelled <<<"$result")" "the backfill did not count exactly one relabelled row"
+  assert_equals 'koin|null|develop|2026-09-01T00:00:00Z|Stack|The stack|koin|transcript' \
+    "$(jq -r 'select(.id == "old") | [.project, (.worktree // "null"), .branch, .at, .title, .text, .task, .source] | join("|")' "$home/data/captain-messages.jsonl")" \
+    "a row filed under a second mate's home was not relabelled to its owned project"
+  assert_equals "$base|$mate|null" \
+    "$(jq -r 'select(.id == "unregistered") | [.project, .worktree, (.branch // "null")] | join("|")' "$home/data/captain-messages.jsonl")" \
+    "a row for an unregistered mate was relabelled"
   assert_equals "firstmate|/old/home" \
-    "$(jq -r 'select(.id == "old") | [.project, .worktree] | join("|")' "$home/data/captain-messages.jsonl")" \
-    "a record written before the fix was rewritten"
-  assert_equals koin "$(jq -r 'select(.id == "new") | .project' "$home/data/captain-messages.jsonl")" \
-    "the backfill filed a second mate's row under its home"
+    "$(jq -r 'select(.id == "elsewhere") | [.project, .worktree] | join("|")' "$home/data/captain-messages.jsonl")" \
+    "a mate row not recorded against its home was rewritten"
+  assert_equals "koin|develop" "$(jq -r 'select(.id == "new") | [.project, .branch] | join("|")' "$home/data/captain-messages.jsonl")" \
+    "the backfill did not fill a second mate's row with its owned project and branch"
+  before=$(cat "$home/data/captain-messages.jsonl")
+  result=$(FM_HOME="$home" "$BACKFILL") || fail "the second message backfill failed"
+  assert_equals "0|0" "$(jq -r '[.changed, .relabelled] | join("|")' <<<"$result")" "a second backfill changed a row"
+  assert_equals "$before" "$(cat "$home/data/captain-messages.jsonl")" "a second backfill was not convergent"
   pass "a message names a worker's project, a second mate's owned project or domain, and no project for no task"
 }
 
