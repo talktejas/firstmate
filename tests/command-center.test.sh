@@ -973,6 +973,10 @@ test_a_message_about_a_second_mate_names_the_project_it_owns() {
 
   printf -- '- koin - expenses (home: %s; scope: koin; projects: koin; added 2026-09-01)\n' \
     "$mate" > "$home/data/secondmates.md"
+  printf -- '- far - remote (host: far.example; root: /srv/firstmate; home: /srv/fm-homes/far; scope: far; projects: koin; added 2026-09-01)\n' \
+    >> "$home/data/secondmates.md"
+  printf 'kind=secondmate\nproject=/srv/firstmate\nworktree=/srv/fm-homes/far\nhome=/srv/fm-homes/far\nprojects=koin\n' \
+    > "$home/state/far.meta"
   printf 'kind=secondmate\nproject=%s\nworktree=%s\nhome=%s\nprojects=koin\n' \
     "$mate" "$mate" "$mate" > "$home/state/stray.meta"
   local base
@@ -982,10 +986,14 @@ test_a_message_about_a_second_mate_names_the_project_it_owns() {
     "{\"id\":\"unregistered\",\"task\":\"stray\",\"project\":\"$base\",\"worktree\":\"$mate\",\"branch\":null}" \
     '{"id":"elsewhere","task":"koin","project":"firstmate","worktree":"/old/home","branch":null}' \
     '{"id":"new","task":"koin","project":null,"worktree":null,"branch":null}' \
+    '{"id":"remote","task":"far","project":"firstmate","worktree":"/srv/fm-homes/far","branch":null}' \
     > "$home/data/captain-messages.jsonl"
   local result before
   result=$(FM_HOME="$home" "$BACKFILL") || fail "the message backfill failed"
-  assert_equals 1 "$(jq -r .relabelled <<<"$result")" "the backfill did not count exactly one relabelled row"
+  assert_equals 2 "$(jq -r .relabelled <<<"$result")" "the backfill did not count exactly two relabelled rows"
+  assert_equals "koin|null" \
+    "$(jq -r 'select(.id == "remote") | [.project, (.worktree // "null")] | join("|")' "$home/data/captain-messages.jsonl")" \
+    "a remote mate's row filed under its code root was not relabelled"
   assert_equals 'koin|null|develop|2026-09-01T00:00:00Z|Stack|The stack|koin|transcript' \
     "$(jq -r 'select(.id == "old") | [.project, (.worktree // "null"), .branch, .at, .title, .text, .task, .source] | join("|")' "$home/data/captain-messages.jsonl")" \
     "a row filed under a second mate's home was not relabelled to its owned project"

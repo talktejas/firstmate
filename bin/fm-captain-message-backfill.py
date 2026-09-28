@@ -13,10 +13,10 @@
 # a task id from text or consults the caller's current directory.
 #
 # It overwrites a recorded value in one case only: a row the old resolution
-# filed under a second mate's own home. When the task has a kind=secondmate
-# state/<task>.meta, is registered in data/secondmates.md, owns at least one
-# project, and the row's worktree is that mate's home and its project that
-# home's basename, the row's project, worktree and branch are replaced with what
+# filed under a second mate's own machinery. When the task has a
+# kind=secondmate state/<task>.meta, is registered in data/secondmates.md, owns
+# at least one project, and the row's worktree is that meta's worktree= and its
+# project the basename of its project= (what the old resolution wrote), the row's project, worktree and branch are replaced with what
 # a new write records (the owned project or the mate's name, no worktree, the
 # development branch). Every other field is kept.
 #
@@ -95,12 +95,11 @@ def same_path(a, b):
 
 
 def relabel(row, record, task, mates):
-    """Replace a second mate's own home, recorded by the old resolution, with
-    the work it owns; True when the row was relabelled."""
-    home = record.get("home")
-    if task not in mates or not record.get("projects") or not home \
-            or not same_path(row.get("worktree"), home) \
-            or row.get("project") != os.path.basename(os.path.normpath(home)):
+    """Replace a second mate's own machinery, recorded by the old resolution,
+    with the work it owns; True when the row was relabelled."""
+    if task not in mates or not record.get("projects") or not record.get("meta_project") \
+            or not same_path(row.get("worktree"), record.get("meta_worktree")) \
+            or row.get("project") != record["meta_project"]:
         return False
     for field in ("project", "worktree", "branch"):
         row[field] = record.get(field)

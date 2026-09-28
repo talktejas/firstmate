@@ -332,9 +332,9 @@ def task_record(state_dir, task):
     (the same reading bin/command-center-scan.sh makes). One project is named
     with its development branch from bin/fm-project-base.sh; several are named
     by the mate's own domain, the task id, rather than one picked at random.
-    Its worktree stays unknown, because a mate works in many. The mate's home
-    and owned projects ride along as home= and projects= for the backfill's
-    relabelling of rows written before this reading."""
+    Its worktree stays unknown, because a mate works in many. The mate's home,
+    owned projects, and the project and worktree the old reading recorded ride
+    along for the backfill's relabelling of rows written before this reading."""
     try:
         with open(os.path.join(state_dir, task + ".meta"), encoding="utf-8") as fh:
             lines = fh.read().splitlines()
@@ -350,7 +350,10 @@ def task_record(state_dir, task):
         owned = (values.get("projects") or "").replace(",", " ").split()
         home = values.get("home") or values.get("project") or values.get("worktree")
         values = {"project": owned[0] if len(owned) == 1 else task,
-                  "worktree": None, "branch": None, "home": home, "projects": owned}
+                  "worktree": None, "branch": None, "home": home, "projects": owned,
+                  "meta_project": os.path.basename(os.path.normpath(values["project"]))
+                  if values.get("project") else None,
+                  "meta_worktree": values.get("worktree")}
         if len(owned) == 1:
             values["branch"] = project_branch(
                 os.path.dirname(os.path.normpath(state_dir)), home, owned[0])
