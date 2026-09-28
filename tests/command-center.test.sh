@@ -1914,7 +1914,7 @@ Should the site be blue or green? My default if you say nothing is blue, because
 # Folding may leave a duplicate but must never lose a message: a reply that
 # says something the routed row does not is captured beside it.
 test_a_different_reply_in_the_same_turn_is_never_folded() {
-  local home tdir log id id2 id3 id4 old
+  local home tdir log id id2 id3 id4 id5 old
   home="$TMP_ROOT/handdiffer"
   tdir="$TMP_ROOT/handdiffer-transcripts"
   seed_home "$home"
@@ -1928,6 +1928,8 @@ Should the site be blue or green? My default if you say nothing is blue, because
     --task cc-live --project demo --question) || fail "the recorder refused the third message"
   id4=$(say "$home" "Merge?" "The review is clean and the build is green. Should I merge it now?" \
     --task cc-live --project demo --question) || fail "the recorder refused the fourth message"
+  id5=$(say "$home" "Ship?" "I can ship the fix tonight. Go?" \
+    --task cc-live --project demo --question) || fail "the recorder refused the fifth message"
   old="m20000101T000000Z-1"
   {
     # Same words but a different pull request: a number disagrees.
@@ -1953,16 +1955,20 @@ $id3"
     recorder_call call-5 "$(ts -30)" "$(ts +81)" "$id4"
     reply_line r-more "$(ts +82)" "The review is clean and the build is green. Should I merge it now?
 I also paused the billing worker until you answer."
+    # A negation is never filler: the reply says the opposite of its row.
+    prompt_line "$(ts +90)" "six"
+    recorder_call call-6 "$(ts -30)" "$(ts +91)" "$id5"
+    reply_line r-cant "$(ts +92)" "I can’t ship the fix tonight. Go?"
   } > "$tdir/sess-1.jsonl"
   jq -cn --arg id "$old" '{id:$id,at:"2000-01-01T00:00:00Z",title:"Old",
     text:"Blue or green for the footer?",question:true}' >> "$home/data/captain-messages.jsonl"
 
   sweep "$home" "$tdir" || fail "the sweep failed"
   log="$home/data/captain-messages.jsonl"
-  assert_equals "r-number,r-short,r-old,r-two,r-more" \
+  assert_equals "r-number,r-short,r-old,r-two,r-more,r-cant" \
     "$(jq -rs 'map(select(.source == "transcript") | .req) | join(",")' "$log")" \
     "a reply that says something its routed row does not was folded away"
-  assert_equals 5 "$(jq -s 'map(select(.question == true)) | length' "$log")" \
+  assert_equals 6 "$(jq -s 'map(select(.question == true)) | length' "$log")" \
     "a by-hand question row was lost"
   pass "a reply that differs from the routed row, or cannot be tied to it, is captured beside it"
 }

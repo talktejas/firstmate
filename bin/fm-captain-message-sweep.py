@@ -201,7 +201,8 @@ FILLER = frozenset("""
 a an the this that these those it its i me my we us our you your he him his she
 her they them their is are was were be been am do does did have has had will
 would shall should can could may might and or but so if then as of to in on at
-by for with from into about re ve s t ll d m captain
+by for with from into about i'm i've i'll i'd you're you've you'll we're we've
+we'll it's that's there's let's captain
 """.split())
 
 
@@ -214,7 +215,8 @@ def specifics(text):
 
 
 def plain_words(text):
-    return set(re.findall(r"[a-z0-9]+", LIST_MARKER.sub(" ", URL.sub(" ", text)).lower()))
+    text = LIST_MARKER.sub(" ", URL.sub(" ", text)).lower().replace("\u2019", "'")
+    return set(re.findall(r"[a-z0-9]+(?:'[a-z0-9]+)*", text))
 
 
 def normalized(text):
@@ -226,7 +228,8 @@ def same_message(reply, row):
     """Whether a captured reply says the same as a by-hand row.
 
     Formatting never counts: markdown, backticks, dashes, quotes, list markers
-    and line breaks are dropped before words are compared. The two must name
+    and line breaks are dropped before words are compared, and a contraction
+    is one word, so "can't" never passes for "can". The two must name
     exactly the same links, numbers and identifiers, both ways, and every word
     of the reply must also be in the row unless it is in FILLER. The row may
     carry words the reply lacks; a reply that adds any other word says
