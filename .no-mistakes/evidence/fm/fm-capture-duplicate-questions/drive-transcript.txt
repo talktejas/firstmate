@@ -1,0 +1,49 @@
+=== S1: the Koin case - question recorded by hand, same turn's reply reworded/markdown in transcript
+recorder printed id=m20260928T061232Z-99235
+--- captain-messages.jsonl (1 rows)
+{"id":"m20260928T061232Z-99235","source":"hand","question":true,"question_key":"koin-encrypt-at-rest","req":null,"text":"Koin v1 plan is ready - merge it? And one question on encryption: shou"}
+--- rerun hook + delete cursor and rerun (must stay one row)
+--- captain-messages.jsonl (1 rows)
+{"id":"m20260928T061232Z-99235","source":"hand","question":true,"question_key":"koin-encrypt-at-rest","req":null,"text":"Koin v1 plan is ready - merge it? And one question on encryption: shou"}
+
+=== S2: reply adds a new sentence (no numbers/links) -> captured beside the row
+--- captain-messages.jsonl (3 rows)
+{"id":"m20260928T061232Z-99235","source":"hand","question":true,"question_key":"koin-encrypt-at-rest","req":null,"text":"Koin v1 plan is ready - merge it? And one question on encryption: shou"}
+{"id":"m20260928T061235Z-1697","source":"hand","question":true,"question_key":null,"req":null,"text":"The review is clean and the build is green. Should I merge it now?"}
+{"id":"cb7e152b45fc260ce","source":"transcript","question":null,"question_key":null,"req":"r-more","text":"The review is clean and the build is green. Should I merge it now?\nI a"}
+
+=== S3: negation / auxiliary differences -> never folded
+--- captain-messages.jsonl (11 rows)
+{"id":"m20260928T061232Z-99235","source":"hand","question":true,"question_key":"koin-encrypt-at-rest","req":null,"text":"Koin v1 plan is ready - merge it? And one question on encryption: shou"}
+{"id":"m20260928T061235Z-1697","source":"hand","question":true,"question_key":null,"req":null,"text":"The review is clean and the build is green. Should I merge it now?"}
+{"id":"cb7e152b45fc260ce","source":"transcript","question":null,"question_key":null,"req":"r-more","text":"The review is clean and the build is green. Should I merge it now?\nI a"}
+{"id":"m20260928T061237Z-2951","source":"hand","question":true,"question_key":null,"req":null,"text":"I can ship the fix tonight. Go?"}
+{"id":"m20260928T061237Z-3334","source":"hand","question":true,"question_key":null,"req":null,"text":"I can't ship the fix tonight. Go?"}
+{"id":"m20260928T061237Z-3705","source":"hand","question":true,"question_key":null,"req":null,"text":"Do not merge Koin now?"}
+{"id":"m20260928T061238Z-4085","source":"hand","question":true,"question_key":null,"req":null,"text":"Should I merge the PR?"}
+{"id":"c10b1cc380ef645d6","source":"transcript","question":null,"question_key":null,"req":"r-cant","text":"I can’t ship the fix tonight. Go?"}
+{"id":"c886da34da209da6a","source":"transcript","question":null,"question_key":null,"req":"r-can","text":"I can ship the fix tonight. Go?"}
+{"id":"cb5779f68ef980644","source":"transcript","question":null,"question_key":null,"req":"r-merge","text":"Merge Koin now?"}
+{"id":"cfaa7831762a9f449","source":"transcript","question":null,"question_key":null,"req":"r-did","text":"I did merge the PR."}
+
+=== S4: recorder output suppressed (no id) - identical text written inside the turn folds; row from before the turn is captured
+--- captain-messages.jsonl (14 rows)
+{"id":"m20260928T061232Z-99235","source":"hand","question":true,"question_key":"koin-encrypt-at-rest","req":null,"text":"Koin v1 plan is ready - merge it? And one question on encryption: shou"}
+{"id":"m20260928T061235Z-1697","source":"hand","question":true,"question_key":null,"req":null,"text":"The review is clean and the build is green. Should I merge it now?"}
+{"id":"cb7e152b45fc260ce","source":"transcript","question":null,"question_key":null,"req":"r-more","text":"The review is clean and the build is green. Should I merge it now?\nI a"}
+{"id":"m20260928T061237Z-2951","source":"hand","question":true,"question_key":null,"req":null,"text":"I can ship the fix tonight. Go?"}
+{"id":"m20260928T061237Z-3334","source":"hand","question":true,"question_key":null,"req":null,"text":"I can't ship the fix tonight. Go?"}
+{"id":"m20260928T061237Z-3705","source":"hand","question":true,"question_key":null,"req":null,"text":"Do not merge Koin now?"}
+{"id":"m20260928T061238Z-4085","source":"hand","question":true,"question_key":null,"req":null,"text":"Should I merge the PR?"}
+{"id":"c10b1cc380ef645d6","source":"transcript","question":null,"question_key":null,"req":"r-cant","text":"I can’t ship the fix tonight. Go?"}
+{"id":"c886da34da209da6a","source":"transcript","question":null,"question_key":null,"req":"r-can","text":"I can ship the fix tonight. Go?"}
+{"id":"cb5779f68ef980644","source":"transcript","question":null,"question_key":null,"req":"r-merge","text":"Merge Koin now?"}
+{"id":"cfaa7831762a9f449","source":"transcript","question":null,"question_key":null,"req":"r-did","text":"I did merge the PR."}
+{"id":"m20260928T061240Z-5317","source":"hand","question":true,"question_key":null,"req":null,"text":"Deploy the Koin API to staging now?"}
+{"id":"m20260928T061242Z-7264","source":"hand","question":true,"question_key":null,"req":null,"text":"Which region for Koin: **eu-west** or us-east?"}
+{"id":"cae071346f581a65b","source":"transcript","question":null,"question_key":null,"req":"r-deploy","text":"Deploy the Koin API to staging now?"}
+S4 region row id=m20260928T061242Z-7264 (expect no r-region); deploy row id=m20260928T061240Z-5317 (expect r-deploy captured)
+
+=== S5: pre-existing duplicate rows are left alone
+log byte-identical after two more sweeps: old duplicate rows untouched
+HOME=/tmp/tmp.nxfavMdz2l/home

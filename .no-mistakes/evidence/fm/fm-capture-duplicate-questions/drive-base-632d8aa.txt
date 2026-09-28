@@ -1,0 +1,9 @@
+=== S1: the Koin case - question recorded by hand, same turn's reply reworded/markdown in transcript
+recorder printed id=m20260928T061252Z-12887
+--- captain-messages.jsonl (2 rows)
+{"id":"m20260928T061252Z-12887","source":"hand","question":true,"question_key":"koin-encrypt-at-rest","req":null,"text":"Koin v1 plan is ready - merge it? And one question on encryption: shou"}
+{"id":"c21c75edcb6285c4e","source":"transcript","question":null,"question_key":null,"req":"r-koin","text":"**Koin v1 plan is ready** - merge it?\n\n1. And one question on encrypti"}
+--- rerun hook + delete cursor and rerun (must stay one row)
+--- captain-messages.jsonl (2 rows)
+{"id":"m20260928T061252Z-12887","source":"hand","question":true,"question_key":"koin-encrypt-at-rest","req":null,"text":"Koin v1 plan is ready - merge it? And one question on encryption: shou"}
+{"id":"c21c75edcb6285c4e","source":"transcript","question":null,"question_key":null,"req":"r-koin","text":"**Koin v1 plan is ready** - merge it?\n\n1. And one question on encrypti"}
