@@ -17,7 +17,10 @@ ERR="$TMP_ROOT/err"
 mkdir -p "$PRIMARY/bin" "$STATE" "$PRIMARY/projects" "$PROJ/src"
 printf '# fixture\n' > "$PRIMARY/AGENTS.md"
 git -C "$PRIMARY" init -q
+git -C "$PRIMARY" remote add origin https://github.com/talktejas/firstmate
+git -C "$PRIMARY" remote add upstream git@github.com:kunchenguid/firstmate.git
 git -C "$PROJ" init -q
+git -C "$PROJ" remote add origin https://github.com/talktejas/koin.git
 printf 'seeded\n' > "$PROJ/src/app.php"
 
 BRIEF_ONLY_ROUTE='first classify the work under the AGENTS.md intake contract, then use bin/fm-brief.sh followed by bin/fm-spawn.sh for dispatched work'
@@ -646,6 +649,135 @@ EOF
   pass "the OpenCode plugin surfaces the guard's refusal and ignores non-bash tools"
 }
 
+test_forge_project_work_is_refused() {
+  local k=talktejas/koin url=https://github.com/talktejas/koin
+  # Branches and refs, and pushes.
+  expect_deny "gh api ref delete" --tool Bash --command "gh api -X DELETE repos/$k/git/refs/heads/old"
+  expect_deny "gh api ref create" --tool Bash --command "gh api repos/$k/git/refs -f ref=refs/heads/x -f sha=abc"
+  expect_deny "gh api branch compare" --tool Bash --command "gh api repos/$k/compare/develop...feature/x"
+  expect_deny "git push to a project url" --tool Bash --command "git push $url HEAD:refs/heads/x"
+  expect_deny "git push --delete by scp remote" --tool Bash --command "git push --delete git@github.com:$k.git old"
+  expect_deny "git ls-remote a project" --tool Bash --command "git ls-remote $url"
+  expect_deny "git fetch a project into the home" --tool Bash --command "git fetch $url develop"
+  expect_deny "git remote add a project" --tool Bash --command "git remote add koin $url"
+  expect_deny "git push from a project directory" --tool Bash --command "git push origin --delete old" --cwd "$PROJ"
+  # Pull requests and issues.
+  expect_deny "gh pr merge outside fm-pr-merge.sh" --tool Bash --command "gh pr merge 5 --squash -R $k"
+  expect_deny "gh pr create" --tool Bash --command "gh pr create --repo $k --title t --body b"
+  expect_deny "gh pr close by url" --tool Bash --command "gh pr close $url/pull/5"
+  expect_deny "gh pr comment" --tool Bash --command "gh-axi pr comment 5 -R $k --body hi"
+  expect_deny "gh pr edit" --tool Bash --command "gh pr edit 5 --repo=$k --add-label x"
+  expect_deny "gh pr diff reads contents" --tool Bash --command "gh pr diff 5 -R $k"
+  expect_deny "gh issue create" --tool Bash --command "gh issue create -R $k -t t -b b"
+  expect_deny "gh issue close" --tool Bash --command "gh-axi issue close 3 --repo $k"
+  expect_deny "gh issue comment" --tool Bash --command "gh issue comment 3 -R $k -b hi"
+  # Repository settings, releases, and tags.
+  expect_deny "gh repo edit visibility" --tool Bash --command "gh repo edit $k --visibility public"
+  expect_deny "gh repo default branch" --tool Bash --command "gh api -X PATCH repos/$k -f default_branch=main"
+  expect_deny "gh repo delete" --tool Bash --command "gh repo delete $k --yes"
+  expect_deny "gh release create" --tool Bash --command "gh release create v1 -R $k"
+  expect_deny "gh release list" --tool Bash --command "gh-axi release list -R $k"
+  expect_deny "gh api tag" --tool Bash --command "gh api repos/$k/git/tags -f tag=v1"
+  expect_deny "gh run rerun" --tool Bash --command "gh run rerun 99 -R $k"
+  # Reading repository contents through the forge.
+  expect_deny "gh api contents" --tool Bash --command "gh api repos/$k/contents/README.md"
+  expect_deny "gh api blob" --tool Bash --command "gh api /repos/$k/git/blobs/abc --jq .content"
+  expect_deny "gh api pr files" --tool Bash --command "gh api repos/$k/pulls/5/files"
+  expect_deny "gh repo view reads the readme" --tool Bash --command "gh repo view $k"
+  expect_deny "gh search code" --tool Bash --command "gh search code secret --repo $k"
+  expect_deny "curl raw contents" --tool Bash --command "curl -sL https://raw.githubusercontent.com/$k/develop/app.php"
+  expect_deny "curl api contents" --tool Bash --command "curl -s https://api.github.com/repos/$k/contents/app.php"
+  # However it is spelled.
+  expect_deny "behind an environment assignment" --tool Bash --command "GH_REPO=$k gh pr close 5"
+  expect_deny "behind env" --tool Bash --command "env GH_REPO=$k gh label create x"
+  expect_deny "inside a pipeline" --tool Bash --command "printf '%s\n' a b | xargs -I{} gh api -X DELETE repos/$k/git/refs/heads/{}"
+  expect_deny "in a loop body" --tool Bash --command "for b in a b; do gh api -X DELETE repos/$k/git/refs/heads/\$b; done"
+  expect_deny "behind a path" --tool Bash --command "/usr/bin/gh pr close 5 -R $k"
+  expect_deny "inside bash -c" --tool Bash --command "bash -c \"gh pr close 5 -R $k\""
+  expect_deny "inside a command substitution" --tool Bash --command "echo \$(gh api repos/$k/contents/a)"
+  expect_deny "gh with no named repo in a project directory" --tool Bash --command "gh pr close 5" --cwd "$PROJ"
+  expect_deny "an unnamed --repo" --tool Bash --command "gh pr close 5 --repo"
+  pass "forge writes and content reads on a project repository are refused however they are spelled"
+}
+
+test_forge_unclassifiable_is_refused_with_its_reason() {
+  local msg
+  run_check --tool Bash --command "gh api graphql -f query='mutation { x }'" && fail "graphql must be refused"
+  msg=$(jq -r '.systemMessage' "$ERR")
+  case "$msg" in
+    *"cannot confidently classify"*"$BRIEF_ONLY_ROUTE"*) ;;
+    *) fail "an unclassifiable forge call must say so and name the dispatch path: $msg" ;;
+  esac
+  expect_deny "a non-repo api write" --tool Bash --command "gh api -X POST orgs/acme/repos"
+  pass "a forge call the guard cannot place is refused and the refusal says why"
+}
+
+test_forge_deny_message_names_the_project_and_dispatch_path() {
+  local msg
+  run_check --tool Bash --command "gh pr close 5 -R talktejas/koin" && fail "pr close must be refused"
+  msg=$(jq -r '.systemMessage' "$ERR")
+  case "$msg" in
+    *"(gh pr close)"*"project repository talktejas/koin"*"bin/fm-pr-merge.sh"*"$BRIEF_ONLY_ROUTE"*) ;;
+    *) fail "forge refusal must name the operation, project, merge path, and dispatch path: $msg" ;;
+  esac
+  pass "the forge refusal names the operation, the project, and the dispatch path"
+}
+
+test_forge_supervision_and_own_repo_stay_allowed() {
+  local k=talktejas/koin url=https://github.com/talktejas/koin
+  # firstmate's own merge and record paths, whatever they carry.
+  expect_allow "fm-pr-merge.sh" --tool Bash --command "bin/fm-pr-merge.sh task-1 $url/pull/5"
+  expect_allow "fm-pr-check.sh" --tool Bash --command "bin/fm-pr-check.sh task-1 $url/pull/5"
+  expect_allow "fm-pr-merge.sh behind env and timeout" \
+    --tool Bash --command "FM_HOME=/x timeout 600 \"\$FM_ROOT\"/bin/fm-pr-merge.sh task-1 $url/pull/5 --allow-red ci"
+  expect_allow "fm-pr-check.sh from a project directory" --tool Bash --command "$PRIMARY/bin/fm-pr-check.sh task-1 $url/pull/5" --cwd "$PROJ"
+  # Supervision reads of pull-request and check state on a project.
+  expect_allow "pr view" --tool Bash --command "gh-axi pr view 5 -R $k"
+  expect_allow "pr view by url" --tool Bash --command "gh pr view $url/pull/5 --json state,mergeable,statusCheckRollup"
+  expect_allow "pr checks" --tool Bash --command "gh pr checks 5 --repo $k"
+  expect_allow "pr list" --tool Bash --command "GH_REPO=$k gh pr list --state open"
+  expect_allow "run view" --tool Bash --command "gh run view 99 -R $k"
+  expect_allow "run list" --tool Bash --command "gh-axi run list --repo=$k"
+  expect_allow "issue view" --tool Bash --command "gh issue view 3 -R $k"
+  expect_allow "api pull state" --tool Bash --command "gh api repos/$k/pulls/5 --jq .mergeable"
+  expect_allow "api check runs" --tool Bash --command "gh api repos/$k/commits/abc/check-runs"
+  expect_allow "api combined status" --tool Bash --command "gh api -X GET /repos/$k/commits/abc/status"
+  expect_allow "api actions run" --tool Bash --command "gh api repos/$k/actions/runs/99"
+  # firstmate's own repository, by name, by url, and by default.
+  expect_allow "own repo pr create" --tool Bash --command "gh pr create -R talktejas/firstmate --title t --body b"
+  expect_allow "own upstream issue comment" --tool Bash --command "gh-axi issue comment 5 -R kunchenguid/firstmate --body hi"
+  expect_allow "own repo pr close by default repo" --tool Bash --command "gh pr close 12"
+  expect_allow "own repo contents" --tool Bash --command "gh api repos/TalkTejas/FirstMate/contents/AGENTS.md"
+  expect_allow "own repo push" --tool Bash --command "git push origin HEAD:refs/heads/fm/x"
+  expect_allow "own repo push, no remote named" --tool Bash --command "git push"
+  expect_allow "own repo fetch by url" --tool Bash --command "git fetch https://github.com/talktejas/firstmate.git main"
+  expect_allow "own repo ls-remote" --tool Bash --command "git ls-remote upstream"
+  # Repository-free gh, onboarding, and local git.
+  expect_allow "gh auth status" --tool Bash --command "gh auth status"
+  expect_allow "gh-axi dashboard" --tool Bash --command "gh-axi"
+  expect_allow "api rate limit" --tool Bash --command "gh api rate_limit"
+  expect_allow "creating a new project repo" --tool Bash --command "gh-axi repo create talktejas/newthing --private"
+  expect_allow "cloning a new project" --tool Bash --command "git clone $url $PRIMARY/projects/koin"
+  expect_allow "local git in the home" --tool Bash --command "git status; git log -1 --oneline"
+  expect_allow "a message that merely mentions gh" \
+    --tool Bash --command "bin/fm-send.sh task-1 \"run gh pr close 5 -R $k and git push $url\""
+  expect_allow "a backlog note that mentions a push" \
+    --tool Bash --command "tasks-axi add \"git push --delete $url old\""
+  pass "fm-pr-merge.sh, fm-pr-check.sh, supervision reads, and firstmate's own repository stay allowed"
+}
+
+test_forge_guard_is_inert_in_a_worker_session() {
+  local wt="$TMP_ROOT/forge-worker-wt" rc=0
+  git -C "$PRIMARY" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init 2>/dev/null || true
+  git -C "$PRIMARY" worktree add -q --detach "$wt" 2>/dev/null || fail "could not create a worker worktree"
+  mkdir -p "$wt/state"
+  env FM_ROOT_OVERRIDE="$wt" FM_HOME="$wt" FM_STATE_OVERRIDE="$wt/state" \
+    "$CHECK" --claude --cwd "$wt" --tool Bash --command "gh pr close 5 -R talktejas/koin" > "$OUT" 2> "$ERR" || rc=$?
+  [ "$rc" -eq 0 ] && [ ! -s "$OUT" ] && [ ! -s "$ERR" ] || fail "a worker session must never meet the forge guard: $(cat "$ERR")"
+  git -C "$PRIMARY" worktree remove --force "$wt" 2>/dev/null || true
+  pass "a worker session's forge work is untouched"
+}
+
 test_project_reads_are_denied_outright
 test_no_state_file_paces_the_guard
 test_firstmate_home_clones_are_supervision_not_project_work
@@ -669,3 +801,8 @@ test_other_tools_and_mcp_names_are_out_of_scope
 test_tracked_registration_covers_the_classified_tools
 test_every_primary_harness_registration_reaches_the_guard
 test_opencode_plugin_blocks_a_denied_command
+test_forge_project_work_is_refused
+test_forge_unclassifiable_is_refused_with_its_reason
+test_forge_deny_message_names_the_project_and_dispatch_path
+test_forge_supervision_and_own_repo_stay_allowed
+test_forge_guard_is_inert_in_a_worker_session
