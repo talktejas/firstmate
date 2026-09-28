@@ -1,0 +1,70 @@
+### 1. captain sends a note (real fm-inbox.sh note)
+$ /home/tds/.no-mistakes/worktrees/3605d2c32b02/01M3M0KZGV4VHR69DW2FR2PJW3/bin/fm-inbox.sh note why the fuck u keep on ignoring my messages
+queued 1790599695-LodPUb
+  why the fuck u keep on ignoring my messages
+  firstmate will pick this up at its next check.
+[rc=0]
+
+### 1b. an older note whose wake never existed (sent 3h ago, hand-written like fm-inbox writes)
+### 2. supervision drains through a filter that keeps only the ack line (the incident)
+$ fm-wake-drain.sh 2>&1 | grep WAKE_ACK_REQUIRED
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 1 --recovery-generation 9220.1790599696.DQ9Pfs
+
+### 3. run the printed generation-bound ack
+$ /home/tds/.no-mistakes/worktrees/3605d2c32b02/01M3M0KZGV4VHR69DW2FR2PJW3/bin/fm-wake-drain.sh --ack-through 1 --recovery-generation 9220.1790599696.DQ9Pfs
+CAPTAIN NOTES HELD: 2 note(s) from the captain are still unacknowledged, and this acknowledgement did not clear them or any wake row of theirs: 1790588866-LostWake (waiting 3h00m), 1790599695-LodPUb (waiting 3s). Read each with bin/fm-inbox.sh list, act on it, then acknowledge it by its own id: bin/fm-inbox.sh drain --ack <id>
+[rc=0]
+
+--- queue after ack:
+1790599696	1	check	inbox:1790599695-LodPUb	check: captain inbox note 1790599695-LodPUb - why the fuck u keep on ignoring my messages
+
+### 4. next plain drain: both notes still listed with wait time, last in output
+$ /home/tds/.no-mistakes/worktrees/3605d2c32b02/01M3M0KZGV4VHR69DW2FR2PJW3/bin/fm-wake-drain.sh
+1790599696	1	check	inbox:1790599695-LodPUb	check: captain inbox note 1790599695-LodPUb - why the fuck u keep on ignoring my messages
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 1 --recovery-generation 9220.1790599696.DQ9Pfs
+CAPTAIN NOTES WAITING (2 from the captain, unacknowledged - listed from the notes themselves on every drain until each is acknowledged by its own id):
+1790588866-LostWake waiting 3h00m: the board total is wrong
+1790599695-LodPUb waiting 4s: why the fuck u keep on ignoring my messages
+CAPTAIN NOTES WAITING: read each in full with bin/fm-inbox.sh list, act on it, then bin/fm-inbox.sh drain --ack <id>; no wake acknowledgement clears one.
+[rc=0]
+
+### 5. hold queue lock with a live pid -> skipped drain still lists notes
+### 5. (fresh home) captain sends two notes; queue lock held by a live pid -> skipped drain still lists notes
+$ FM_STATUS_PRESENTATION_LOCK_TIMEOUT=1 fm-wake-drain.sh
+WAKE DRAIN SKIPPED: queue lock remains held by live pid 61603 after 1s; retry on the next drain.
+CAPTAIN NOTES WAITING (2 from the captain, unacknowledged - listed from the notes themselves on every drain until each is acknowledged by its own id):
+1790594330-NoWake waiting 1h30m: second: are you there?
+1790599730-2Qs0Fm waiting 1s: first: fix the invoice total
+CAPTAIN NOTES WAITING: read each in full with bin/fm-inbox.sh list, act on it, then bin/fm-inbox.sh drain --ack <id>; no wake acknowledgement clears one.
+[rc=0]
+
+### 6. acknowledge ONE note deliberately by its id
+$ fm-inbox.sh drain --ack 1790599730-2Qs0Fm
+acked 1790599730-2Qs0Fm
+[rc=0]
+
+$ fm-inbox.sh pending
+1790594330-NoWake	1h30m	second: are you there?
+
+$ fm-wake-drain.sh
+1790599730	1	check	inbox:1790599730-2Qs0Fm	check: captain inbox note 1790599730-2Qs0Fm - first: fix the invoice total
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 1 --recovery-generation 61534.1790599730.NFEI0Q
+CAPTAIN NOTES WAITING (1 from the captain, unacknowledged - listed from the notes themselves on every drain until each is acknowledged by its own id):
+1790594330-NoWake waiting 1h30m: second: are you there?
+CAPTAIN NOTES WAITING: read each in full with bin/fm-inbox.sh list, act on it, then bin/fm-inbox.sh drain --ack <id>; no wake acknowledgement clears one.
+[rc=0]
+
+### 7. adversarial: run the printed generation-bound ack; remaining note must survive
+$ bin/fm-wake-drain.sh --ack-through 1 --recovery-generation 61534.1790599730.NFEI0Q
+CAPTAIN NOTES HELD: 1 note(s) from the captain are still unacknowledged, and this acknowledgement did not clear them or any wake row of theirs: 1790594330-NoWake (waiting 1h30m). Read each with bin/fm-inbox.sh list, act on it, then acknowledge it by its own id: bin/fm-inbox.sh drain --ack <id>
+
+$ fm-wake-drain.sh
+CAPTAIN NOTES WAITING (1 from the captain, unacknowledged - listed from the notes themselves on every drain until each is acknowledged by its own id):
+1790594330-NoWake waiting 1h30m: second: are you there?
+CAPTAIN NOTES WAITING: read each in full with bin/fm-inbox.sh list, act on it, then bin/fm-inbox.sh drain --ack <id>; no wake acknowledgement clears one.
+
+### 8. ack the remaining note by id -> listing disappears
+$ fm-inbox.sh drain --ack 1790594330-NoWake
+acked 1790594330-NoWake
+$ fm-wake-drain.sh | grep -c CAPTAIN
+0

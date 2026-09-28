@@ -1,0 +1,10 @@
+### BASELINE (base commit 57004c7): same incident replay
+queued 1790599744-b228jV
+$ bin/fm-wake-drain.sh --ack-through 1 --recovery-generation 74785.1790599744.Xrt8RC
+[rc=0]
+--- inbox still holds:
+1790599744-b228jV.note
+--- queue:
+$ fm-wake-drain.sh (next drain)
+0
+(^ count of lines mentioning the note: note is invisible)
