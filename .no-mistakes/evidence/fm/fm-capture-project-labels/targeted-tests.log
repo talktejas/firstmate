@@ -1,0 +1,12 @@
+ok - a recorded message names its project, its worktree and its branch
+ok - a message names a worker's project, a second mate's owned project or domain, and no project for no task
+ok - message backfill resolves task-keyed context without guessing captured rows
+ok - the backfill attributes a captured row only by its own turn's or its words' single task
+ok - a captured message carries the one task its turn touched or its words name, its branch only at turn end, and no guess otherwise
+ok - a field nothing knows is recorded as unknown rather than guessed
+ok - every chat message is captured once, verbatim, with nothing that is not a message
+ok - a hand-recorded question or answer stands for its captured message, however the sweep is split
+ok - a reply that differs from the routed row, or cannot be tied to it, is captured beside it
+ok - with no id, only a row written in the same turn with the same text stands for the reply
+ok - a captured message is labelled by its turn's work, then a PR URL, task id, worktree path or project, never a passing name
+ok - a by-hand message is recorded once, with its labels, however the capture or backfill meets it

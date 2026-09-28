@@ -1,0 +1,9 @@
+captured rows before/after: 685/685, lost: 0
+second pass changed: 0
+today's captured rows by project after backfill:
+     88 -
+      1 b2becom
+     11 firstmate
+      4 fm-command-center
+     12 jt2627s
+     23 koin

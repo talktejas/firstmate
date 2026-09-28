@@ -1,0 +1,6 @@
+{"id":"m20260928T124227Z-23422","source":"hand","project":"jt2627s","task":null,"worktree":null,"branch":null,"text":"The metals fix is merged into feature/metals."}
+{"id":"r-koin","source":"transcript","project":null,"task":null,"worktree":null,"branch":null,"text":"Koin is on its sync fix. I stopped looking at Casa Mira, INTERACT and "}
+{"id":"r-passing","source":"transcript","project":null,"task":null,"worktree":null,"branch":null,"text":"You are right: Casa Mira, INTERACT and JewelTrek came up only in passi"}
+{"id":"r-pr","source":"transcript","project":"casamira","task":null,"worktree":null,"branch":null,"text":"Ready: https://github.com/talktejas/construction-marketplace/pull/12"}
+{"id":"r-two","source":"transcript","project":null,"task":null,"worktree":null,"branch":null,"text":"Waiting: https://github.com/talktejas/koin/pull/4 and https://github.c"}
+{"id":"r-wt","source":"transcript","project":"jt2627s","task":null,"worktree":"/home/tds/wt/jt2627s/diamond","branch":null,"text":"Diamond runs in ~/wt/jt2627s/diamond."}
