@@ -683,6 +683,10 @@ test_forge_project_work_is_refused() {
   expect_deny "gh api contents" --tool Bash --command "gh api repos/$k/contents/README.md"
   expect_deny "gh api blob" --tool Bash --command "gh api /repos/$k/git/blobs/abc --jq .content"
   expect_deny "gh api pr files" --tool Bash --command "gh api repos/$k/pulls/5/files"
+  expect_deny "a spaced header before the path" --tool Bash --command "gh api -H 'Accept: application/vnd.github.raw' repos/$k/contents/app.php"
+  expect_deny "a spaced jq before the path" --tool Bash --command "gh api --jq '.[] | .name' repos/$k/branches"
+  expect_deny "a pull request read as a diff" --tool Bash --command "gh api repos/$k/pulls/5 -H 'Accept: application/vnd.github.diff'"
+  expect_deny "a pull request read as a patch" --tool Bash --command "gh api --header=Accept:application/vnd.github.v3.patch repos/$k/pulls/5"
   expect_deny "gh repo view reads the readme" --tool Bash --command "gh repo view $k"
   expect_deny "gh search code" --tool Bash --command "gh search code secret --repo $k"
   expect_deny "curl raw contents" --tool Bash --command "curl -sL https://raw.githubusercontent.com/$k/develop/app.php"
@@ -743,6 +747,7 @@ test_forge_supervision_and_own_repo_stay_allowed() {
   expect_allow "api check runs" --tool Bash --command "gh api repos/$k/commits/abc/check-runs"
   expect_allow "api combined status" --tool Bash --command "gh api -X GET /repos/$k/commits/abc/status"
   expect_allow "api actions run" --tool Bash --command "gh api repos/$k/actions/runs/99"
+  expect_allow "api pull state with a spaced jq" --tool Bash --command "gh api --jq '.state + .head.sha' repos/$k/pulls/5"
   # firstmate's own repository, by name, by url, and by default.
   expect_allow "own repo pr create" --tool Bash --command "gh pr create -R talktejas/firstmate --title t --body b"
   expect_allow "own upstream issue comment" --tool Bash --command "gh-axi issue comment 5 -R kunchenguid/firstmate --body hi"

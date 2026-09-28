@@ -628,7 +628,13 @@ forge_cwd_target() {
 # classify_gh <word> <GH_REPO value> <args...>
 classify_gh() {
   local word=$1 env_repo=$2 group='' sub='' pos3='' method='' fields=0 targets='' tok s op path t owner repo project=''
+  local apiargs='' n=0 rawmedia=0
   shift 2
+  for tok in "$@"; do
+    case "$tok" in
+      *vnd.github*.diff*|*vnd.github*.patch*|*vnd.github*.raw*) rawmedia=1 ;;
+    esac
+  done
   [ -z "$env_repo" ] || targets=" ${env_repo}"
   while [ "$#" -gt 0 ]; do
     tok=$1
@@ -646,6 +652,7 @@ classify_gh() {
         shift ;;
       -*) ;;
       *)
+        [ "$group" != api ] || apiargs="$apiargs $tok"
         if [ -z "$group" ]; then group=$tok
         elif [ -z "$sub" ]; then sub=$tok
         elif [ -z "$pos3" ]; then pos3=$tok
@@ -662,7 +669,20 @@ classify_gh() {
   esac
   if [ "$group" = api ]; then
     op="$word api"
-    path=$sub
+    path=''
+    for t in $apiargs; do
+      n=$((n + 1))
+      case "$t" in
+        repos/*|/repos/*|*://*) [ -n "$path" ] || path=$t ;;
+      esac
+    done
+    if [ -z "$path" ]; then
+      path=$sub
+      [ "$path" = graphql ] || [ "$n" -le 1 ] || {
+        forge_refuse "$op" "" "its api path cannot be told apart from its option values"
+        return 0
+      }
+    fi
     case "$path" in
       graphql) forge_refuse "$op graphql" "" "a GraphQL request can reach any repository"; return 0 ;;
       *://*)
@@ -718,6 +738,7 @@ classify_gh() {
     'pr view'|'pr list'|'pr status'|'pr checks'|'run list'|'run view'|'run watch'|'issue view'|'issue list'|'issue status'|'workflow list'|'stack view')
       return 0 ;;
     'api GET /'*)
+      [ "$rawmedia" -eq 0 ] || { forge_refuse "$op" "$project"; return 0; }
       path=${sub#GET /}
       case "$path" in
         pulls/*/files*) ;;
