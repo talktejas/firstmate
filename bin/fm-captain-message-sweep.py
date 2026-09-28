@@ -215,7 +215,8 @@ def recorded(log_path):
                 except ValueError:
                     continue
                 if isinstance(row, dict) and isinstance(row.get("id"), str) \
-                        and isinstance(row.get("text"), str):
+                        and isinstance(row.get("text"), str) and not row.get("req") \
+                        and row.get("source") != "transcript":
                     by_hand[row["id"]] = row
     except OSError:
         pass

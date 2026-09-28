@@ -2195,7 +2195,7 @@ test_a_captured_message_is_labelled_only_by_the_evidence_it_carries() {
   seed_evidence_transcript "$cfg/projects/$(printf '%s' "$home" | sed 's/[^A-Za-z0-9]/-/g')/sess-1.jsonl"
   for req in r-pr r-task r-none r-two r-passing r-steered r-branch r-wt; do
     jq -c --arg req "$req" 'select(.requestId == $req) | {id:("c-"+$req), req:$req, session:"sess-1",
-      text:.message.content[0].text, task:null, project:null, worktree:null, branch:null,
+      at:(.timestamp | sub("\\.000Z$"; "Z")), text:.message.content[0].text, task:null, project:null, worktree:null, branch:null,
       source:"transcript"}' "$cfg/projects/"*/sess-1.jsonl
   done > "$home/data/captain-messages.jsonl"
   result=$(CLAUDE_CONFIG_DIR="$cfg" FM_HOME="$home" "$BACKFILL") || fail "the message backfill failed"
