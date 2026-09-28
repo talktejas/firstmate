@@ -31,10 +31,18 @@
 # A path under projects/ that does not exist yet or is still empty is the
 # onboarding surface, not a project: cloning and initializing a new project is
 # the primary's own job until a real project is actually there.
+# THE FORGE. The same work done over the network is the same work: a gh,
+# gh-axi, or git command aimed at a project repository on the forge is refused
+# unless it only reads pull-request, check, run, or issue state, which is how
+# the primary decides to merge at all. firstmate's own repository - any slug
+# among the home repo's remotes - is not a project. The forge classifier below
+# owns the exact verbs; what it cannot place it refuses.
 # There is no release token: a bypass the primary can type is the primary
 # choosing to comply, which is the failure this guard replaces.
-# fm-*.sh scripts, no-mistakes, and the *-axi tools are the primary's own job
-# and always allowed, whatever paths they carry.
+# fm-*.sh scripts (fm-pr-merge.sh and fm-pr-check.sh included), no-mistakes,
+# and the *-axi tools are the primary's own job and always allowed, whatever
+# paths they carry; gh-axi alone still meets the forge rule, because it is the
+# forge.
 # See docs/delegate-guard.md for the complete contract and validation record.
 #
 # Usage:
@@ -104,8 +112,10 @@ tool_name and tool_input, or Grok toolName and toolInput).
 Denies a firstmate primary's Bash, Read, Grep, Glob, Edit, Write,
 NotebookEdit, or MultiEdit call whose target is inside a project: any git
 repository other than the home's own or another firstmate home, or anything
-under $FM_HOME/projects/. fm-*.sh, no-mistakes, and the *-axi tools are
-always allowed.
+under $FM_HOME/projects/. Also denies gh, gh-axi, and git work on a project
+repository through the forge, except reading pull-request, check, run, and
+issue state. fm-*.sh, no-mistakes, and the *-axi tools are always allowed with
+project paths; gh-axi still meets the forge rule.
 Fires only in a genuine firstmate primary home; it is a silent no-op in a
 crewmate/scout task worktree or any non-firstmate repo, where a worker
 investigating project code is exactly right.
@@ -527,6 +537,355 @@ join_continuations() {
   printf '%s' "$out"
 }
 
+# ---- Forge classification ------------------------------------------------
+# THE FORGE RULE, in one sentence: through the forge a primary may do anything
+# to firstmate's own repository, but on any other repository it may only read
+# pull-request, check, run, and issue state - every write and every read of
+# repository contents is refused. fm-*.sh scripts (fm-pr-merge.sh and
+# fm-pr-check.sh included) release their segment before this runs, and a
+# worker session is out of scope entirely. A command this classifier cannot
+# place is refused, because the safe failure is an unneeded dispatch.
+
+# Lead words that start a forge command wherever they sit in a segment, so an
+# xargs, eval, or watch wrapper cannot launder one.
+FORGE_WORDS=' gh gh-axi git '
+
+# Hosts a curl/wget request reaches repository contents or the API through.
+FORGE_HTTP_HOSTS=' github.com api.github.com raw.githubusercontent.com codeload.github.com '
+
+HOME_SLUGS=""
+HOME_SLUGS_SET=0
+FORGE_WORD=""
+FORGE_TARGET=""
+FORGE_UNSURE=""
+
+# forge_slug <url-or-repo>: print the lowercased OWNER/REPO a forge URL, an
+# scp-style remote, or a gh [HOST/]OWNER/REPO argument names, or nothing.
+forge_slug() {
+  local t=$1 rest host path owner repo
+  case "$t" in
+    file://*) return 0 ;;
+    *://*)
+      rest=${t#*://}
+      host=${rest%%/*}
+      path=${rest#*/}
+      [ "$path" != "$rest" ] || return 0
+      host=${host##*@}
+      host=${host%%:*}
+      if [ "$host" = api.github.com ]; then
+        case "$path" in
+          repos/*) path=${path#repos/} ;;
+          *) return 0 ;;
+        esac
+      fi ;;
+    /*|.*) return 0 ;;
+    *@*:*) path=${t#*:} ;;
+    */*/*) path=${t#*/} ;;
+    */*) path=$t ;;
+    *) return 0 ;;
+  esac
+  owner=${path%%/*}
+  repo=${path#*/}
+  [ "$repo" != "$path" ] || return 0
+  repo=${repo%%[/?#]*}
+  repo=${repo%.git}
+  [ -n "$owner" ] && [ -n "$repo" ] || return 0
+  printf '%s/%s\n' "$owner" "$repo" | LC_ALL=C tr '[:upper:]' '[:lower:]'
+}
+
+# is_home_slug <slug>: true when <slug> is one of the home repo's own remotes.
+# The set is read from the home's current remotes, and adding a remote for any
+# other repository is itself refused below, so a project cannot join it.
+is_home_slug() {
+  local url s
+  if [ "$HOME_SLUGS_SET" -eq 0 ]; then
+    HOME_SLUGS_SET=1
+    while IFS= read -r url; do
+      s=$(forge_slug "$url")
+      [ -n "$s" ] && HOME_SLUGS="$HOME_SLUGS $s "
+    done <<<"$(git -C "$FM_ROOT" remote -v 2>/dev/null | awk '{print $2}')"
+  fi
+  case "$HOME_SLUGS" in
+    *" $1 "*) return 0 ;;
+  esac
+  return 1
+}
+
+forge_refuse() {
+  # forge_refuse <word> <target> [unsure-reason]: record the first forge hit.
+  [ -z "$FORGE_WORD" ] || return 0
+  FORGE_WORD=$1
+  FORGE_TARGET=$2
+  FORGE_UNSURE=${3:-}
+}
+
+# forge_cwd_target: the project an implicit gh or git target falls into, taken
+# from the directory the command runs in, or nothing for the home or no repo.
+forge_cwd_target() {
+  classify_path "${1:-$CWD}"
+}
+
+# classify_gh <word> <GH_REPO value> <args...>
+classify_gh() {
+  local word=$1 env_repo=$2 group='' sub='' pos3='' method='' fields=0 targets='' tok s op path t owner repo project=''
+  local apiargs='' apipaths='' n=0 rawmedia=0
+  shift 2
+  case "$(printf '%s ' "$@" | LC_ALL=C tr '[:upper:]' '[:lower:]')" in
+    *vnd.github*.diff*|*vnd.github*.patch*|*vnd.github*.raw*) rawmedia=1 ;;
+  esac
+  for tok in "$@"; do
+    case "$tok" in
+      repos/*/*|/repos/*/*|*://*) apipaths="$apipaths $tok" ;;
+    esac
+  done
+  [ -z "$env_repo" ] || targets=" ${env_repo}"
+  while [ "$#" -gt 0 ]; do
+    tok=$1
+    shift
+    case "$tok" in
+      --repo|-R) targets="$targets ${1:-?}"; shift ;;
+      --repo=*) targets="$targets ${tok#--repo=}" ;;
+      -R?*) targets="$targets ${tok#-R}" ;;
+      -X|--method) method=${1:-}; shift ;;
+      --method=*) method=${tok#--method=} ;;
+      -X?*) method=${tok#-X} ;;
+      -f|-F|--field|--raw-field|--input) fields=1; shift ;;
+      --field=*|--raw-field=*|--input=*|-f?*|-F?*) fields=1 ;;
+      -q|--jq|-t|--template|-H|--header|--hostname|--json|-L|--limit|-s|--state|-b|--body|--body-file|--title|-B|--base|--head|-l|--label|-a|--assignee|-m|--milestone|--cache|-p|--preview|-w|--workflow|--branch|-u|--user|-c|--commit|-e|--event|-j|--job|-A|--author|-S|--search)
+        shift ;;
+      -*) ;;
+      *)
+        [ "$group" != api ] || apiargs="$apiargs $tok"
+        if [ -z "$group" ]; then group=$tok
+        elif [ -z "$sub" ]; then sub=$tok
+        elif [ -z "$pos3" ]; then pos3=$tok
+        fi
+        case "$tok" in
+          *://*) [ "$group" = api ] || targets="$targets $tok" ;;
+        esac ;;
+    esac
+  done
+  op="$word $group${sub:+ $sub}"
+  case "$group" in
+    ''|auth|config|version|help|extension|alias|completion|status|gist|org|codespace|ssh-key|gpg-key|setup|project|attestation)
+      return 0 ;;
+  esac
+  if [ "$group" = api ]; then
+    op="$word api"
+    path=''
+    for t in $apipaths; do
+      n=$((n + 1))
+      [ -n "$path" ] || path=$t
+      case "$t" in
+        repos/\{owner\}/\{repo\}*|/repos/\{owner\}/\{repo\}*) ;;
+        *://*) targets="$targets $(forge_slug "$t")" ;;
+        *) t=${t#/}; t=${t#repos/}; owner=${t%%/*}; t=${t#*/}; targets="$targets $owner/${t%%/*}" ;;
+      esac
+    done
+    if [ -z "$path" ]; then
+      path=$sub
+      for t in $apiargs; do n=$((n + 1)); done
+      [ "$path" = graphql ] || [ "$n" -le 1 ] || {
+        forge_refuse "$op" "" "its api path cannot be told apart from its option values"
+        return 0
+      }
+      n=0
+    fi
+    case "$path" in
+      graphql) forge_refuse "$op graphql" "" "a GraphQL request can reach any repository"; return 0 ;;
+      *://*) path=${path#*://}; path=${path#*/} ;;
+    esac
+    path=${path#/}
+    path=${path%%\?*}
+    method=$(printf '%s' "${method:-}" | LC_ALL=C tr '[:lower:]' '[:upper:]')
+    [ -n "$method" ] || { [ "$fields" -eq 1 ] && method=POST || method=GET; }
+    case "$path" in
+      repos/\{owner\}/\{repo\}*) path=${path#repos/\{owner\}/\{repo\}} ;;
+      repos/*/*)
+        t=${path#repos/}
+        t=${t#*/}
+        path=${t#*/}
+        [ "$path" != "$t" ] || path='' ;;
+      *)
+        if [ "$n" -le 1 ]; then
+          if [ "$method" != GET ]; then
+            forge_refuse "$op $method" "" "it writes outside a repository the guard can name"
+            return 0
+          fi
+          case "$path" in
+            user|rate_limit|meta|notifications|octocat|zen) return 0 ;;
+          esac
+          forge_refuse "$op $method" "" "its path may reach a repository the guard cannot name"
+          return 0
+        fi ;;
+    esac
+    [ "$n" -le 1 ] || path='?'
+    path=${path#/}
+    sub="$method /$path"
+  elif [ "$group" = repo ]; then
+    case "$sub" in
+      create|list|clone) return 0 ;;
+    esac
+    case "$pos3" in
+      */*) targets="$targets $pos3" ;;
+    esac
+  elif [ "$group" = search ]; then
+    [ "$sub" = code ] || return 0
+  fi
+  # Resolve every named target; no named target means gh's own default, the
+  # repository of the directory it runs in.
+  if [ -z "${targets// /}" ]; then
+    project=$(forge_cwd_target)
+  else
+    for t in $targets; do
+      if [ "$t" = '?' ]; then project='an unnamed repository'; break; fi
+      s=$(forge_slug "$t")
+      [ -n "$s" ] || { project=$t; break; }
+      is_home_slug "$s" || { project=$s; break; }
+    done
+  fi
+  [ -n "$project" ] || return 0
+  # Supervision reads: the state of a pull request, a check, a run, or an issue.
+  case "$group $sub" in
+    'pr view'|'pr list'|'pr status'|'pr checks'|'run list'|'run view'|'run watch'|'issue view'|'issue list'|'issue status'|'workflow list'|'stack view')
+      return 0 ;;
+    'api GET /'*)
+      [ "$rawmedia" -eq 0 ] || { forge_refuse "$op" "$project"; return 0; }
+      path=${sub#GET /}
+      case "$path" in
+        pulls/*/files*|pulls/*/comments*|pulls/comments*) ;;
+        pulls|pulls/*|issues|issues/*|check-runs/*|check-suites/*|actions/runs|actions/runs/*|actions/jobs/*|actions/workflows|actions/workflows/*|statuses/*|commits/*/check-runs*|commits/*/check-suites*|commits/*/status|commits/*/statuses*)
+          return 0 ;;
+      esac ;;
+  esac
+  forge_refuse "$op" "$project"
+}
+
+# classify_git <args...>: refuse a network git command aimed at a repository
+# other than the home's own, named by URL, by remote name, or implied by the
+# default remote of the directory it runs in.
+classify_git() {
+  local dir=$CWD sub='' tok s url explicit=0 remotes root
+  while [ "$#" -gt 0 ]; do
+    tok=$1
+    shift
+    case "$tok" in
+      -C) dir=${1:-.}; shift ;;
+      -C?*) dir=${tok#-C} ;;
+      -c|--git-dir|--work-tree|--namespace|--exec-path) shift ;;
+      -*) ;;
+      *) sub=$tok; break ;;
+    esac
+  done
+  case "$sub" in
+    push|fetch|pull|ls-remote|remote|archive) ;;
+    *) return 0 ;;
+  esac
+  case "$dir" in
+    /*) ;;
+    "~") dir=$HOME ;;
+    \~/*) dir=$HOME/${dir#\~/} ;;
+    *) dir=$CWD/$dir ;;
+  esac
+  root=$(forge_cwd_target "$dir")
+  if [ -n "$root" ]; then
+    forge_refuse "git $sub" "$root"
+    return 0
+  fi
+  remotes=$(git -C "$dir" remote -v 2>/dev/null | awk '{print $1" "$2}')
+  for tok in "$@"; do
+    url=""
+    case "$tok" in
+      --remote=*|--repo=*) url=${tok#*=} ;;
+      -*) continue ;;
+      *://*|*@*:*) url=$tok ;;
+      *)
+        url=$(printf '%s\n' "$remotes" | awk -v n="$tok" '$1 == n {print $2; exit}') ;;
+    esac
+    [ -n "$url" ] || continue
+    explicit=1
+    s=$(forge_slug "$url")
+    if [ -n "$s" ] && ! is_home_slug "$s"; then
+      forge_refuse "git $sub" "$s"
+      return 0
+    fi
+  done
+  [ "$explicit" -eq 0 ] || return 0
+  # No named remote: git uses a default remote, so every remote this directory
+  # has must be the home's own.
+  while IFS=' ' read -r tok url; do
+    [ -n "$url" ] || continue
+    s=$(forge_slug "$url")
+    if [ -n "$s" ] && ! is_home_slug "$s"; then
+      forge_refuse "git $sub" "$s" "its default remote may be another repository"
+      return 0
+    fi
+  done <<<"$remotes"
+}
+
+# forge_segment <lead> <segment>: classify the forge command in one segment.
+forge_segment() {
+  local lead=$1 seg=$2 tok raw env_repo='' i=0 start=-1 word='' host s
+  local -a toks=()
+  # shellcheck disable=SC2086
+  for tok in $seg; do
+    raw=$tok
+    raw=${raw#\$\(}
+    while :; do
+      case "$raw" in
+        \(*|\"*|\'*|\`*|\\*) raw=${raw#?} ;;
+        *) break ;;
+      esac
+    done
+    while :; do
+      case "$raw" in
+        *\)|*\"|*\'|*\`) raw=${raw%?} ;;
+        *) break ;;
+      esac
+    done
+    toks+=("$raw")
+  done
+  [ "${#toks[@]}" -gt 0 ] || return 0
+  case "$HTTP_WORDS" in
+    *" $lead "*)
+      for tok in "${toks[@]}"; do
+        case "$tok" in
+          *://*) ;;
+          *) continue ;;
+        esac
+        host=${tok#*://}
+        host=${host%%/*}
+        host=${host##*@}
+        case "$FORGE_HTTP_HOSTS" in
+          *" $host "*) ;;
+          *) continue ;;
+        esac
+        s=$(forge_slug "$tok")
+        if [ -n "$s" ] && ! is_home_slug "$s"; then
+          forge_refuse "$lead" "$s"
+          return 0
+        fi
+      done ;;
+  esac
+  for tok in "${toks[@]}"; do
+    case "$tok" in
+      GH_REPO=*) [ "$start" -ge 0 ] || env_repo=${tok#GH_REPO=} ;;
+    esac
+    if [ "$start" -lt 0 ]; then
+      case "$FORGE_WORDS" in
+        *" ${tok##*/} "*) start=$i; word=${tok##*/} ;;
+      esac
+    fi
+    i=$((i + 1))
+  done
+  [ "$start" -ge 0 ] || return 0
+  if [ "$word" = git ]; then
+    classify_git "${toks[@]:$((start + 1))}"
+  else
+    classify_gh "$word" "$env_repo" "${toks[@]:$((start + 1))}"
+  fi
+}
+
 if [ "$KIND" = command ]; then
   # An unquoted newline separates commands; a newline inside a quoted argument,
   # inside a heredoc body, or after a backslash line continuation does not, so
@@ -606,6 +965,16 @@ if [ "$KIND" = command ]; then
         *" $LEAD "*) SEG_RUNTIME=1 ;;
       esac
     fi
+    # The forge is classified for every segment except one the primary's own
+    # fleet tooling leads; gh-axi is the exception, because it is the forge.
+    FORGE_EXEMPT=0
+    case "$LEAD" in
+      fm-*.sh) FORGE_EXEMPT=1 ;;
+    esac
+    case "$ALLOW_WORDS" in
+      *" $LEAD "*) [ "$LEAD" = gh-axi ] || FORGE_EXEMPT=1 ;;
+    esac
+    [ "$FORGE_EXEMPT" -eq 1 ] || [ -n "$FORGE_WORD" ] || forge_segment "$LEAD" "$SEG"
     [ -n "$SEG_PATHS" ] || [ "$SEG_RUNTIME" -eq 1 ] || continue
     case "$ALLOW_WORDS" in
       *" $LEAD "*) continue ;;
@@ -653,7 +1022,7 @@ else
   fi
 fi
 
-[ -n "$ROOTS$RUNTIME_HIT" ] || exit 0
+[ -n "$ROOTS$RUNTIME_HIT$FORGE_WORD" ] || exit 0
 
 if [ -f "$FM_ROOT/bin/fm-scout.sh" ]; then
   ROUTE='first classify the work under the AGENTS.md intake contract: work already classified as a scout goes to bin/fm-scout.sh "<question>" [project], while authorized ship work and its bounded research go to bin/fm-brief.sh then bin/fm-spawn.sh'
@@ -677,6 +1046,13 @@ if [ -n "$ROOTS" ]; then
   FIRST_ROOT=${ROOTS#|}
   FIRST_ROOT=${FIRST_ROOT%%|*}
   deny "[delegate-project-work] the firstmate primary delegates project work instead of doing it: this $TOOL call ($BLOCKED_WORD) targets project $FIRST_ROOT, and project work - reading it included - belongs to a worker. Instead, $ROUTE (blocked tool: $TOOL)."
+fi
+
+if [ -n "$FORGE_UNSURE" ]; then
+  deny "[delegate-project-work] the firstmate primary delegates project work instead of doing it: this $TOOL call ($FORGE_WORD) reaches the forge in a way the guard cannot confidently classify as firstmate's own repository or a supervision read - $FORGE_UNSURE - so it is refused rather than guessed at. Instead, $ROUTE (blocked tool: $TOOL)."
+fi
+if [ -n "$FORGE_WORD" ]; then
+  deny "[delegate-project-work] the firstmate primary delegates project work instead of doing it: this $TOOL call ($FORGE_WORD) works on project repository $FORGE_TARGET through the forge, where only reading pull-request, check, run, and issue state is the primary's own; merging goes through bin/fm-pr-merge.sh and recording through bin/fm-pr-check.sh. Instead, $ROUTE (blocked tool: $TOOL)."
 fi
 
 deny "[delegate-project-work] the firstmate primary delegates project work instead of doing it: this $TOOL call ($RUNTIME_HIT) drives a project's containers, database, or running service, which is a worker's job. Instead, $ROUTE (blocked tool: $TOOL)."

@@ -1,7 +1,7 @@
 # Primary-session delegate guard
 
 This document is the authoritative human-readable contract for the guard that stops a firstmate primary from doing project work itself instead of delegating it.
-The shipped mechanism is `bin/fm-delegate-pretool-check.sh`, a PreToolUse guard that denies any tool call whose target resolves into a project, reads included.
+The shipped mechanism is `bin/fm-delegate-pretool-check.sh`, a PreToolUse guard that denies any tool call whose target resolves into a project, reads included, whether that project is on disk or on the forge.
 
 ## Why this exists
 
@@ -9,6 +9,7 @@ The captain's standing order is that the primary session stays available to him 
 On 2026-09-21 that order failed as an instruction for the Nth time in one day: the primary grepped project source for seeded credentials, read migration files, diagnosed a backend health failure, inspected dependency lock files, read module branch logs, and resolved a merge, all while the captain sat waiting and unable to reach it.
 The primary agreed to stop each time and repeated the behavior within minutes, so the captain refused to continue until it was structurally impossible.
 A rule that depends on an agent remembering is not a mechanism; this guard is the mechanism.
+On 2026-09-28 the primary compared ten branches of a project against its development branch and deleted nine of them, all through the forge, and the disk-only guard did not fire because nothing touched the disk; the forge rule below closes that hole.
 
 ## Purpose and boundary
 
@@ -40,7 +41,16 @@ The decision then follows one rule, stated in the refusal itself:
   `docker`/`podman` and their compose forms, the database clients (`psql`, `mysql`, `mariadb`, `mongosh`, `redis-cli`), and a `curl`/`wget`/`http`/`xh` request aimed at a loopback address are work on a project's own containers, database, or running service - the "diagnosing a backend health failure" shape - and a project's runtime is a worker's territory whatever the arguments look like.
   The home's own loopback services are the exception: the command center ([`command-center.md`](command-center.md)) and the lavish review server ([`lavish-connection-limit.md`](lavish-connection-limit.md)) are the primary's own tooling, and their ports are listed once in the script's `HOME_SERVICE_PORTS`. Every other loopback port is a project's service.
   The list is deliberately short: it covers the verbs that plainly mean project work rather than attempting to classify every command in the world.
-- **The primary's own job is always allowed**, whatever project paths it carries: every `fm-*.sh` script plus the fleet and `*-axi` tools listed once in the script's `ALLOW_WORDS`, because dispatch and lifecycle commands take project directories as arguments by design.
+- **Through the forge, a primary may do anything to firstmate's own repository, but on any other repository it may only read pull-request, check, run, and issue state.**
+  That is the whole boundary.
+  A `gh`, `gh-axi`, or `git` command aimed at a project repository is refused when it creates, deletes, or updates a branch or ref; pushes, fetches, or lists remote refs; creates, edits, closes, merges, or comments on a pull request or issue; changes repository settings, visibility, or default branch; touches releases or tags; or reads repository contents (`gh api .../contents`, blobs, compares, pull-request files and review comments, any API read asking for a diff, patch, or raw media type, `gh pr diff`, `gh repo view`, `gh search code`, and a `curl`/`wget` to a GitHub content or API host).
+  Reading whether a pull request is open, mergeable, or green - `gh pr view|list|status|checks`, `gh run list|view|watch`, `gh issue view|list|status`, and the matching `GET` API paths - stays allowed, because that is how the primary decides to merge at all.
+  Merging goes through `bin/fm-pr-merge.sh` and recording through `bin/fm-pr-check.sh`; both are `fm-*.sh` scripts, so they are released before the forge rule runs, and the `gh` calls they make themselves never reach a PreToolUse hook.
+  firstmate's own repository is any repository among the home repo's remotes, compared by owner and name; adding a remote for any other repository is itself refused, so a project cannot join that set through the guarded path.
+  The target is the `--repo`/`-R` value, a `GH_REPO=` assignment, a repository URL argument, every `repos/OWNER/REPO`-shaped word or forge URL anywhere in a `gh api` call's arguments (option values included, so an API call on a project must carry exactly one such path), a named git remote or URL, and otherwise the repository of the directory the command runs in - gh's and git's own default.
+  Creating a new repository and cloning one are onboarding and stay allowed; the clone lands on disk, where the ordinary rule governs it.
+  The forge command is found wherever it sits in a segment - bare, behind a path, an environment assignment, `env`, `timeout`, `xargs`, `bash -c`, or a command substitution - and a forge call the classifier cannot place, such as a GraphQL request, an API path that cannot be told apart from its option values, an API write outside a named repository, or an API read outside one other than `user`, `rate_limit`, `meta`, `notifications`, `octocat`, or `zen`, is refused with a refusal that says so, because the safe failure is dispatching a worker that was not strictly needed.
+- **The primary's own job is always allowed**, whatever project paths it carries: every `fm-*.sh` script plus the fleet and `*-axi` tools listed once in the script's `ALLOW_WORDS`, because dispatch and lifecycle commands take project directories as arguments by design; `gh-axi` alone still meets the forge rule above, because it is the forge.
   Reads and writes inside the home itself (`data/`, `state/`, `config/`, tracked files) never touch the guard.
 
 Bash commands are split into shell segments; a segment is refused when it carries a project path or a project-runtime verb and its lead word is not the primary's own fleet tooling.
@@ -68,7 +78,7 @@ A concrete captain-approved project operation is served by a worker, or by a del
 - Allow returns exit 0 with both streams empty.
 - Deny returns exit 2 and writes `{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"},"systemMessage":"[delegate-project-work] ..."}` to stderr.
 - Default deny mode also writes `{"decision":"deny","reason":"[delegate-project-work] ..."}` to stdout for Grok; `--claude` suppresses stdout completely, because Claude Code ignores a PreToolUse deny when stdout is nonempty ([`arm-pretool-check.md`](arm-pretool-check.md)).
-- The refusal names the intake classification, `bin/fm-scout.sh` when present, `bin/fm-brief.sh` then `bin/fm-spawn.sh`, the blocked tool, and the project or project runtime it refused.
+- The refusal names the intake classification, `bin/fm-scout.sh` when present, `bin/fm-brief.sh` then `bin/fm-spawn.sh`, the blocked tool, and the project or project runtime it refused; a forge refusal names the operation and the project repository and points merging at `bin/fm-pr-merge.sh`, or says it could not classify the call and why.
 - Malformed or empty stdin, invalid JSON, a payload with no target, and missing `jq` all fail open with exit 0 and no output.
 
 ## Harness wiring
@@ -104,7 +114,7 @@ Every run used a scratch primary-shaped home under a task worktree, with the hoo
 ## Automated validation
 
 `tests/fm-delegate-pretool-check.test.sh` owns the acceptance matrix and is registered in the `pure-contract-unit` family in `bin/fm-test-run.sh`.
-It covers unconditional refusal of read, build, run, cd, write, redirection, and git-write shapes into a project, and that the guard writes no pacing state; wrapper handling (`timeout`, `bash -c`) in both the allow and deny directions; the Grok and Cursor shell tool names, the `--cursor` decision object, and the Cursor duplicate stand-down; that each tracked Grok, Codex, and Cursor registration reaches the guard with the harness payload and that the OpenCode plugin surfaces its refusal; the firstmate-home-clone exception and its lookalike counterexample; the always-allowed fleet scripts and `*-axi` tools with project arguments; classification of `Read`/`Grep`/`Glob`/`Edit`/`Write`/`NotebookEdit`; freedom of home, state, and non-repo paths; the `projects/` prefix without git; the project-runtime verbs and loopback http requests; multi-line and heredoc dispatch commands keeping their release; the dispatch-path message in both scout variants; inertness in a crewmate worktree and a non-firstmate repo; in-scope enforcement for a marked secondmate home; both stdin transports; the empty-stdout requirement; fail-open transport behavior; and the tracked registration's matcher and `--claude` flag.
+It covers unconditional refusal of read, build, run, cd, write, redirection, and git-write shapes into a project, and that the guard writes no pacing state; wrapper handling (`timeout`, `bash -c`) in both the allow and deny directions; the Grok and Cursor shell tool names, the `--cursor` decision object, and the Cursor duplicate stand-down; that each tracked Grok, Codex, and Cursor registration reaches the guard with the harness payload and that the OpenCode plugin surfaces its refusal; the firstmate-home-clone exception and its lookalike counterexample; the always-allowed fleet scripts and `*-axi` tools with project arguments; classification of `Read`/`Grep`/`Glob`/`Edit`/`Write`/`NotebookEdit`; freedom of home, state, and non-repo paths; the `projects/` prefix without git; the project-runtime verbs and loopback http requests; multi-line and heredoc dispatch commands keeping their release; forge writes and content reads on a project repository refused however they are spelled, unclassifiable forge calls refused with their reason, and `bin/fm-pr-merge.sh`, `bin/fm-pr-check.sh`, pull-request and check state reads, firstmate's own repository, onboarding, and a worker session all left untouched; the dispatch-path message in both scout variants; inertness in a crewmate worktree and a non-firstmate repo; in-scope enforcement for a marked secondmate home; both stdin transports; the empty-stdout requirement; fail-open transport behavior; and the tracked registration's matcher and `--claude` flag.
 
 Run:
 
@@ -122,4 +132,5 @@ Wiring them needs Grok's own matcher tokens for those tools, verified against a 
 Pi and omp remain uncovered for the reason recorded under "Harness wiring", and the Cursor and OpenCode entries cover their shell surface only.
 The classifier is a seatbelt against the observed mistake shapes, not a sandbox: variable indirection is not resolved, and deliberate obfuscation is out of scope under the recorded threat model.
 Path classification stops after 32 candidates in one call - a deliberate cost ceiling, since each candidate costs a git call - so a project path past the 32nd path-shaped token of a single command goes unclassified; no ordinary command reaches it, and it is the one fail-open the command text does not show.
+The forge rule covers `gh`, `gh-axi`, `git`, and `curl`/`wget` to GitHub hosts; another forge client, an API reached through a variable-held URL, or a forge other than GitHub reached by anything but `git` is not classified.
 Path-free project work beyond the runtime verbs listed above - a project service reached through a remote hostname, a container name given to a runtime this list does not name, an ssh session into a project host - is not classified either.
