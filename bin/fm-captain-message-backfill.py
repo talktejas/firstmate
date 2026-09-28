@@ -62,7 +62,7 @@ def turn_tasks(home):
                 lines = fh.read().splitlines()
         except OSError:
             continue
-        for req, _at, _session, _text, found, _hand in capture.parse_batch(lines):
+        for req, _at, _session, _text, found, *_ in capture.parse_batch(lines):
             tasks.setdefault(req, found)
     return tasks
 

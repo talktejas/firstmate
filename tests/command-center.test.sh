@@ -1878,7 +1878,7 @@ Should the site be blue or green? My default if you say nothing is blue, because
     reply_line r-q "$(ts +60)" "The colour call is **yours** - it decides the build on PR 7.
 
 1. **Blue or green** for the site?
-2. My default if you say nothing is blue, since the logo already is."
+2. My default if you say nothing is blue, because the logo already is."
     # A later turn says the same words with no hand record behind them.
     prompt_line "$(ts +120)" "say it again"
     reply_line r-again "$(ts +180)" "The colour call is **yours** - it decides the build on PR 7."
@@ -1914,7 +1914,7 @@ Should the site be blue or green? My default if you say nothing is blue, because
 # Folding may leave a duplicate but must never lose a message: a reply that
 # says something the routed row does not is captured beside it.
 test_a_different_reply_in_the_same_turn_is_never_folded() {
-  local home tdir log id id2 id3 old
+  local home tdir log id id2 id3 id4 old
   home="$TMP_ROOT/handdiffer"
   tdir="$TMP_ROOT/handdiffer-transcripts"
   seed_home "$home"
@@ -1926,6 +1926,8 @@ Should the site be blue or green? My default if you say nothing is blue, because
     --task cc-live --project demo --question) || fail "the recorder refused the short message"
   id3=$(say "$home" "Merge?" "Blue or green for the footer?" \
     --task cc-live --project demo --question) || fail "the recorder refused the third message"
+  id4=$(say "$home" "Merge?" "The review is clean and the build is green. Should I merge it now?" \
+    --task cc-live --project demo --question) || fail "the recorder refused the fourth message"
   old="m20000101T000000Z-1"
   {
     # Same words but a different pull request: a number disagrees.
@@ -1946,18 +1948,55 @@ Should the site be blue or green? My default if you say nothing is blue, because
     recorder_call call-4 "$(ts -30)" "$(ts +71)" "$id2
 $id3"
     reply_line r-two "$(ts +72)" "Blue or green for the footer?"
+    # The reply adds a sentence of its own, with no number or link in it.
+    prompt_line "$(ts +80)" "five"
+    recorder_call call-5 "$(ts -30)" "$(ts +81)" "$id4"
+    reply_line r-more "$(ts +82)" "The review is clean and the build is green. Should I merge it now?
+I also paused the billing worker until you answer."
   } > "$tdir/sess-1.jsonl"
   jq -cn --arg id "$old" '{id:$id,at:"2000-01-01T00:00:00Z",title:"Old",
     text:"Blue or green for the footer?",question:true}' >> "$home/data/captain-messages.jsonl"
 
   sweep "$home" "$tdir" || fail "the sweep failed"
   log="$home/data/captain-messages.jsonl"
-  assert_equals "r-number,r-short,r-old,r-two" \
+  assert_equals "r-number,r-short,r-old,r-two,r-more" \
     "$(jq -rs 'map(select(.source == "transcript") | .req) | join(",")' "$log")" \
     "a reply that says something its routed row does not was folded away"
-  assert_equals 4 "$(jq -s 'map(select(.question == true)) | length' "$log")" \
+  assert_equals 5 "$(jq -s 'map(select(.question == true)) | length' "$log")" \
     "a by-hand question row was lost"
   pass "a reply that differs from the routed row, or cannot be tied to it, is captured beside it"
+}
+
+# With the recorder's output kept out of the transcript no id ties the reply to
+# its row, so only a row written during that very turn, saying exactly what the
+# reply says, stands for it.
+test_a_hand_recorded_question_without_its_id_folds_only_when_identical() {
+  local home tdir log id id2
+  home="$TMP_ROOT/handnoid"
+  tdir="$TMP_ROOT/handnoid-transcripts"
+  seed_home "$home"
+  mkdir -p "$tdir"
+  id=$(say "$home" "Blue or green?" "The colour call is yours.
+Blue or green?" --task cc-live --project demo --question) || fail "the recorder refused the message"
+  id2=$(say "$home" "Merge?" "The review is clean. Merge the PR?" \
+    --task cc-live --project demo --question) || fail "the recorder refused the second message"
+  {
+    prompt_line "$(ts -60)" "what next?"
+    recorder_call call-1 "$(ts -30)" "$(ts +30)" ""
+    reply_line r-same "$(ts +60)" "The colour call is **yours**.
+
+- Blue or green?"
+    # This row was written before the turn began, so it is not this reply's.
+    prompt_line "$(ts +120)" "and the PR?"
+    recorder_call call-2 "$(ts +121)" "$(ts +122)" ""
+    reply_line r-before "$(ts +180)" "The review is clean. Merge the PR?"
+  } > "$tdir/sess-1.jsonl"
+
+  sweep "$home" "$tdir" || fail "the sweep failed"
+  log="$home/data/captain-messages.jsonl"
+  assert_equals "$id,$id2,r-before" "$(jq -rs 'map(.req // .id) | join(",")' "$log")" \
+    "an identical reply was duplicated, or one tied to a row from before its turn was folded"
+  pass "with no id, only a row written in the same turn with the same text stands for the reply"
 }
 
 # THE REPORTED COMPLAINT: a session started from somewhere else writes its
@@ -2291,6 +2330,7 @@ test_an_unreadable_message_log_is_reported_not_shown_as_empty
 test_every_chat_message_is_captured_without_anyone_recording_it
 test_a_hand_recorded_question_is_not_captured_a_second_time
 test_a_different_reply_in_the_same_turn_is_never_folded
+test_a_hand_recorded_question_without_its_id_folds_only_when_identical
 test_a_transcript_the_payload_names_is_captured_wherever_it_lives
 test_a_named_transcript_is_remembered_even_with_nothing_new_to_read
 test_a_response_read_across_two_sweeps_is_recorded_once
