@@ -1,0 +1,38 @@
+== captain drops a note via fm-inbox.sh note
+  Reply to message m-123 - "Colour": is the footer done?
+  firstmate will pick this up at its next check.
+== fm-inbox.sh list
+1790586187-ezL58k
+    Reply to message m-123 - "Colour": is the footer done?
+note id: 1790586187-ezL58k
+== S1 answer a pending note
+rc=0 id=m20260928T090307Z-21485
+{"id":"m20260928T090307Z-21485","at":"2026-09-28T09:03:07Z","title":"Done","text":"Footer is blue now.","task":"cc-live","project":"demo","worktree":null,"branch":null,"question":false,"question_key":null,"answers":"1790586187-ezL58k"}
+== S2 drain --ack moves note to handled/, answer still accepted
+1790586187-ezL58k.note
+rc=0 id=m20260928T090307Z-21807
+== S3 typo id refused
+fm-captain-message: --answers 1-nope matches no note in state/inbox/ or state/inbox/handled/: pass the id fm-inbox.sh list or drain printed above his note
+rc=1
+== S3b msg-id from header refused
+fm-captain-message: --answers m-123 matches no note in state/inbox/ or state/inbox/handled/: pass the id fm-inbox.sh list or drain printed above his note
+rc=1
+== S3c traversal refused
+fm-captain-message: --answers ../evil/x is not an inbox note id
+rc=1
+== S3d empty value (no id)
+m20260928T090307Z-22133
+rc=0
+== S4 no --answers -> no field; --task/--general still required
+{"keys":["at","branch","id","project","question","question_key","task","text","title","worktree"],"answers":null}
+fm-captain-message: a message about work needs --task <id>, a task recorded in state/*.meta; pass --general only for a message about no task
+rc=1
+== lines in log before sweep: 4
+== S5 sweep folds the transcript copy of the answer
+sweep rc=0
+== log after sweep (id/req, answers, text):
+{"k":"m20260928T090307Z-21485","answers":"1790586187-ezL58k","text":"Footer is blue now."}
+{"k":"m20260928T090307Z-21807","answers":"1790586187-ezL58k","text":"Also the header."}
+{"k":"m20260928T090307Z-22133","answers":null,"text":"x"}
+{"k":"m20260928T090307Z-22388","answers":null,"text":"plain msg"}
+{"k":"r-other","answers":null,"text":"Nothing else pending."}
