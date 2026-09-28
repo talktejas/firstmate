@@ -1,0 +1,10 @@
+## ghost-task is spawned later: its meta appears
+before: {"task":"ghost-task","project":null,"worktree":null,"resolution":"failed"}
+$ fm-captain-message-backfill.py --home $FM_HOME
+{"busy":false,"rows":8,"changed":1,"relabelled":0,"unresolved":7,"malformed_rows":0,"unresolved_reasons":{"branch_not_recorded":1,"no_task_record":2,"task_metadata_unavailable":4}}
+exit=0
+after:  {"task":"ghost-task","project":"late","worktree":"/tmp/tmp.8DZhI1LwLl/wt2","branch":null,"has_resolution":false}
+still-unresolved rows keep marker: {"task":"nope","resolution":"failed"} {"task":"../../etc/passwd","resolution":"failed"} 
+
+$ fm-captain-message-backfill.py (rerun converges)
+{"busy":false,"rows":8,"changed":0,"relabelled":0,"unresolved":7,"malformed_rows":0,"unresolved_reasons":{"branch_not_recorded":1,"no_task_record":2,"task_metadata_unavailable":4}}

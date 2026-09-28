@@ -1,0 +1,12 @@
+## BEFORE (base 57004c7) - same calls against a fresh home
+fm-captain-message: --task ghost-task has no task record: pass --task <id> for a task listed in state/*.meta, or name its --project for a task that has none yet (a queued hold)
+exit=1
+fm-captain-message: a message about work needs --task <id>, a task recorded in state/*.meta; pass --general only for a message about no task
+exit=1
+log lines: 0
+
+## AFTER (target) - unwritable destination is still a refusal
+Traceback (most recent call last):
+  File "<stdin>", line 5, in <module>
+PermissionError: [Errno 13] Permission denied: '/tmp/tmp.9olHWUooe3/data/captain-messages.jsonl'
+exit=1
