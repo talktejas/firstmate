@@ -12,8 +12,8 @@
 # bin/fm-captain-message-sweep.py reading the conversation record, which never
 # marks a message as a question. This script is the ROUTING path: a question
 # tied to a decision is recorded here with --question, and the capture keeps
-# this row instead of adding a copy when the turn's final message carries the
-# same text. It is also the only writer for what that record cannot see:
+# this row instead of adding a copy when the same turn's final message says
+# the same thing. It is also the only writer for what that record cannot see:
 # another primary harness, or something said outside the recorded
 # conversation. AGENTS.md section 9 carries that split.
 #

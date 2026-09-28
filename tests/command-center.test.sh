@@ -1835,28 +1835,53 @@ test_every_chat_message_is_captured_without_anyone_recording_it() {
 
 # A question firstmate records by hand is the only row that knows where his
 # reply goes; the capture of the same turn's final message must not add a bare,
-# unroutable copy beside it - and must not swallow a later turn that says the
-# same words with no hand record behind them.
+# unroutable copy beside it. What ties the two is the turn itself: the
+# recorder's own call and the row id it printed.
+ts() {  # <seconds from now>
+  date -u -d "$1 sec" +%Y-%m-%dT%H:%M:%S.000Z
+}
+
+prompt_line() {  # <at> <text>
+  jq -cn --arg at "$1" --arg text "$2" \
+    '{type:"user",timestamp:$at,sessionId:"sess-1",message:{role:"user",content:$text}}'
+}
+
+# One tool call naming the recorder, and its result printing <output>, the way
+# a real turn records a question by hand before it replies.
+recorder_call() {  # <call-id> <called at> <returned at> <output>
+  jq -cn --arg id "$1" --arg at "$2" \
+    '{type:"assistant",requestId:("q-"+$id),timestamp:$at,sessionId:"sess-1",
+      message:{role:"assistant",stop_reason:"tool_use",content:[{type:"tool_use",
+        id:$id,name:"Bash",input:{command:"bin/fm-captain-message.sh --question --title T -"}}]}}'
+  jq -cn --arg id "$1" --arg at "$3" --arg out "$4" \
+    '{type:"user",timestamp:$at,sessionId:"sess-1",message:{role:"user",
+      content:[{type:"tool_result",tool_use_id:$id,content:$out}]}}'
+}
+
+reply_line() {  # <req> <at> <text>
+  entry "$1" end_turn false "$2" "$(jq -cn --arg t "$3" '{type:"text",text:$t}')"
+}
+
 test_a_hand_recorded_question_is_not_captured_a_second_time() {
-  local home tdir log id id2 before after
+  local home tdir log id id2
   home="$TMP_ROOT/handdedupe"
   tdir="$TMP_ROOT/handdedupe-transcripts"
   seed_home "$home"
   mkdir -p "$tdir"
-  before=$(date -u -d '-60 sec' +%Y-%m-%dT%H:%M:%S.000Z)
-  id=$(say "$home" "Blue or green?" "The colour call is yours.
-Blue or green?" --task cc-live --project demo --question) || fail "the recorder refused the message"
-  after=$(date -u -d '+60 sec' +%Y-%m-%dT%H:%M:%S.000Z)
+  id=$(say "$home" "Blue or green?" "The colour call is yours, and it decides the build on PR 7.
+Should the site be blue or green? My default if you say nothing is blue, because the logo already is." \
+    --task cc-live --project demo --question-key cc-colour) || fail "the recorder refused the message"
   {
-    jq -cn --arg at "$before" '{type:"user",timestamp:$at,sessionId:"sess-1",
-      message:{role:"user",content:"what next?"}}'
-    entry r-q end_turn false "$after" \
-      '{"type":"text","text":"The colour call is yours.\nBlue or green?"}'
-    jq -cn --arg at "$(date -u -d '+120 sec' +%Y-%m-%dT%H:%M:%S.000Z)" \
-      '{type:"user",timestamp:$at,sessionId:"sess-1",
-        message:{role:"user",content:"say it again"}}'
-    entry r-again end_turn false "$(date -u -d '+180 sec' +%Y-%m-%dT%H:%M:%S.000Z)" \
-      '{"type":"text","text":"The colour call is yours.\nBlue or green?"}'
+    prompt_line "$(ts -60)" "what next?"
+    recorder_call call-1 "$(ts -30)" "$(ts +30)" "$id"
+    # The chat copy is reworded and formatted, as it is in practice.
+    reply_line r-q "$(ts +60)" "The colour call is **yours** - it decides the build on PR 7.
+
+1. **Should the site be blue or green?**
+2. My default if you say nothing is blue, because the logo already is."
+    # A later turn says the same words with no hand record behind them.
+    prompt_line "$(ts +120)" "say it again"
+    reply_line r-again "$(ts +180)" "The colour call is **yours** - it decides the build on PR 7."
   } > "$tdir/sess-1.jsonl"
 
   sweep "$home" "$tdir" || fail "the sweep failed"
@@ -1864,25 +1889,137 @@ Blue or green?" --task cc-live --project demo --question) || fail "the recorder 
   sweep "$home" "$tdir" || fail "the cursor-less sweep failed"
   log="$home/data/captain-messages.jsonl"
   assert_equals "$id,r-again" "$(jq -rs 'map(.req // .id) | join(",")' "$log")" \
-    "the hand-recorded question was duplicated, or a later turn was swallowed"
-  assert_equals "true" "$(jq -r "select(.id == \"$id\") | .question" "$log")" \
-    "the routed row did not survive as the question"
+    "the hand-recorded question was duplicated, or a message nobody recorded by hand was swallowed"
+  assert_equals "true|cc-colour|cc-live" \
+    "$(jq -r "select(.id == \"$id\") | [.question, .question_key, .task] | join(\"|\")" "$log")" \
+    "the routed row did not survive with its question routing"
 
-  # The page's own capture runs mid-turn and reads the prompt long before the
-  # turn ends, so the routed row must still stand for the message on a sweep
-  # that sees only the reply.
+  # The page's own capture runs mid-turn and reads the recorder's call long
+  # before the turn ends, so the routed row must still stand for the message
+  # on a sweep that sees only the reply.
   id2=$(say "$home" "Merge the PR?" "The review is clean. Merge the PR?" \
     --task cc-live --project demo --question) || fail "the recorder refused the second message"
-  jq -cn --arg at "$(date -u -d '+240 sec' +%Y-%m-%dT%H:%M:%S.000Z)" \
-    '{type:"user",timestamp:$at,sessionId:"sess-1",
-      message:{role:"user",content:"and the PR?"}}' >> "$tdir/sess-1.jsonl"
-  sweep "$home" "$tdir" || fail "the sweep of the prompt failed"
-  entry r-pr end_turn false "$(date -u -d '+300 sec' +%Y-%m-%dT%H:%M:%S.000Z)" \
-    '{"type":"text","text":"The review is clean. Merge the PR?"}' >> "$tdir/sess-1.jsonl"
+  {
+    prompt_line "$(ts +240)" "and the PR?"
+    recorder_call call-2 "$(ts -30)" "$(ts +30)" "$id2"
+  } >> "$tdir/sess-1.jsonl"
+  sweep "$home" "$tdir" || fail "the sweep of the recorder call failed"
+  reply_line r-pr "$(ts +300)" "The review is clean. Merge the PR?" >> "$tdir/sess-1.jsonl"
   sweep "$home" "$tdir" || fail "the mid-turn sweep failed"
   assert_equals "$id,r-again,$id2" "$(jq -rs 'map(.req // .id) | join(",")' "$log")" \
-    "a routed question was duplicated by a sweep that began after the prompt"
+    "a routed question was duplicated by a sweep that began after the recorder ran"
   pass "a hand-recorded question stands for its captured message, however the sweep is split"
+}
+
+# Folding may leave a duplicate but must never lose a message: a reply that
+# says something the routed row does not is captured beside it.
+test_a_different_reply_in_the_same_turn_is_never_folded() {
+  local home tdir log id id2 id3 id4 id5 id6 id7 id8 old
+  home="$TMP_ROOT/handdiffer"
+  tdir="$TMP_ROOT/handdiffer-transcripts"
+  seed_home "$home"
+  mkdir -p "$tdir"
+  id=$(say "$home" "Merge?" "The colour call is yours, and it decides the build on PR 7.
+Should the site be blue or green? My default if you say nothing is blue, because the logo already is." \
+    --task cc-live --project demo --question) || fail "the recorder refused the message"
+  id2=$(say "$home" "Merge?" "Blue or green for the header?" \
+    --task cc-live --project demo --question) || fail "the recorder refused the short message"
+  id3=$(say "$home" "Merge?" "Blue or green for the footer?" \
+    --task cc-live --project demo --question) || fail "the recorder refused the third message"
+  id4=$(say "$home" "Merge?" "The review is clean and the build is green. Should I merge it now?" \
+    --task cc-live --project demo --question) || fail "the recorder refused the fourth message"
+  id5=$(say "$home" "Ship?" "I can ship the fix tonight. Go?" \
+    --task cc-live --project demo --question) || fail "the recorder refused the fifth message"
+  id6=$(say "$home" "Ship?" "I can't ship the fix tonight. Go?" \
+    --task cc-live --project demo --question) || fail "the recorder refused the sixth message"
+  id7=$(say "$home" "Merge?" "Do not merge Koin now?" \
+    --task cc-live --project demo --question) || fail "the recorder refused the seventh message"
+  id8=$(say "$home" "Merge?" "Should I merge the PR?" \
+    --task cc-live --project demo --question) || fail "the recorder refused the eighth message"
+  old="m20000101T000000Z-1"
+  {
+    # Same words but a different pull request: a number disagrees.
+    prompt_line "$(ts -60)" "one"
+    recorder_call call-1 "$(ts -30)" "$(ts +30)" "$id"
+    reply_line r-number "$(ts +31)" "The colour call is yours, and it decides the build on PR 8.
+Should the site be blue or green? My default if you say nothing is blue, because the logo already is."
+    # Two short lines that differ by one word are two messages.
+    prompt_line "$(ts +40)" "two"
+    recorder_call call-2 "$(ts -30)" "$(ts +50)" "$id2"
+    reply_line r-short "$(ts +51)" "Blue or green for the logo?"
+    # A turn that only printed an old id from the log never wrote that row.
+    prompt_line "$(ts +60)" "three"
+    recorder_call call-3 "$(ts +61)" "$(ts +62)" "$old"
+    reply_line r-old "$(ts +63)" "Blue or green for the footer?"
+    # Two rows recorded in one turn: which one the reply is cannot be told.
+    prompt_line "$(ts +70)" "four"
+    recorder_call call-4 "$(ts -30)" "$(ts +71)" "$id2
+$id3"
+    reply_line r-two "$(ts +72)" "Blue or green for the footer?"
+    # The reply adds a sentence of its own, with no number or link in it.
+    prompt_line "$(ts +80)" "five"
+    recorder_call call-5 "$(ts -30)" "$(ts +81)" "$id4"
+    reply_line r-more "$(ts +82)" "The review is clean and the build is green. Should I merge it now?
+I also paused the billing worker until you answer."
+    # A negation is never filler: the reply says the opposite of its row.
+    prompt_line "$(ts +90)" "six"
+    recorder_call call-6 "$(ts -30)" "$(ts +91)" "$id5"
+    reply_line r-cant "$(ts +92)" "I can’t ship the fix tonight. Go?"
+    # Nor when only the row carries the negation.
+    prompt_line "$(ts +100)" "seven"
+    recorder_call call-7 "$(ts -30)" "$(ts +101)" "$id6"
+    reply_line r-can "$(ts +102)" "I can ship the fix tonight. Go?"
+    prompt_line "$(ts +110)" "eight"
+    recorder_call call-8 "$(ts -30)" "$(ts +111)" "$id7"
+    reply_line r-merge "$(ts +112)" "Merge Koin now?"
+    # A question and a report of the deed differ only in their auxiliaries.
+    prompt_line "$(ts +120)" "nine"
+    recorder_call call-9 "$(ts -30)" "$(ts +121)" "$id8"
+    reply_line r-did "$(ts +122)" "I did merge the PR."
+  } > "$tdir/sess-1.jsonl"
+  jq -cn --arg id "$old" '{id:$id,at:"2000-01-01T00:00:00Z",title:"Old",
+    text:"Blue or green for the footer?",question:true}' >> "$home/data/captain-messages.jsonl"
+
+  sweep "$home" "$tdir" || fail "the sweep failed"
+  log="$home/data/captain-messages.jsonl"
+  assert_equals "r-number,r-short,r-old,r-two,r-more,r-cant,r-can,r-merge,r-did" \
+    "$(jq -rs 'map(select(.source == "transcript") | .req) | join(",")' "$log")" \
+    "a reply that says something its routed row does not was folded away"
+  assert_equals 9 "$(jq -s 'map(select(.question == true)) | length' "$log")" \
+    "a by-hand question row was lost"
+  pass "a reply that differs from the routed row, or cannot be tied to it, is captured beside it"
+}
+
+# With the recorder's output kept out of the transcript no id ties the reply to
+# its row, so only a row written during that very turn, saying exactly what the
+# reply says, stands for it.
+test_a_hand_recorded_question_without_its_id_folds_only_when_identical() {
+  local home tdir log id id2
+  home="$TMP_ROOT/handnoid"
+  tdir="$TMP_ROOT/handnoid-transcripts"
+  seed_home "$home"
+  mkdir -p "$tdir"
+  id=$(say "$home" "Blue or green?" "The colour call is yours.
+Blue or green?" --task cc-live --project demo --question) || fail "the recorder refused the message"
+  id2=$(say "$home" "Merge?" "The review is clean. Merge the PR?" \
+    --task cc-live --project demo --question) || fail "the recorder refused the second message"
+  {
+    prompt_line "$(ts -60)" "what next?"
+    recorder_call call-1 "$(ts -30)" "$(ts +30)" ""
+    reply_line r-same "$(ts +60)" "The colour call is **yours**.
+
+- Blue or green?"
+    # This row was written before the turn began, so it is not this reply's.
+    prompt_line "$(ts +120)" "and the PR?"
+    recorder_call call-2 "$(ts +121)" "$(ts +122)" ""
+    reply_line r-before "$(ts +180)" "The review is clean. Merge the PR?"
+  } > "$tdir/sess-1.jsonl"
+
+  sweep "$home" "$tdir" || fail "the sweep failed"
+  log="$home/data/captain-messages.jsonl"
+  assert_equals "$id,$id2,r-before" "$(jq -rs 'map(.req // .id) | join(",")' "$log")" \
+    "an identical reply was duplicated, or one tied to a row from before its turn was folded"
+  pass "with no id, only a row written in the same turn with the same text stands for the reply"
 }
 
 # THE REPORTED COMPLAINT: a session started from somewhere else writes its
@@ -2215,6 +2352,8 @@ test_a_search_finds_text_however_the_record_escapes_it
 test_an_unreadable_message_log_is_reported_not_shown_as_empty
 test_every_chat_message_is_captured_without_anyone_recording_it
 test_a_hand_recorded_question_is_not_captured_a_second_time
+test_a_different_reply_in_the_same_turn_is_never_folded
+test_a_hand_recorded_question_without_its_id_folds_only_when_identical
 test_a_transcript_the_payload_names_is_captured_wherever_it_lives
 test_a_named_transcript_is_remembered_even_with_nothing_new_to_read
 test_a_response_read_across_two_sweeps_is_recorded_once
