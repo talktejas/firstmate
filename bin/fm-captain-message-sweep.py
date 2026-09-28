@@ -84,8 +84,10 @@
 # same turn: a tool call that named a task's own record (state/<id>.meta or
 # state/<id>.status). When a turn touched exactly one task, its message is
 # recorded against that task, with the project and worktree its state/<id>.meta
-# names; a turn that touched none, or several, stays unknown. The branch is
-# recorded nowhere in that record, so it is read live from that worktree only by
+# names; a turn that touched none, or several, stays unknown. A second mate's
+# record names its own home, so its work is read from its projects= instead
+# (task_record), which also names that project's development branch. Any other
+# task's branch is recorded nowhere, so it is read live from its worktree only by
 # the Stop hook's run, which captures the turn that just ended; a catch-up run
 # may be reading an old turn, and a worktree's branch now is not its branch
 # then, so there it stays unknown.
@@ -323,7 +325,14 @@ def turn_task(tasks):
 
 
 def task_record(state_dir, task):
-    """The project and worktree a task's own state/<id>.meta names."""
+    """The project and worktree a task's own state/<id>.meta names.
+
+    A second mate's project= and worktree= are its own firstmate home, which is
+    the machinery it runs in, not its work: its projects= field names the work
+    (the same reading bin/command-center-scan.sh makes). One project is named
+    with its development branch from bin/fm-project-base.sh; several are named
+    by the mate's own domain, the task id, rather than one picked at random.
+    Its worktree stays unknown, because a mate works in many."""
     try:
         with open(os.path.join(state_dir, task + ".meta"), encoding="utf-8") as fh:
             lines = fh.read().splitlines()
@@ -332,11 +341,40 @@ def task_record(state_dir, task):
     values = {}
     for line in lines:
         key, sep, value = line.partition("=")
-        if sep and key in ("project", "worktree") and key not in values:
+        if sep and key in ("project", "worktree", "kind", "projects", "home") \
+                and key not in values:
             values[key] = value.strip() or None
+    if values.pop("kind", None) == "secondmate":
+        owned = (values.get("projects") or "").replace(",", " ").split()
+        home = values.get("home") or values.get("project")
+        values = {"project": owned[0] if len(owned) == 1 else task,
+                  "worktree": None, "branch": None}
+        if len(owned) == 1:
+            values["branch"] = project_branch(
+                os.path.dirname(os.path.normpath(state_dir)), home, owned[0])
+        return values
+    values.pop("projects", None)
+    values.pop("home", None)
     if values.get("project"):
         values["project"] = os.path.basename(os.path.normpath(values["project"]))
     return values
+
+
+def project_branch(fm_home, mate_home, project):
+    """The project's development branch, read from the mate's clone of it, else
+    this home's, with this home's registry as the fallback; None when neither
+    holds a clone or the project declares none."""
+    script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fm-project-base.sh")
+    for home in (mate_home, fm_home):
+        clone = os.path.join(home, "projects", project) if home else ""
+        if not os.path.isdir(clone):
+            continue
+        result = subprocess.run(
+            [script, clone, project], env=dict(os.environ, FM_HOME=fm_home),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, check=False)
+        return result.stdout.strip() or None
+    return None
 
 
 def live_branch(worktree):
@@ -544,7 +582,8 @@ def sweep(home, since, paths=None, directory=None):
                 "at": at or utc_now(), "title": derive_title(text), "text": text,
                 "task": task, "project": record.get("project"),
                 "worktree": record.get("worktree"),
-                "branch": live_branch(record.get("worktree")) if paths else None,
+                "branch": record.get("branch") or (
+                    live_branch(record.get("worktree")) if paths else None),
                 "source": "transcript", "session": session or None, "req": req,
             })
         if rows:
