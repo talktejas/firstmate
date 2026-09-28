@@ -48,18 +48,19 @@
 # never only the first: a split response is at worst short by a block, never a
 # second row wearing the same id.
 #
-# A MESSAGE FIRSTMATE ALSO RECORDED BY HAND. A question tied to a decision is
-# recorded by firstmate itself with bin/fm-captain-message.sh --question, which
-# is the only row that knows where a reply to it goes; an answer to one of his
-# notes is recorded with --answers, the only row that knows which note it
-# threads under. Both are folded by the same rule below, and AGENTS.md section 9
-# has it record exactly that turn's final message. In practice the two are
-# often reworded, re-punctuated, or re-formatted, so words alone cannot say
-# which row a reply belongs to. The turn itself says it: the recorder prints
-# the new row's id, and that output sits in the transcript as the result of the
-# tool call that ran it. So the final message is not added beside a by-hand
-# question or answer row - the row stands, untouched, as the one record of it -
-# when either
+# A MESSAGE FIRSTMATE ALSO RECORDED BY HAND. Firstmate records some messages
+# itself with bin/fm-captain-message.sh: a question tied to a decision
+# (--question, the only row that knows where a reply to it goes), an answer to
+# one of his notes (--answers, the only row that knows which note it threads
+# under), and any message it names the work of with --task. That row carries
+# its project, worktree and branch, and AGENTS.md section 9 has it record
+# exactly that turn's final message, so the capture must not add a second,
+# unlabelled copy beside it. In practice the two are often reworded,
+# re-punctuated, or re-formatted, so words alone cannot say which row a reply
+# belongs to. The turn itself says it: the recorder prints the new row's id,
+# and that output sits in the transcript as the result of the tool call that
+# ran it. So the final message is not added beside a by-hand row - the row
+# stands, untouched, as the one record of it - when either
 #   (a) its own turn ran the recorder and got back exactly one row id, read
 #       from the result of a tool call that named the recorder, and stamped
 #       inside that call's own run (the id carries its write time), so an id
@@ -75,25 +76,49 @@
 #       variants, whitespace and case are dropped (normalized).
 # Each row stands for at most one reply. Anything else - a reply that adds a
 # word the row does not have, a row written before the turn began, the same
-# words in another turn - is captured as usual. The row may carry more ordinary
+# words in another turn - is captured as usual, and a row the turn's recorder
+# wrote is then evidence of its work (below). The row may carry more ordinary
 # words than the reply, never fewer, and never a different negation or tense,
-# so a fold loses nothing the captain would read: this can
-# leave a duplicate but never drops something only the reply said. This never
-# decides a message is a question.
+# so a fold loses nothing the captain would read: this can leave a duplicate
+# but never drops something only the reply said. This never decides a message
+# is a question.
 #
-# WHICH WORK A MESSAGE IS ABOUT. A message's words never say it reliably, so
-# they are never read for it. The only evidence is what firstmate did in the
-# same turn: a tool call that named a task's own record (state/<id>.meta or
-# state/<id>.status). When a turn touched exactly one task, its message is
-# recorded against that task, with the project and worktree its state/<id>.meta
-# names; a turn that touched none, or several, stays unknown. A second mate's
-# record names its own home, so its work is read from its projects= instead
-# (task_record), which also names that project's development branch. Any other
-# task's branch is recorded nowhere, so it is read live from its worktree only by
-# the Stop hook's run, which captures the turn that just ended; a catch-up run
-# may be reading an old turn, and a worktree's branch now is not its branch
-# then, so there it stays unknown.
-# bin/fm-captain-message-backfill.py applies the same rule to older rows.
+# WHICH WORK A MESSAGE IS ABOUT (work_for). A message belongs to the work it
+# is about, and only evidence that is there counts. It is read in this order,
+# and the first tier with any evidence decides:
+#   1. the work firstmate named when it recorded the message by hand: the
+#      task of a by-hand row the turn's recorder wrote, else that row's
+#      project (the task, because a row's own labels can predate how its
+#      task resolves today);
+#   2. the work firstmate steered in that turn: a tool call naming a task's own
+#      record (state/<id>.meta or state/<id>.status), a steering script run on
+#      a task (STEER: the task id each takes first), the recorder run with
+#      --task, and the task of a by-hand row the turn wrote;
+#   3. an identifier in the message: a repo of a project in the home's
+#      registries as owner/name (a pull request URL names it so), a
+#      ~/wt/<project>/<name> worktree path, or a task id with a
+#      state/<id>.meta;
+#   4. the message's own subject: a registered name the message calls a
+#      project ("project koin").
+# A task resolves to its project through task_record, else through a by-hand
+# row that named it, else through its data/backlog.md item's repo; a steered
+# task nothing resolves leaves the message unknown, since that work could be
+# any project. A project's name said in passing - "the same convention as
+# JewelTrek, INTERACT and Casa Mira" - is no evidence at all. Two projects in
+# the deciding tier leave the message unknown, never filed under both: an
+# honest blank beats a wrong label. Registered names are each project in
+# data/projects.md, its repo, and each second mate in data/secondmates.md
+# owning one project (registry). With the project known, the task is recorded
+# when exactly one task of that project is evidenced; the worktree is that
+# task's, else one a by-hand row or the message names; the branch is that
+# task's recorded one, else - only in the Stop hook's run, which captures the
+# turn that just ended - its worktree's live branch (a catch-up run may be
+# reading an old turn, and a worktree's branch now is not its branch then),
+# else one a by-hand row names, else the one branch the message names that the
+# project's clone under projects/ actually has. A second mate's record names
+# its own home, so its work is read from its projects= instead (task_record),
+# which also names that project's development branch.
+# bin/fm-captain-message-backfill.py applies the same rules to older rows.
 #
 # BACKFILL AND THE FLOOR. The first run has no cursor and reads every transcript
 # from the top, so the log starts complete from the floor - today's local
@@ -176,9 +201,8 @@ def derive_title(text):
 
 def recorded(log_path):
     """The log itself is the dedupe record: the requestIds already captured,
-    and the rows recorded by hand as questions or as answers to his notes, as
-    {id: (text, at)}."""
-    reqs, questions = set(), {}
+    and the rows recorded by hand, as {id: row}."""
+    reqs, by_hand = set(), {}
     try:
         with open(log_path, "rb") as fh:
             for line in fh:
@@ -190,15 +214,13 @@ def recorded(log_path):
                     row = json.loads(line)
                 except ValueError:
                     continue
-                if isinstance(row, dict) \
-                        and (row.get("question") is True
-                             or isinstance(row.get("answers"), str)) \
-                        and isinstance(row.get("id"), str) \
-                        and isinstance(row.get("text"), str):
-                    questions[row["id"]] = (row["text"], row.get("at") or "")
+                if isinstance(row, dict) and isinstance(row.get("id"), str) \
+                        and isinstance(row.get("text"), str) and not row.get("req") \
+                        and row.get("source") != "transcript":
+                    by_hand[row["id"]] = row
     except OSError:
         pass
-    return reqs, questions
+    return reqs, by_hand
 
 
 URL = re.compile(r"https?://[^\s<>()\[\]*`\"']+")
@@ -259,19 +281,25 @@ def same_message(reply, row):
         and words - other <= FILLER
 
 
-def routed_row(req, text, at, start, hand, questions, used):
-    """The by-hand question row that already carries this reply, if any; `used`
-    maps each row that already stands for a reply to that reply's requestId."""
+def routed_row(req, text, at, start, hand, by_hand, used):
+    """The by-hand row that already carries this reply, if any; `used` maps
+    each row that already stands for a reply to that reply's requestId."""
     free = lambda i: used.get(i, req) == req
-    if len(hand) == 1 and hand[0] in questions:
+    if len(hand) == 1 and hand[0] in by_hand:
         row = hand[0]
-        return row if free(row) and same_message(text, questions[row][0]) else None
-    return next((i for i, (t, row_at) in questions.items()
-                 if free(i) and start and start <= row_at <= at
-                 and normalized(t) == normalized(text)), None)
+        return row if free(row) and same_message(text, by_hand[row]["text"]) else None
+    return next((i for i, row in by_hand.items()
+                 if free(i) and start and start <= (row.get("at") or "") <= at
+                 and normalized(row["text"]) == normalized(text)), None)
 
 
 TASK_RECORD = re.compile(r"\bstate/([A-Za-z0-9][A-Za-z0-9_-]*)\.(?:meta|status)\b")
+# The scripts firstmate steers one task with, each taking its id first, and
+# the recorder naming the task a message is about.
+STEER = re.compile(r"\bfm-(?:send|pr-check|pr-merge|teardown|crew-state|peek|control"
+                   r"|promote|spawn|brief)\.sh\s+['\"]?([A-Za-z0-9][A-Za-z0-9_-]*)")
+RECORDER_TASK = re.compile(r"\bfm-captain-message\.sh\b[^\n;|&]*?--task[= ]['\"]?"
+                           r"([A-Za-z0-9][A-Za-z0-9_-]*)")
 RECORDER = "fm-captain-message.sh"
 # The id bin/fm-captain-message.sh prints for the row it wrote.
 HAND_ID = re.compile(r"\bm\d{8}T\d{6}Z-\d+\b")
@@ -308,7 +336,8 @@ def written_during(content, started, ended):
 
 def task_refs(value):
     if isinstance(value, str):
-        return set(TASK_RECORD.findall(value))
+        return set(TASK_RECORD.findall(value) + STEER.findall(value)
+                   + RECORDER_TASK.findall(value))
     if isinstance(value, dict):
         value = list(value.values())
     if isinstance(value, list):
@@ -323,10 +352,6 @@ def is_prompt(entry):
         return True
     return isinstance(content, list) and not any(
         isinstance(b, dict) and b.get("type") == "tool_result" for b in content)
-
-
-def turn_task(tasks):
-    return next(iter(tasks)) if len(tasks) == 1 else None
 
 
 def task_record(state_dir, task):
@@ -429,6 +454,151 @@ def live_branch(worktree):
         stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
         text=True, check=False)
     return result.stdout.strip() or None if result.returncode == 0 else None
+
+
+WT_PATH = re.compile(r"(?:~|/home/[^/\s]+)/wt/([\w.-]+)/([\w.-]*\w)")
+BRANCH_WORD = re.compile(r"\bbranch\s*[:*`'\"]*\s*([\w./-]*\w)", re.I)
+BACKTICKED = re.compile(r"`([^`\s]+)`")
+PROJECT_WORD = re.compile(r"\bproject[\s*`'\"]*$", re.I)
+
+
+def registry(home):
+    """name -> project for every name this home's registries say is real: each
+    project in data/projects.md, its repo as owner/name and as name, and each
+    second mate in data/secondmates.md that owns exactly one project. A name
+    that would stand for two projects stands for neither."""
+    pairs = []
+    try:
+        with open(os.path.join(home, "data", "projects.md"), encoding="utf-8") as fh:
+            for line in fh:
+                m = re.match(r"- ([A-Za-z0-9._-]+) \[", line)
+                if not m:
+                    continue
+                pairs.append((m.group(1), m.group(1)))
+                repo = re.search(r"\brepo\s+([\w.-]+/[\w.-]*\w)", line, re.I)
+                if repo:
+                    pairs += [(repo.group(1), m.group(1)),
+                              (repo.group(1).split("/")[1], m.group(1))]
+    except (OSError, UnicodeDecodeError):
+        pass
+    try:
+        with open(os.path.join(home, "data", "secondmates.md"), encoding="utf-8") as fh:
+            for line in fh:
+                m = re.match(r"- ([A-Za-z0-9._-]+) - ", line)
+                owned = re.search(r"; projects: ([^;)]*)", line)
+                owned = owned.group(1).replace(",", " ").split() if owned else []
+                if m and len(owned) == 1:
+                    pairs.append((m.group(1), owned[0]))
+    except (OSError, UnicodeDecodeError):
+        pass
+    names = {}
+    for name, project in pairs:
+        names.setdefault(name.lower(), set()).add(project)
+    return {name: next(iter(p)) for name, p in names.items() if len(p) == 1}
+
+
+def whole_words(words, flags=0):
+    words = sorted(words, key=len, reverse=True)
+    return re.compile(r"(?<![\w-])(" + "|".join(map(re.escape, words)) + r")(?![\w-])",
+                      flags) if words else None
+
+
+def backlog_repos(home):
+    """task id -> the repo its data/backlog.md item names: the one record of a
+    task's work that outlives its state/<id>.meta."""
+    try:
+        with open(os.path.join(home, "data", "backlog.md"), encoding="utf-8") as fh:
+            items = (re.match(r"- \[.\] ([A-Za-z0-9][A-Za-z0-9_-]*) - .*\(repo: ([^)\s]+)\)", line)
+                     for line in fh)
+            return {m.group(1): m.group(2) for m in items if m}
+    except (OSError, UnicodeDecodeError):
+        return {}
+
+
+def evidence_context(home):
+    """What work_for reads once per run: the registry, the task ids with a
+    record in this home, and the backlog's repo for each task."""
+    state_dir = os.path.join(home, "state")
+    reg = registry(home)
+    try:
+        ids = [f[:-5] for f in os.listdir(state_dir) if f.endswith(".meta")]
+    except OSError:
+        ids = []
+    return {"home": home, "state": state_dir, "reg": reg, "names": whole_words(reg, re.I),
+            "ids": whole_words(i for i in ids if i.lower() not in reg),
+            "backlog": backlog_repos(home), "branches": {}, "records": {}}
+
+
+def clone_branches(ctx, project):
+    """The branches the project's clone in this home has, local or remote."""
+    if project not in ctx["branches"]:
+        clone = os.path.join(ctx["home"], "projects", project)
+        result = subprocess.run(
+            ["git", "-C", clone, "for-each-ref", "--format=%(refname:short)",
+             "refs/heads", "refs/remotes"],
+            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            text=True, check=False) if os.path.isdir(clone) else None
+        ctx["branches"][project] = {b[len("origin/"):] if b.startswith("origin/") else b
+                                    for b in (result.stdout.split() if result else [])}
+    return ctx["branches"][project]
+
+
+def one(values):
+    values = {v for v in values if v}
+    return next(iter(values)) if len(values) == 1 else None
+
+
+def work_for(ctx, text, tasks, hand_rows, live=False):
+    """The task, project, worktree and branch a message is about, by the tiers
+    the header's WHICH WORK A MESSAGE IS ABOUT lists; {} when unknown."""
+    records = {}
+
+    def owner(task):
+        if task not in ctx["records"]:
+            ctx["records"][task] = task_record(ctx["state"], task) or {}
+        records[task] = ctx["records"][task]
+        return records[task].get("project") or one(
+            r.get("project") for r in hand_rows if r.get("task") == task) \
+            or ctx["backlog"].get(task)
+
+    steered = {t: owner(t) for t in set(tasks) | {r["task"] for r in hand_rows if r.get("task")}}
+    if not all(steered.values()):
+        return {}           # work nothing resolves could be any project
+    ided = {t: owner(t) for t in ({m.group(1) for m in ctx["ids"].finditer(text)}
+                                  if ctx["ids"] else set()) - set(steered)}
+    paths = {}
+    for m in WT_PATH.finditer(text):
+        if m.group(1).lower() in ctx["reg"]:
+            paths[os.path.expanduser("~/wt/%s/%s" % m.groups())] = ctx["reg"][m.group(1).lower()]
+    repos, subjects = set(), set()
+    for m in ctx["names"].finditer(text) if ctx["names"] else ():
+        if "/" in m.group(1):
+            repos.add(ctx["reg"][m.group(1).lower()])
+        elif PROJECT_WORD.search(text, 0, m.start()):
+            subjects.add(ctx["reg"][m.group(1).lower()])
+    # A name in passing ("the same convention as JewelTrek") is no tier at
+    # all; the first tier with any evidence decides, and two projects in it
+    # leave the message unknown rather than filed under both.
+    tiers = ({steered[r["task"]] if r.get("task") else r.get("project")
+              for r in hand_rows} - {None},
+             set(steered.values()),
+             repos | set(paths.values()) | {p for p in ided.values() if p},
+             subjects)
+    projects = next((tier for tier in tiers if tier), set())
+    if len(projects) != 1:
+        return {}
+    project = next(iter(projects))
+    hand_rows = [r for r in hand_rows if r.get("project") == project]
+    task = one(t for t, p in {**steered, **ided}.items() if p == project)
+    record = records.get(task) or {}
+    worktree = record.get("worktree") or one(r.get("worktree") for r in hand_rows) \
+        or one(w for w, p in paths.items() if p == project)
+    named = {m.group(1) for m in BRANCH_WORD.finditer(text)} \
+        | {m.group(1) for m in BACKTICKED.finditer(text)}
+    branch = record.get("branch") or (live_branch(record.get("worktree")) if live else None) \
+        or one(r.get("branch") for r in hand_rows) \
+        or (one(named & clone_branches(ctx, project)) if named else None)
+    return {"task": task, "project": project, "worktree": worktree, "branch": branch}
 
 
 def parse_batch(lines, turn=None):
@@ -572,7 +742,8 @@ def sweep(home, since, paths=None, directory=None):
         return {"active": False, "dir": directory, "transcripts": 0, "new": 0,
                 "named": len(named)}
 
-    seen, questions = set(), {}
+    seen, by_hand = set(), {}
+    ctx = None
     deduped = False
     new = 0
     for path in targets:
@@ -599,7 +770,7 @@ def sweep(home, since, paths=None, directory=None):
         # the log holds, and a response whose blocks straddle this offset is
         # read again as part of the next batch.
         if not deduped:
-            seen, questions = recorded(log_path)
+            seen, by_hand = recorded(log_path)
             deduped = True
         with open(path, "rb") as fh:
             fh.seek(offset)
@@ -614,20 +785,19 @@ def sweep(home, since, paths=None, directory=None):
             if req in seen or (floor and at and at < floor):
                 continue
             seen.add(req)
-            routed = routed_row(req, text, at, start, hand, questions, used)
+            routed = routed_row(req, text, at, start, hand, by_hand, used)
             if routed:
                 used[routed] = req
                 cursor["used"] = used
                 continue        # the routed row already carries this message
-            task = turn_task(tasks)
-            record = (task_record(state_dir, task) if task else None) or {}
+            ctx = ctx or evidence_context(home)
+            work = work_for(ctx, text, tasks, [by_hand[i] for i in hand if i in by_hand],
+                            live=bool(paths))
             rows.append({
                 "id": "c" + hashlib.sha1((session + req).encode()).hexdigest()[:16],
                 "at": at or utc_now(), "title": derive_title(text), "text": text,
-                "task": task, "project": record.get("project"),
-                "worktree": record.get("worktree"),
-                "branch": record.get("branch") or (
-                    live_branch(record.get("worktree")) if paths else None),
+                "task": work.get("task"), "project": work.get("project"),
+                "worktree": work.get("worktree"), "branch": work.get("branch"),
                 "source": "transcript", "session": session or None, "req": req,
             })
         if rows:
