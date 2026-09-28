@@ -3,8 +3,12 @@
 # optionally acknowledge handled records,
 # annotate every unread line for validated signal status keys, surface unread
 # informational status lines, latest captain-facing statuses not covered by a
-# newer branch outcome, OPEN DECISIONS, and captain-call record divergence,
-# then assert liveness.
+# newer branch outcome, OPEN DECISIONS, captain-call record divergence, and
+# every captain note still waiting for firstmate, then assert liveness.
+#
+# A main acknowledgement never consumes the wake row of a captain note that is
+# still unacknowledged, and ends by naming every such note, so no acknowledgement
+# of other rows can close one; only bin/fm-inbox.sh drain --ack <id> does.
 #
 # Keep sequence-bound row consumption independent from generation-bound episode
 # retirement; docs/watcher-continuity.md owns the recovery contract.
@@ -548,6 +552,62 @@ EOF
   printf 'RECORD DIVERGENCE: reconcile each one - record the captain'"'"'s own words with bin/fm-captain-hold.sh answer <task> --decision-file <path>, or re-open the status decision when that resolution was not the captain'"'"'s word.\n' || return 1
 }
 
+# Captain notes: bin/fm-inbox.sh `pending` owns which notes still wait for
+# firstmate, read from the notes themselves rather than the queue, so a note
+# whose wake was lost, filtered out of a reader's view, or already acknowledged
+# still surfaces. Main only: check rows, and every word the captain sees, belong
+# to main. A failed read never reads as "nothing waiting": it is reported, and an
+# acknowledgement then keeps every captain-note row.
+CAPTAIN_NOTES=
+CAPTAIN_NOTES_OK=true
+read_captain_notes() {
+  CAPTAIN_NOTES_OK=true
+  CAPTAIN_NOTES=$(FM_STATE_OVERRIDE="$STATE" "$SCRIPT_DIR/fm-inbox.sh" pending 2>/dev/null) \
+    || { CAPTAIN_NOTES=; CAPTAIN_NOTES_OK=false; }
+}
+
+captain_notes_count() {
+  printf '%s\n' "$CAPTAIN_NOTES" | awk 'NF { n++ } END { print n + 0 }'
+}
+
+# Printed last on every main presentation, so it is the final thing read before
+# acknowledging and survives a reader that keeps only the tail.
+print_captain_notes_section() {
+  local id waited body
+  [ "$ACTOR" = main ] || return 0
+  read_captain_notes
+  if [ "$CAPTAIN_NOTES_OK" != true ]; then
+    printf 'CAPTAIN NOTES UNREADABLE: %s/inbox could not be read, so notes from the captain may be waiting unseen and every captain-note wake stays queued; read them with bin/fm-inbox.sh list and repair the inbox.\n' "$STATE"
+    return 0
+  fi
+  [ -n "$CAPTAIN_NOTES" ] || return 0
+  printf 'CAPTAIN NOTES WAITING (%s from the captain, unacknowledged - listed from the notes themselves on every drain until each is acknowledged by its own id):\n' \
+    "$(captain_notes_count)"
+  while IFS=$(printf '\t') read -r id waited body; do
+    [ -n "$id" ] || continue
+    printf '%s waiting %s: %s\n' "$id" "$waited" "$body"
+  done <<EOF
+$CAPTAIN_NOTES
+EOF
+  printf 'CAPTAIN NOTES WAITING: read each in full with bin/fm-inbox.sh list, act on it, then bin/fm-inbox.sh drain --ack <id>; no wake acknowledgement clears one.\n'
+}
+
+# The last line a main acknowledgement prints, so a caller that keeps only its
+# final line still reads it: acknowledging is what that caller asked for.
+print_captain_notes_held() {
+  local list
+  [ "$ACTOR" = main ] || return 0
+  if [ "$CAPTAIN_NOTES_OK" != true ]; then
+    printf 'CAPTAIN NOTES HELD: the captain inbox at %s/inbox could not be read, so this acknowledgement kept every captain-note wake queued; read the notes with bin/fm-inbox.sh list and repair the inbox.\n' "$STATE"
+    return 0
+  fi
+  [ -n "$CAPTAIN_NOTES" ] || return 0
+  list=$(printf '%s\n' "$CAPTAIN_NOTES" \
+    | awk -F '\t' 'NF { printf "%s%s (waiting %s)", (n++ ? ", " : ""), $1, $2 }')
+  printf 'CAPTAIN NOTES HELD: %s note(s) from the captain are still unacknowledged, and this acknowledgement did not clear them or any wake row of theirs: %s. Read each with bin/fm-inbox.sh list, act on it, then acknowledge it by its own id: bin/fm-inbox.sh drain --ack <id>\n' \
+    "$(captain_notes_count)" "$list"
+}
+
 print_status_sections() {
   local snapshot=${1:-} fully_presented=${2:-} acknowledged prepared
   if [ -z "$snapshot" ]; then snapshot=$(status_presentation_snapshot "$STATE") || return 1; fi
@@ -695,8 +755,18 @@ if [ -n "$ACK_THROUGH" ]; then
       NF < 5 || $2 !~ /^[0-9]+$/ || $2 > cutoff || !($2 in keep) { print }
     ' "$FM_WAKE_QUEUE" > "$DRAIN_TMP" || exit 1
   else
-    awk -F '\t' -v cutoff="$ACK_THROUGH" -v seqs="$MAIN_ROWS_FILE" '
-      BEGIN { while ((getline line < seqs) > 0) owned[line]=1 }
+    # Read under the queue lock: a note is published before its wake is
+    # appended under this lock, so every row seen here has its note visible.
+    read_captain_notes
+    awk -F '\t' -v cutoff="$ACK_THROUGH" -v seqs="$MAIN_ROWS_FILE" \
+      -v waiting="$(printf '%s\n' "$CAPTAIN_NOTES" | cut -f1 | tr '\n' ' ')" \
+      -v unreadable="$([ "$CAPTAIN_NOTES_OK" = true ] || echo 1)" '
+      BEGIN {
+        while ((getline line < seqs) > 0) owned[line]=1
+        n = split(waiting, ids, " ")
+        for (i = 1; i <= n; i++) held["inbox:" ids[i]] = 1
+      }
+      $3 == "check" && (($4 in held) || (unreadable && $4 ~ /^inbox:/)) { print; next }
       NF < 5 || $2 !~ /^[0-9]+$/ || $2 > cutoff || !($2 in owned) { print }
     ' "$FM_WAKE_QUEUE" > "$DRAIN_TMP" || exit 1
     fm_wake_commit_secondmate_stall_receipts_through "$ACK_THROUGH" "$MAIN_ROWS_FILE" || {
@@ -757,6 +827,7 @@ if [ -n "$ACK_THROUGH" ]; then
     printf 'wake drain: acknowledged wakes through %s (%s row(s) consumed), but a newer recovery episode is pending; re-run bin/fm-wake-drain.sh and use the new WAKE_ACK_REQUIRED command\n' \
       "$ACK_THROUGH" "$ACK_REMOVED" >&2
   fi
+  print_captain_notes_held
   exit 0
 fi
 
@@ -782,6 +853,7 @@ if [ ! -s "$FM_WAKE_QUEUE" ]; then
     printf 'WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 0 --recovery-generation %s\n' "${RECOVERY_MARKER_TOKEN##*:}" >&2
   fi
   assert_watcher_liveness
+  print_captain_notes_section
   exit 0
 fi
 
@@ -800,6 +872,7 @@ if [ "$ACTOR" = main ]; then
     DRAIN_LOCK_HELD=false
     (print_status_presentation) || true
     assert_watcher_liveness
+    print_captain_notes_section
     exit 0
   fi
 fi
@@ -862,4 +935,5 @@ printf 'WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --a
 
 (print_status_presentation "$RAW_ROWS") || true
 assert_watcher_liveness
+print_captain_notes_section
 exit 0

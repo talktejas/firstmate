@@ -24,7 +24,15 @@
 #   fm-inbox.sh status
 #   fm-inbox.sh ask  <question>...
 #   fm-inbox.sh list
+#   fm-inbox.sh pending
 #   fm-inbox.sh drain [--ack <id>...]
+#
+# `pending` prints one line per note still waiting for firstmate, oldest first:
+# <id> TAB <how long it has waited> TAB <start of the body>. It reads the notes
+# themselves, never the wake queue, because a note waits until `drain --ack <id>`
+# moves it whatever became of its wake. bin/fm-wake-drain.sh lists these on every
+# drain and keeps their wake rows through any wake acknowledgement, so an
+# unreadable inbox exits non-zero rather than reporting nothing waiting.
 #
 # Configuration. A region, a model id and an AWS profile name somebody's account
 # and somebody's choices, so this file carries no default for any of them. Each is
@@ -357,6 +365,35 @@ cmd_list() {
   [ "$any" -eq 1 ] || printf '(inbox empty)\n'
 }
 
+format_wait() {  # <seconds>
+  local s=$1
+  [ "$s" -ge 0 ] || s=0
+  if [ "$s" -ge 86400 ]; then printf '%dd%02dh' $((s / 86400)) $(((s % 86400) / 3600))
+  elif [ "$s" -ge 3600 ]; then printf '%dh%02dm' $((s / 3600)) $(((s % 3600) / 60))
+  elif [ "$s" -ge 60 ]; then printf '%dm' $((s / 60))
+  else printf '%ds' "$s"; fi
+}
+
+cmd_pending() {
+  [ -e "$INBOX" ] || return 0
+  [ -d "$INBOX" ] && [ -r "$INBOX" ] && [ -x "$INBOX" ] || die "cannot read the captain inbox at $INBOX"
+  local f id queued waited body now
+  now=$(date +%s)
+  for f in "$INBOX"/*.note; do
+    [ -e "$f" ] || break
+    id=$(basename "$f" .note)
+    # queue_note stamps the id with the moment the captain sent it.
+    queued=${id%%-*}
+    case "$queued" in
+      ''|*[!0-9]*) waited=unknown ;;
+      *) waited=$(format_wait $((now - queued))) ;;
+    esac
+    body=$(sed -n '/^--$/,$p' "$f" | tail -n +2 | tr '\n\t' '  ' | sed 's/ *$//' | cut -c1-200) \
+      || body="(unreadable: $f)"
+    printf '%s\t%s\t%s\n' "$id" "$waited" "$body"
+  done
+}
+
 cmd_drain() {
   if [ "${1:-}" = "--ack" ]; then
     shift
@@ -385,6 +422,7 @@ case "${1:-}" in
   status) shift; cmd_status ;;
   ask)    shift; cmd_ask "$@" ;;
   list)   shift; cmd_list ;;
+  pending) shift; cmd_pending ;;
   drain)  shift; cmd_drain "$@" ;;
   ''|-h|--help|help)
     # The whole header block, found rather than counted: everything after the
