@@ -36,6 +36,10 @@
 #            backlog_readable  false ONLY when holds are hidden: an unsupported
 #                              backend, or a backlog file present but unreadable.
 #                              An absent file on the markdown backend is true.
+#   unread_notes[]  every captain note (bin/fm-inbox.sh, state/inbox/) not yet
+#            moved into handled/ - the honest truth of what he sent that
+#            firstmate has not read, independent of whether its one-time wake
+#            was ever acknowledged. home, id, since_epoch, summary.
 #   items[]  one per thing waiting on the captain:
 #     home, id, source (hold|status), key, title, detail, repo, kind,
 #     project, worktree, branch, branch_state (branch|detached|not-started),
@@ -99,6 +103,7 @@ fingerprint() {
     backlog=$(backlog_path "$path") || backlog=
     stat -c '%Y %s %n' \
       "$path"/state/*.status "$path"/state/*.meta "$path"/state/*.inbox \
+      "$path"/state/inbox/*.note "$path"/state/inbox/handled/*.note \
       "$path"/state/.last-watcher-beat ${backlog:+"$backlog"} 2>/dev/null || true
   done < <(home_records) | sort | cksum
 }
@@ -322,6 +327,21 @@ emit_item() {  # <home-id> <state-dir> <id> <source> <key> <title> <detail> <rep
       sent:$sent}'
 }
 
+# Every captain note bin/fm-inbox.sh still counts as unread, for one home. The
+# script is the one owner of that truth - a note's presence under state/inbox/
+# is what "unread" means, never a wake record - so this shells out to it
+# rather than re-reading state/inbox/ a second, driftable way.
+scan_unread_notes() {  # <home-id> <home-path>
+  local hid=$1 hpath=$2 id epoch summary notes
+  notes=$(FM_HOME="$hpath" "$SCRIPT_DIR/fm-inbox.sh" unread 2>/dev/null) || return 1
+  while IFS=$'\t' read -r id epoch summary; do
+    [ -n "$id" ] || continue
+    jq -cn --arg home "$hid" --arg id "$id" --arg epoch "$epoch" --arg summary "$summary" \
+      '{_row:"unread_note",home:$home,id:$id,summary:$summary,
+        since_epoch:(if $epoch == "" or $epoch == "0" then null else ($epoch|tonumber) end)}'
+  done <<<"$notes"
+}
+
 scan_home() {  # <home-id> <home-name> <home-path>
   local hid=$1 hpath=$3 backlog
   local state=$hpath/state
@@ -388,13 +408,16 @@ command_scan() {
       # The tag is _row, not kind: an item carries a kind of its own and the
       # collision was deleting it along with the tag.
       [ -z "$items" ] || printf '%s\n' "$items" | jq -c '. + {_row:"item"}' || exit 1
+      items=$(scan_unread_notes "$hid" "$hpath") || exit 1
+      [ -z "$items" ] || printf '%s\n' "$items" | jq -c '.' || exit 1
     done < <(home_records)
   ) || fail "the scan could not read every record; refusing to publish a partial list"
   printf '%s\n' "$produced" \
     | jq -cs --arg schema "$SCHEMA" --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '
     {schema:$schema, generated:$now,
      homes:[.[] | select(._row == "home") | del(._row)],
-     items:[.[] | select(._row == "item") | del(._row)]}'
+     items:[.[] | select(._row == "item") | del(._row)],
+     unread_notes:[.[] | select(._row == "unread_note") | del(._row)]}'
 }
 
 case "${1-}" in
