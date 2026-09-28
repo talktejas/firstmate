@@ -64,16 +64,18 @@
 #       the turn merely printed from the log is never taken for one it wrote;
 #       it is the first final message of that turn; and it says the same as
 #       the row (same_message): exactly the same links, numbers and
-#       identifiers both ways, and not one word the row lacks beyond a fixed
-#       list of filler words (FILLER), or
+#       identifiers, and exactly the same negations, modals and auxiliaries
+#       (CLAIM, and every n't contraction), both ways, and not one word the
+#       row lacks beyond a fixed list of filler words (FILLER), or
 #   (b) no such id ties it to a row, and a question row written inside that
 #       turn - between its opening prompt and the reply - has exactly the
 #       reply's text once markdown, backticks, list markers, dash and quote
 #       variants, whitespace and case are dropped (normalized).
 # Each row stands for at most one reply. Anything else - a reply that adds a
 # word the row does not have, a row written before the turn began, the same
-# words in another turn - is captured as usual. The row may say more than the
-# reply, never less, so a fold loses nothing the captain would read: this can
+# words in another turn - is captured as usual. The row may carry more ordinary
+# words than the reply, never fewer, and never a different negation or tense,
+# so a fold loses nothing the captain would read: this can
 # leave a duplicate but never drops something only the reply said. This never
 # decides a message is a question.
 #
@@ -199,10 +201,15 @@ SPECIFIC = re.compile(r"\d|[A-Za-z0-9][./_:#@][A-Za-z0-9]")
 # The only words a reply may say that its row does not.
 FILLER = frozenset("""
 a an the this that these those it its i me my we us our you your he him his she
-her they them their is are was were be been am do does did have has had will
-would shall should can could may might and or but so if then as of to in on at
-by for with from into about i'm i've i'll i'd you're you've you'll we're we've
-we'll it's that's there's let's captain
+her they them their be and or but so if then as of to in on at by for with from
+into about let's captain
+""".split())
+# Words that negate or change a claim's tense or commitment, and so must be the
+# same both ways; every n't contraction is one of them too.
+CLAIM = frozenset("""
+not no never none nor neither cannot did does do done will would can could
+should must may might shall has have had was were is are am been i'm i've i'll
+i'd you're you've you'll we're we've we'll it's that's there's
 """.split())
 
 
@@ -219,6 +226,10 @@ def plain_words(text):
     return set(re.findall(r"[a-z0-9]+(?:'[a-z0-9]+)*", text))
 
 
+def claims(words):
+    return {w for w in words if w in CLAIM or w.endswith("n't")}
+
+
 def normalized(text):
     return re.sub(r"[\s*_`~\"'\u2018\u2019\u201c\u201d\u2010-\u2015-]", "",
                   LIST_MARKER.sub(" ", text)).lower()
@@ -230,13 +241,15 @@ def same_message(reply, row):
     Formatting never counts: markdown, backticks, dashes, quotes, list markers
     and line breaks are dropped before words are compared, and a contraction
     is one word, so "can't" never passes for "can". The two must name
-    exactly the same links, numbers and identifiers, both ways, and every word
-    of the reply must also be in the row unless it is in FILLER. The row may
-    carry words the reply lacks; a reply that adds any other word says
-    something new and is captured.
+    exactly the same links, numbers and identifiers, and exactly the same
+    negations, modals and auxiliaries (CLAIM, and every n't form), both ways;
+    and every word of the reply must also be in the row unless it is in
+    FILLER. The row may carry other ordinary words the reply lacks; a reply
+    that adds any other word says something new and is captured.
     """
-    return specifics(reply) == specifics(row) \
-        and plain_words(reply) - plain_words(row) <= FILLER
+    words, other = plain_words(reply), plain_words(row)
+    return specifics(reply) == specifics(row) and claims(words) == claims(other) \
+        and words - other <= FILLER
 
 
 def routed_row(req, text, at, start, hand, questions, used):
