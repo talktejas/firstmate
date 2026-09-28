@@ -1781,7 +1781,7 @@ seed_transcripts() {  # <dir> [at for real messages] [at for pre-floor history]
 }
 
 # Three turns: one whose tool call named exactly one task's record, one that
-# named two, and one that names a task only in its prose.
+# named two in different projects, and one that names a task only in its prose.
 seed_turn_transcript() {  # <file>
   local prompt tool
   prompt='{"type":"user","sessionId":"sess-t","message":{"role":"user","content":"go"}}'
@@ -1821,9 +1821,9 @@ assert_turn_attribution() {  # <log> <what> [branch]
   assert_equals "null|null" \
     "$(jq -r 'select(.req == "r-two") | [(.task // "null"), (.project // "null")] | join("|")' "$log")" \
     "$2: a turn that touched two tasks was attributed to one"
-  assert_equals "null|null" \
+  assert_equals "cc-one|demo" \
     "$(jq -r 'select(.req == "r-prose") | [(.task // "null"), (.project // "null")] | join("|")' "$log")" \
-    "$2: a task named only in the message's words was attributed"
+    "$2: a task the message itself names was not attributed"
 }
 
 test_a_captured_message_carries_the_one_task_its_turn_touched() {
@@ -1841,7 +1841,7 @@ test_a_captured_message_carries_the_one_task_its_turn_touched() {
     | python3 "$SWEEP" --home "$home" --from-payload --since 2026-01-02T00:00:00Z \
     || fail "the sweep failed on a payload-named turn transcript"
   assert_turn_attribution "$home/data/captain-messages.jsonl" "turn-end capture" fm/one
-  pass "a captured message carries the one task its own turn touched, its branch only at turn end, and no guess otherwise"
+  pass "a captured message carries the one task its turn touched or its words name, its branch only at turn end, and no guess otherwise"
 }
 
 test_message_backfill_attributes_by_the_same_turn_evidence() {
@@ -1851,16 +1851,17 @@ test_message_backfill_attributes_by_the_same_turn_evidence() {
   seed_turn_home "$home"
   seed_turn_transcript "$cfg/projects/$(printf '%s' "$home" | sed 's/[^A-Za-z0-9]/-/g')/sess-t.jsonl"
   for req in r-one r-two r-prose; do
-    jq -cn --arg req "$req" '{id:("c-"+$req), req:$req, session:"sess-t", task:null,
-      project:null, worktree:null, branch:null, source:"transcript"}'
+    jq -c --arg req "$req" 'select(.requestId == $req) | {id:("c-"+$req), req:$req, session:"sess-t",
+      text:.message.content[0].text, task:null, project:null, worktree:null, branch:null,
+      source:"transcript"}' "$cfg/projects/"*/sess-t.jsonl
   done > "$home/data/captain-messages.jsonl"
   result=$(CLAUDE_CONFIG_DIR="$cfg" FM_HOME="$home" "$BACKFILL") || fail "the message backfill failed"
-  assert_equals 1 "$(jq -r .changed <<<"$result")" \
-    "the backfill did not change exactly the one attributable row"
+  assert_equals 2 "$(jq -r .changed <<<"$result")" \
+    "the backfill did not change exactly the two attributable rows"
   assert_turn_attribution "$home/data/captain-messages.jsonl" "backfill"
   assert_equals 0 "$(CLAUDE_CONFIG_DIR="$cfg" FM_HOME="$home" "$BACKFILL" | jq -r .changed)" \
     "a second backfill pass was not convergent"
-  pass "the backfill attributes a captured row only by its own turn's single task"
+  pass "the backfill attributes a captured row only by its own turn's or its words' single task"
 }
 
 sweep() {  # <home> <transcripts>
@@ -2120,6 +2121,139 @@ Blue or green?" --task cc-live --project demo --question) || fail "the recorder 
   assert_equals "$id,$id2,r-before" "$(jq -rs 'map(.req // .id) | join(",")' "$log")" \
     "an identical reply was duplicated, or one tied to a row from before its turn was folded"
   pass "with no id, only a row written in the same turn with the same text stands for the reply"
+}
+
+# A captured message names its work only from evidence it or its turn carries,
+# the turn's own work first: a pull request URL or repo of a registered
+# project, a task id with a record, a worktree path, a name called a project,
+# and a branch only when that project's clone has it. A project named in
+# passing is no evidence; no evidence, or two projects, is an honest unknown.
+seed_evidence_home() {  # <home>
+  seed_home "$1"
+  printf '%s\n' \
+    '- koin [direct-PR] - Koin, an expense tracker (repo talktejas/koin, private)' \
+    '- jt2627s [direct-PR] - JewelTrek (repo talktejas/jeweltrek2627-slim); active branch is develop' \
+    > "$1/data/projects.md"
+  git init -q -b develop "$1/projects/jt2627s"
+  git -C "$1/projects/jt2627s" -c user.name=t -c user.email=t@t commit -q --allow-empty -m init
+  git -C "$1/projects/jt2627s" branch integration/diamond-module
+  printf 'project=/home/captain/p/demo\nworktree=/wt/one\n' > "$1/state/cc-one.meta"
+}
+
+seed_evidence_transcript() {  # <file>
+  mkdir -p "$(dirname "$1")"
+  {
+    prompt_line "$(ts -600)" "one"
+    reply_line r-pr "$(ts -590)" "Ready for your review: https://github.com/talktejas/jeweltrek2627-slim/pull/222, into \`integration/diamond-module\`."
+    prompt_line "$(ts -500)" "two"
+    reply_line r-task "$(ts -490)" "cc-one is parked on its pull request."
+    prompt_line "$(ts -400)" "three"
+    reply_line r-none "$(ts -390)" "Nothing is waiting on you."
+    prompt_line "$(ts -300)" "four"
+    reply_line r-two "$(ts -290)" "Waiting: https://github.com/talktejas/koin/pull/4 and https://github.com/talktejas/jeweltrek2627-slim/pull/222."
+    prompt_line "$(ts -280)" "passing"
+    reply_line r-passing "$(ts -270)" "Project **koin** keeps develop as its working branch, the same convention as jt2627s."
+    prompt_line "$(ts -260)" "steered"
+    jq -cn --arg at "$(ts -255)" '{type:"assistant", requestId:"t-s", sessionId:"sess-1", timestamp:$at,
+      message:{role:"assistant", stop_reason:"tool_use",
+               content:[{type:"tool_use", name:"Bash", input:{command:"bin/fm-send.sh cc-one \"carry on\""}}]}}'
+    reply_line r-steered "$(ts -250)" "Sent. Koin's plan is still at https://github.com/talktejas/koin/pull/3."
+    prompt_line "$(ts -200)" "five"
+    reply_line r-branch "$(ts -190)" "Project **koin**, branch \`integration/diamond-module\`."
+    prompt_line "$(ts -100)" "six"
+    reply_line r-wt "$(ts -90)" "Metals runs in ~/wt/jt2627s/metals."
+  } > "$1"
+}
+
+assert_evidence_labels() {  # <log> <what>
+  local got
+  got=$(jq -r 'select(.req != null) | [.req, .task, .project, .worktree, .branch] | map(. // "-") | join("|")' "$1")
+  assert_equals "r-pr|-|jt2627s|-|integration/diamond-module
+r-task|cc-one|demo|/wt/one|-
+r-none|-|-|-|-
+r-two|-|-|-|-
+r-passing|-|koin|-|-
+r-steered|cc-one|demo|/wt/one|-
+r-branch|-|koin|-|-
+r-wt|-|jt2627s|$HOME/wt/jt2627s/metals|-" "$got" \
+    "$2: a message was labelled beyond, or short of, the evidence it carries"
+}
+
+test_a_captured_message_is_labelled_only_by_the_evidence_it_carries() {
+  local home tdir cfg result
+  home="$TMP_ROOT/evidence"
+  tdir="$TMP_ROOT/evidence-transcripts"
+  seed_evidence_home "$home"
+  seed_evidence_transcript "$tdir/sess-1.jsonl"
+  python3 "$SWEEP" --home "$home" --transcripts "$tdir" --since 2000-01-01T00:00:00Z \
+    || fail "the sweep failed"
+  assert_evidence_labels "$home/data/captain-messages.jsonl" "capture"
+
+  home="$TMP_ROOT/evidence-backfill"
+  cfg="$TMP_ROOT/evidence-backfill-config"
+  seed_evidence_home "$home"
+  seed_evidence_transcript "$cfg/projects/$(printf '%s' "$home" | sed 's/[^A-Za-z0-9]/-/g')/sess-1.jsonl"
+  for req in r-pr r-task r-none r-two r-passing r-steered r-branch r-wt; do
+    jq -c --arg req "$req" 'select(.requestId == $req) | {id:("c-"+$req), req:$req, session:"sess-1",
+      text:.message.content[0].text, task:null, project:null, worktree:null, branch:null,
+      source:"transcript"}' "$cfg/projects/"*/sess-1.jsonl
+  done > "$home/data/captain-messages.jsonl"
+  result=$(CLAUDE_CONFIG_DIR="$cfg" FM_HOME="$home" "$BACKFILL") || fail "the message backfill failed"
+  assert_evidence_labels "$home/data/captain-messages.jsonl" "backfill"
+  assert_equals "6|2|0" "$(jq -r '[.labelled, .unknown, .folded] | join("|")' <<<"$result")" \
+    "the backfill did not count what gained a label, what stayed unknown, and what folded"
+  assert_equals 0 "$(CLAUDE_CONFIG_DIR="$cfg" FM_HOME="$home" "$BACKFILL" | jq -r .changed)" \
+    "a second backfill pass was not convergent"
+  pass "a captured message is labelled by its turn's work, then a PR URL, task id, worktree path or project, never a passing name"
+}
+
+# A message firstmate also recorded by hand, with --task, is never left beside
+# it as a second, unlabelled row: the same message folds into the labelled row,
+# a reworded one takes that row's labels, and the backfill folds away a
+# duplicate an older capture already wrote.
+test_a_message_recorded_by_hand_is_never_a_second_unlabelled_row() {
+  local home tdir cfg log id id2 id3 result
+  home="$TMP_ROOT/handlabel"
+  tdir="$TMP_ROOT/handlabel-transcripts"
+  seed_home "$home"
+  mkdir -p "$tdir"
+  id=$(say "$home" "Shipped" "The footer fix is merged." --task cc-live --project demo) \
+    || fail "the recorder refused the message"
+  id2=$(say "$home" "Shipped" "The header fix is merged." --task cc-live --project demo) \
+    || fail "the recorder refused the second message"
+  {
+    prompt_line "$(ts -60)" "status?"
+    recorder_call call-1 "$(ts -30)" "$(ts +30)" "$id"
+    reply_line r-same "$(ts +60)" "The **footer** fix is merged."
+    prompt_line "$(ts +70)" "and the header?"
+    recorder_call call-2 "$(ts -30)" "$(ts +80)" "$id2"
+    reply_line r-more "$(ts +90)" "The header fix is merged, and the site is back up."
+  } > "$tdir/sess-1.jsonl"
+  sweep "$home" "$tdir" || fail "the sweep failed"
+  log="$home/data/captain-messages.jsonl"
+  assert_equals "$id,$id2,r-more" "$(jq -rs 'map(.req // .id) | join(",")' "$log")" \
+    "a message recorded by hand with its task was captured a second time"
+  assert_equals "cc-live|demo" "$(jq -r 'select(.req == "r-more") | [.task, .project] | join("|")' "$log")" \
+    "a reworded copy of a labelled by-hand row was captured without its labels"
+
+  home="$TMP_ROOT/handlabel-backfill"
+  cfg="$TMP_ROOT/handlabel-backfill-config"
+  seed_home "$home"
+  id3=$(say "$home" "Shipped" "The footer fix is merged." --task cc-live --project demo) \
+    || fail "the recorder refused the backfill message"
+  mkdir -p "$cfg/projects/$(printf '%s' "$home" | sed 's/[^A-Za-z0-9]/-/g')"
+  {
+    prompt_line "$(ts -60)" "status?"
+    reply_line r-dup "$(ts +60)" "The footer fix is merged."
+  } > "$cfg/projects/$(printf '%s' "$home" | sed 's/[^A-Za-z0-9]/-/g')/sess-1.jsonl"
+  jq -cn --arg at "$(ts +60 | sed 's/\.000Z/Z/')" '{id:"c-dup", at:$at, title:"The footer fix is merged.",
+    text:"The footer fix is merged.", task:null, project:null, worktree:null, branch:null,
+    source:"transcript", session:"sess-1", req:"r-dup"}' >> "$home/data/captain-messages.jsonl"
+  result=$(CLAUDE_CONFIG_DIR="$cfg" FM_HOME="$home" "$BACKFILL") || fail "the message backfill failed"
+  assert_equals 1 "$(jq -r .folded <<<"$result")" "the backfill did not count the folded duplicate"
+  assert_equals "$id3" "$(jq -rs 'map(.req // .id) | join(",")' "$home/data/captain-messages.jsonl")" \
+    "the backfill left an unlabelled duplicate of a by-hand row"
+  pass "a by-hand message is recorded once, with its labels, however the capture or backfill meets it"
 }
 
 # THE REPORTED COMPLAINT: a session started from somewhere else writes its
@@ -2455,6 +2589,8 @@ test_every_chat_message_is_captured_without_anyone_recording_it
 test_a_hand_recorded_question_is_not_captured_a_second_time
 test_a_different_reply_in_the_same_turn_is_never_folded
 test_a_hand_recorded_question_without_its_id_folds_only_when_identical
+test_a_captured_message_is_labelled_only_by_the_evidence_it_carries
+test_a_message_recorded_by_hand_is_never_a_second_unlabelled_row
 test_a_transcript_the_payload_names_is_captured_wherever_it_lives
 test_a_named_transcript_is_remembered_even_with_nothing_new_to_read
 test_a_response_read_across_two_sweeps_is_recorded_once
