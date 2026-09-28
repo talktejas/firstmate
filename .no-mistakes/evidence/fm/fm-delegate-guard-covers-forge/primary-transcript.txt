@@ -1,0 +1,57 @@
+== S1 the incident: compare branches against develop and delete them by hand ==
+PASS | expect DENY  got DENY  | gh api repos/talktejas/koin/compare/develop...feature/a --jq .ahead_by
+      reason: [delegate-project-work] the firstmate primary delegates project work instead of doing it: this Bash call (gh api) works on project repository talktejas/koin through the forge, where only reading pull-request, check, run, and issue state is the primary's own; merging goes through bin/fm-pr-merge.sh and recording through bin/fm-pr-check.sh. Instead, first classify the work under the AGENTS.md intake contract, then use bin/fm-brief.sh followed by bin/fm-spawn.sh for dispatched work (blocked tool: Bash).
+PASS | expect DENY  got DENY  | for b in a b c; do gh api -X DELETE repos/talktejas/koin/git/refs/heads/feature/$b; done
+PASS | expect DENY  got DENY  | git push https://github.com/talktejas/koin --delete feature/a feature/b
+PASS | expect DENY  got DENY  | git push origin --delete feature/a
+PASS | expect DENY  got DENY  | gh api --method=DELETE /repos/talktejas/koin/git/refs/heads/x
+PASS | expect DENY  got DENY  | gh api -XDELETE repos/talktejas/koin/git/refs/heads/x
+== S2 PR / issue writes on a project ==
+PASS | expect DENY  got DENY  | gh pr merge 5 --squash -R talktejas/koin
+      reason: [delegate-project-work] the firstmate primary delegates project work instead of doing it: this Bash call (gh pr merge) works on project repository talktejas/koin through the forge, where only reading pull-request, check, run, and issue state is the primary's own; merging goes through bin/fm-pr-merge.sh and recording through bin/fm-pr-check.sh. Instead, first classify the work under the AGENTS.md intake contract, then use bin/fm-brief.sh followed by bin/fm-spawn.sh for dispatched work (blocked tool: Bash).
+PASS | expect DENY  got DENY  | gh pr create -R talktejas/koin -t t -b b
+PASS | expect DENY  got DENY  | gh-axi pr comment 5 -R talktejas/koin --body hi
+PASS | expect DENY  got DENY  | gh issue close 3 --repo talktejas/koin
+PASS | expect DENY  got DENY  | gh api -X POST repos/talktejas/koin/issues/3/comments -f body=hi
+PASS | expect DENY  got DENY  | gh api repos/talktejas/koin/pulls/5/merge -X PUT
+PASS | expect DENY  got DENY  | gh pr close 5
+== S3 repo settings / visibility / default branch / releases / tags ==
+PASS | expect DENY  got DENY  | gh repo edit talktejas/koin --visibility public --accept-visibility-change-consequences
+PASS | expect DENY  got DENY  | gh repo edit talktejas/koin --default-branch main
+PASS | expect DENY  got DENY  | gh api -X PATCH repos/talktejas/koin -f default_branch=main
+PASS | expect DENY  got DENY  | gh release create v1.0 -R talktejas/koin
+PASS | expect DENY  got DENY  | gh api repos/talktejas/koin/git/tags -f tag=v1
+PASS | expect DENY  got DENY  | gh repo rename new -R talktejas/koin
+== S4 reading project file contents through the forge ==
+PASS | expect DENY  got DENY  | gh api repos/talktejas/koin/contents/app.php
+      reason: [delegate-project-work] the firstmate primary delegates project work instead of doing it: this Bash call (gh api) works on project repository talktejas/koin through the forge, where only reading pull-request, check, run, and issue state is the primary's own; merging goes through bin/fm-pr-merge.sh and recording through bin/fm-pr-check.sh. Instead, first classify the work under the AGENTS.md intake contract, then use bin/fm-brief.sh followed by bin/fm-spawn.sh for dispatched work (blocked tool: Bash).
+PASS | expect DENY  got DENY  | gh pr diff 5 -R talktejas/koin
+PASS | expect DENY  got DENY  | gh api -H 'Accept: application/vnd.github.raw' repos/talktejas/koin/contents/app.php
+PASS | expect DENY  got DENY  | gh api repos/talktejas/koin/pulls/5 -H 'Accept: application/vnd.github.DIFF'
+PASS | expect DENY  got DENY  | curl -sL https://raw.githubusercontent.com/talktejas/koin/develop/app.php
+PASS | expect ALLOW got ALLOW | gh repo clone talktejas/koin /tmp/fm-live.58uX/home/projects/koin2
+PASS | expect DENY  got DENY  | cat /tmp/fm-live.58uX/home/projects/koin/src/app.php
+PASS | expect DENY  got DENY  | gh api 'search/code?q=repo:talktejas/koin+secret'
+PASS | expect DENY  got DENY  | gh api repositories/12345/contents/app.php
+PASS | expect DENY  got DENY  | gh browse app.php -R talktejas/koin -n
+== S5 firstmate's own merge/record path and supervision reads still work ==
+PASS | expect ALLOW got ALLOW | bin/fm-pr-merge.sh task-1 https://github.com/talktejas/koin/pull/5
+PASS | expect ALLOW got ALLOW | bin/fm-pr-check.sh task-1 https://github.com/talktejas/koin/pull/5
+PASS | expect ALLOW got ALLOW | gh pr view 5 -R talktejas/koin --json state,mergeable,statusCheckRollup
+PASS | expect ALLOW got ALLOW | gh pr checks 5 --repo talktejas/koin
+PASS | expect ALLOW got ALLOW | gh-axi pr view 5 -R talktejas/koin
+PASS | expect ALLOW got ALLOW | gh run view 99 -R talktejas/koin
+PASS | expect ALLOW got ALLOW | gh api repos/talktejas/koin/pulls/5 --jq .mergeable
+PASS | expect ALLOW got ALLOW | gh api repos/talktejas/koin/commits/abc/check-runs
+PASS | expect ALLOW got ALLOW | gh pr list -R talktejas/koin --state open
+== S6 firstmate's own repository is not a project ==
+PASS | expect ALLOW got ALLOW | gh pr create -R talktejas/firstmate --title t --body b
+PASS | expect ALLOW got ALLOW | gh pr close 12
+PASS | expect ALLOW got ALLOW | git push origin HEAD:refs/heads/fm/x
+PASS | expect ALLOW got ALLOW | gh api -X DELETE repos/talktejas/firstmate/git/refs/heads/old
+PASS | expect ALLOW got ALLOW | gh api repos/talktejas/firstmate/contents/AGENTS.md
+== S7 worker session (linked task worktree of the home) is untouched ==
+PASS | expect ALLOW got ALLOW | [worker] gh pr close 5 -R talktejas/koin
+PASS | expect ALLOW got ALLOW | [worker] gh api -X DELETE repos/talktejas/koin/git/refs/heads/old
+PASS | expect ALLOW got ALLOW | [worker] gh api repos/talktejas/koin/contents/app.php
+PASS | expect ALLOW got ALLOW | [worker] git push https://github.com/talktejas/koin HEAD:refs/heads/x
