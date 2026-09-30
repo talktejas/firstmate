@@ -1,0 +1,6 @@
+not ok - a foreign queue with no progress did not alert: checkpoint: no actionable wake within 60s
+base round 1 rc=1
+not ok - a foreign queue with no progress did not alert: check: rearm-resurface
+base round 2 rc=1
+not ok - a foreign queue with no progress did not alert: checkpoint: no actionable wake within 60s
+base round 3 rc=1

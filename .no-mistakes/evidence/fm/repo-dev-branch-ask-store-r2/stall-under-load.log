@@ -1,0 +1,9 @@
+ok - foreign secondmate queue alerts once per no-progress episode without age-only or cascade noise
+ok - a reprovisioned queue generation starts a fresh no-progress interval
+round 1 189.36s
+ok - foreign secondmate queue alerts once per no-progress episode without age-only or cascade noise
+ok - a reprovisioned queue generation starts a fresh no-progress interval
+round 2 153.30s
+ok - foreign secondmate queue alerts once per no-progress episode without age-only or cascade noise
+ok - a reprovisioned queue generation starts a fresh no-progress interval
+round 3 162.85s
