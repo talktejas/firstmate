@@ -1,0 +1,64 @@
+=== target 0e0e22f, real gh against https://github.com/talktejas/firstmate/pull/24 ===
+--- 1. healthy read
+$ fm-contributions.sh poll   # clock 2026-10-01T09:00:00Z
+[exit 0] stdout lines above
+{"url":"https://github.com/talktejas/firstmate/pull/24","checked_at":"2026-10-01T09:00:00Z","error":null,"observed":true,"head":"925c8af415bd9330a40bf98a92e058134f118c1a"}
+
+--- 2. first failed poll of an episode (real gh, rejected token)
+$ GH_TOKEN=invalid fm-contributions.sh poll   # clock 2026-10-01T10:00:00Z
+contributions: observation unavailable for https://github.com/talktejas/firstmate/pull/24: gh api repos/talktejas/firstmate/pulls/24 failed: gh: Bad credentials (HTTP 401)
+[exit 0] stdout lines above
+{"url":"https://github.com/talktejas/firstmate/pull/24","checked_at":"2026-10-01T10:00:00Z","error":"forge observation unavailable: gh api repos/talktejas/firstmate/pulls/24 failed: gh: Bad credentials (HTTP 401)","observed":true,"head":"925c8af415bd9330a40bf98a92e058134f118c1a"}
+
+--- 3. same failure persists, poll at 11:00
+$ GH_TOKEN=invalid fm-contributions.sh poll   # clock 2026-10-01T11:00:00Z
+[exit 0] stdout lines above
+{"url":"https://github.com/talktejas/firstmate/pull/24","checked_at":"2026-10-01T11:00:00Z","error":"forge observation unavailable: gh api repos/talktejas/firstmate/pulls/24 failed: gh: Bad credentials (HTTP 401)","observed":true,"head":"925c8af415bd9330a40bf98a92e058134f118c1a"}
+
+--- 3. same failure persists, poll at 12:00
+$ GH_TOKEN=invalid fm-contributions.sh poll   # clock 2026-10-01T12:00:00Z
+[exit 0] stdout lines above
+{"url":"https://github.com/talktejas/firstmate/pull/24","checked_at":"2026-10-01T12:00:00Z","error":"forge observation unavailable: gh api repos/talktejas/firstmate/pulls/24 failed: gh: Bad credentials (HTTP 401)","observed":true,"head":"925c8af415bd9330a40bf98a92e058134f118c1a"}
+
+--- 3. same failure persists, poll at 13:00
+$ GH_TOKEN=invalid fm-contributions.sh poll   # clock 2026-10-01T13:00:00Z
+[exit 0] stdout lines above
+{"url":"https://github.com/talktejas/firstmate/pull/24","checked_at":"2026-10-01T13:00:00Z","error":"forge observation unavailable: gh api repos/talktejas/firstmate/pulls/24 failed: gh: Bad credentials (HTTP 401)","observed":true,"head":"925c8af415bd9330a40bf98a92e058134f118c1a"}
+
+--- 4. read succeeds again: episode ends
+$ fm-contributions.sh poll   # clock 2026-10-01T14:00:00Z
+[exit 0] stdout lines above
+{"url":"https://github.com/talktejas/firstmate/pull/24","checked_at":"2026-10-01T14:00:00Z","error":null,"observed":true,"head":"925c8af415bd9330a40bf98a92e058134f118c1a"}
+
+--- 5. new failure after recovery: reported again
+$ GH_TOKEN=invalid fm-contributions.sh poll   # clock 2026-10-01T15:00:00Z
+contributions: observation unavailable for https://github.com/talktejas/firstmate/pull/24: gh api repos/talktejas/firstmate/pulls/24 failed: gh: Bad credentials (HTTP 401)
+[exit 0] stdout lines above
+{"url":"https://github.com/talktejas/firstmate/pull/24","checked_at":"2026-10-01T15:00:00Z","error":"forge observation unavailable: gh api repos/talktejas/firstmate/pulls/24 failed: gh: Bad credentials (HTTP 401)","observed":true,"head":"925c8af415bd9330a40bf98a92e058134f118c1a"}
+
+--- 6. different real cause (unreachable host -> per-call timeout / connect error)
+$ fm-contributions.sh poll   # clock 2026-10-01T16:00:00Z
+[exit 0] stdout lines above
+{"url":"https://github.com/talktejas/firstmate/pull/24","checked_at":"2026-10-01T16:00:00Z","error":null,"observed":true,"head":"925c8af415bd9330a40bf98a92e058134f118c1a"}
+
+$ HTTPS_PROXY=http://127.0.0.1:9 fm-contributions.sh poll   # clock 2026-10-01T17:00:00Z
+contributions: observation unavailable for https://github.com/talktejas/firstmate/pull/24: gh api repos/talktejas/firstmate/pulls/24 failed: Get "https://api.github.com/repos/talktejas/firstmate/pulls/24": proxyconnect tcp: dial tcp 127.0.0.1:9: connect: connection refused
+[exit 0] stdout lines above
+{"url":"https://github.com/talktejas/firstmate/pull/24","checked_at":"2026-10-01T17:00:00Z","error":"forge observation unavailable: gh api repos/talktejas/firstmate/pulls/24 failed: Get \"https://api.github.com/repos/talktejas/firstmate/pulls/24\": proxyconnect tcp: dial tcp 127.0.0.1:9: connect: connection refused","observed":true,"head":"925c8af415bd9330a40bf98a92e058134f118c1a"}
+
+=== base 9d1590f, same failure, for comparison ===
+$ GH_TOKEN=invalid fm-contributions.sh poll   # clock 2026-10-01T10:00:00Z
+contributions: observation unavailable for https://github.com/talktejas/firstmate/pull/24
+[exit 0] stdout lines above
+{"url":"https://github.com/talktejas/firstmate/pull/24","checked_at":"2026-10-01T10:00:00Z","error":"forge observation unavailable or changed during read","observed":false,"head":null}
+
+--- 7. real gh behind a proxy that accepts and never answers, per-call bound 2s (episode from scenario 6 ended first by a clean read)
+$ fm-contributions.sh poll   # clock 2026-10-01T18:00:00Z
+[exit 0]
+{"url":"https://github.com/talktejas/firstmate/pull/24","checked_at":"2026-10-01T18:00:00Z","error":null}
+
+$ HTTPS_PROXY=http://127.0.0.1:18999 FM_CONTRIBUTIONS_CALL_TIMEOUT=2 fm-contributions.sh poll   # clock 2026-10-01T19:00:00Z
+contributions: observation unavailable for https://github.com/talktejas/firstmate/pull/24: gh api repos/talktejas/firstmate/pulls/24 timed out after 2s
+[exit 0]
+{"url":"https://github.com/talktejas/firstmate/pull/24","checked_at":"2026-10-01T19:00:00Z","error":"forge observation unavailable: gh api repos/talktejas/firstmate/pulls/24 timed out after 2s"}
+
