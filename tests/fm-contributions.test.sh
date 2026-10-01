@@ -568,8 +568,6 @@ case "$fault:$*" in
     printf 'HTTP 502\n' >&2; exit 1 ;;
   fail:'api repos/o/r/pulls/8/reviews?'*) printf 'HTTP 502\n' >&2; exit 1 ;;
   down:*) printf 'HTTP 502\n' >&2; exit 1 ;;
-  blip:'api repos/o/r/pulls/8')
-    [ -f "$FORGE/blipped" ] || { : > "$FORGE/blipped"; printf 'HTTP 502\n' >&2; exit 1; } ;;
   slow:*)
     printf '%s\n' "$(( $(cat "$FORGE/clock") + 5 ))" > "$FORGE/clock" ;;
   *:'api repos/o/r/issues/9/comments?'*)
@@ -803,8 +801,9 @@ test_per_call_timeout_is_unavailable() {
   printf 'hang\n' > "$home/forge/fault"
   out=$(with_home "$home" env FM_CONTRIBUTIONS_BUDGET=20 FM_CONTRIBUTIONS_CALL_TIMEOUT=1 "$ROOT/bin/fm-contributions.sh" poll) \
     || fail 'poll failed when its per-call timeout elapsed'
-  [ -z "$out" ] || fail "a first per-call timeout woke before the next poll could retry it: $out"
-  jq -e --arg now "$NOW" '.records[0].checked_at == $now and .records[0].error_reported == false
+  [ "$out" = 'contributions: observation unavailable for https://github.com/o/r/pull/8: gh api repos/o/r/pulls/8 timed out after 1s' ] \
+    || fail "a per-call timeout did not report the URL as unavailable exactly once: $out"
+  jq -e --arg now "$NOW" '.records[0].checked_at == $now
     and .records[0].error == "forge observation unavailable: gh api repos/o/r/pulls/8 timed out after 1s"' \
     "$home/data/delivery/contributions.json" >/dev/null \
     || fail 'a per-call timeout left the slow URL unchecked instead of recording it'
@@ -823,15 +822,16 @@ test_genuine_failure_near_deadline_is_unavailable() {
   /bin/date +%s > "$home/forge/clock"
   printf 'fail-late\n' > "$home/forge/fault"
   out=$(with_home "$home" "$ROOT/bin/fm-contributions.sh" poll) || fail 'poll failed on a genuine forge failure'
-  [ -z "$out" ] || fail "a genuine forge failure past the deadline was reported as a budget problem: $out"
+  [ "$out" = 'contributions: observation unavailable for https://github.com/o/r/pull/8: gh api repos/o/r/pulls/8/reviews?per_page=100 failed: HTTP 502' ] \
+    || fail "a genuine forge failure past the deadline was swallowed or reported as a budget problem: $out"
   jq -e --arg now "$NOW" '.records[0].checked_at == $now and .records[0].error
     == "forge observation unavailable: gh api repos/o/r/pulls/8/reviews?per_page=100 failed: HTTP 502"' \
     "$home/data/delivery/contributions.json" >/dev/null || fail 'a genuine forge failure left no error evidence'
-  pass 'a genuine forge failure past the deadline records the failed read, not a budget shortfall'
+  pass 'a genuine forge failure past the deadline records and reports the failed read, not a budget shortfall'
 }
 
 test_shared_url_observed_once() {
-  local mode home out calls expected
+  local mode home out calls expected reason
   for mode in ok fail head; do
     home=$(new_home "shared-once-$mode")
     forge_home "$home"
@@ -844,13 +844,17 @@ test_shared_url_observed_once() {
     if [ "$mode" = ok ]; then
       expected=null
       [ -z "$out" ] || fail "a healthy shared observation printed: $out"
-      [ "$(grep -cF 'api repos/o/r/pulls/8/reviews?' "$home/forge/calls")" = 1 ] || fail 'a healthy read was repeated'
-    elif [ "$mode" = fail ]; then
-      expected='"forge observation unavailable: gh api repos/o/r/pulls/8/reviews?per_page=100 failed: HTTP 502"'
     else
-      expected='"forge observation unavailable: head changed during observation"'
+      if [ "$mode" = fail ]; then
+        reason='gh api repos/o/r/pulls/8/reviews?per_page=100 failed: HTTP 502'
+        [ "$(grep -cF 'api repos/o/r/pulls/8/reviews?' "$home/forge/calls")" = 1 ] || fail 'a failed read was repeated'
+      else
+        reason='head changed during observation'
+      fi
+      expected=$(jq -n --arg reason "$reason" '"forge observation unavailable: " + $reason')
+      [ "$out" = "contributions: observation unavailable for https://github.com/o/r/pull/8: $reason" ] \
+        || fail "a shared unavailable observation did not wake exactly once ($mode): $out"
     fi
-    [ "$mode" = ok ] || [ -z "$out" ] || fail "a first shared failure woke ($mode): $out"
     for task in delivery duplicate; do
       jq -e --arg now "$NOW" --argjson error "$expected" '.records[0].checked_at == $now and .records[0].error == $error' \
         "$home/data/$task/contributions.json" >/dev/null || fail "owner $task did not receive the shared result ($mode)"
@@ -945,54 +949,32 @@ test_done_task_open_pr_still_observed() {
 }
 
 test_failure_wakes_once_per_episode() {
-  local home out reason='gh api repos/o/r/pulls/8 failed: HTTP 502'
+  local home out hour reason='gh api repos/o/r/pulls/8 failed: HTTP 502'
   local line="contributions: observation unavailable for https://github.com/o/r/pull/8: $reason"
   home=$(new_home failure-episode)
   forge_home "$home"
   wrap_forge "$home"
-  poll_at() { with_home "$home" env FM_CONTRIBUTIONS_NOW="$1" "$ROOT/bin/fm-contributions.sh" poll || fail "poll at $1 failed"; }
-  stored() { jq -e --arg at "$1" --arg error "forge observation unavailable: $reason" --argjson reported "$2" \
-    '.records[0] | .checked_at == $at and .error == $error and .error_reported == $reported' \
-    "$home/data/delivery/contributions.json" >/dev/null; }
-  # One failed attempt that the immediate retry recovers is not a failure at all.
-  printf 'blip\n' > "$home/forge/fault"
-  out=$(poll_at 2026-09-16T08:30:00Z)
-  [ -z "$out" ] || fail "a read that succeeded on its retry printed: $out"
-  jq -e '.records[0] | .error == null and .checked_at == "2026-09-16T08:30:00Z" and (has("error_reported") | not)' \
-    "$home/data/delivery/contributions.json" >/dev/null || fail 'a read that succeeded on its retry was not recorded as observed'
-  [ "$(grep -cFx 'api repos/o/r/pulls/8' "$home/forge/calls")" = 2 ] || fail 'a failed read was not retried exactly once'
-  # A forge that fails for one poll and recovers by the next never wakes, however often it repeats.
-  for hour in 09 11 13; do
-    printf 'down\n' > "$home/forge/fault"
-    out=$(poll_at "2026-09-16T$hour:00:00Z")
-    [ -z "$out" ] || fail "a single failed poll woke before its retry: $out"
-    stored "2026-09-16T$hour:00:00Z" false || fail 'a single failed poll did not record what was unmeasured'
-    : > "$home/forge/fault"
-    out=$(poll_at "2026-09-16T$hour:30:00Z")
-    [ -z "$out" ] || fail "a successful read printed: $out"
-    jq -e '.records[0] | .error == null and (has("error_reported") | not)' "$home/data/delivery/contributions.json" >/dev/null \
-      || fail 'a successful read did not end the failure episode'
-  done
-  [ ! -s "$home/state/.wake-queue" ] || fail 'a recovering forge enqueued a wake'
-  # A failure that outlasts its retry poll is reported once, then only recorded.
   printf 'down\n' > "$home/forge/fault"
-  : > "$home/forge/calls"
-  out=$(poll_at 2026-09-16T15:00:00Z)
-  [ -z "$out" ] || fail "the first failed poll of a lasting failure woke: $out"
-  out=$(poll_at 2026-09-16T16:00:00Z)
-  [ "$out" = "$line" ] || fail "a failure that outlasted its retry poll was not reported: $out"
-  stored 2026-09-16T16:00:00Z true || fail 'a reported failure was not marked reported'
-  for hour in 17 18 19; do
+  poll_at() { with_home "$home" env FM_CONTRIBUTIONS_NOW="$1" "$ROOT/bin/fm-contributions.sh" poll || fail "poll at $1 failed"; }
+  out=$(poll_at 2026-09-16T09:00:00Z)
+  [ "$out" = "$line" ] || fail "the first failure of an episode did not wake with its reason: $out"
+  for hour in 10 11 12; do
     out=$(poll_at "2026-09-16T$hour:00:00Z")
     [ -z "$out" ] || fail "an unchanged read failure woke again on a later poll: $out"
   done
-  stored 2026-09-16T19:00:00Z true || fail 'a repeated read failure stopped recording its error'
-  [ "$(grep -cFx 'api repos/o/r/pulls/8' "$home/forge/calls")" = 10 ] || fail 'a failing open PR stopped being observed'
-  # A record written before the marker existed was already reported.
-  mutate_record "$home" delivery '.records[0] |= del(.error_reported)'
-  out=$(poll_at 2026-09-16T20:00:00Z)
-  [ -z "$out" ] || fail "an error recorded before the marker existed woke again: $out"
-  pass 'a recovering read never wakes and a lasting read failure wakes once per episode'
+  jq -e --arg error "forge observation unavailable: $reason" \
+    '.records[0] | .checked_at == "2026-09-16T12:00:00Z" and .error == $error' \
+    "$home/data/delivery/contributions.json" >/dev/null || fail 'a repeated read failure stopped recording what failed'
+  [ "$(grep -cFx 'api repos/o/r/pulls/8' "$home/forge/calls")" = 4 ] || fail 'a failing open PR was not read once per poll'
+  : > "$home/forge/fault"
+  out=$(poll_at 2026-09-16T13:00:00Z)
+  [ -z "$out" ] || fail "a successful read printed: $out"
+  jq -e '.records[0].error == null' "$home/data/delivery/contributions.json" >/dev/null \
+    || fail 'a successful read did not end the failure episode'
+  printf 'down\n' > "$home/forge/fault"
+  out=$(poll_at 2026-09-16T14:00:00Z)
+  [ "$out" = "$line" ] || fail "a new failure after a successful read did not wake: $out"
+  pass 'a repeated read failure on an open PR records what failed but wakes once per episode'
 }
 
 test_late_owner_keeps_failure_episode_suppressed() {
@@ -1002,12 +984,9 @@ test_late_owner_keeps_failure_episode_suppressed() {
   forge_home "$home"
   wrap_forge "$home"
   printf 'down\n' > "$home/forge/fault"
-  out=$(with_home "$home" env FM_CONTRIBUTIONS_NOW=2026-09-16T08:00:00Z "$ROOT/bin/fm-contributions.sh" poll) \
-    || fail 'initial failing poll failed'
-  [ -z "$out" ] || fail "the first failed poll woke: $out"
   out=$(with_home "$home" env FM_CONTRIBUTIONS_NOW=2026-09-16T09:00:00Z "$ROOT/bin/fm-contributions.sh" poll) \
-    || fail 'second failing poll failed'
-  [ "$out" = "$line" ] || fail "the lasting failure did not wake: $out"
+    || fail 'initial failing poll failed'
+  [ "$out" = "$line" ] || fail "the initial failure did not wake: $out"
   printf -- '- [ ] duplicate - Filed https://github.com/o/r/pull/8 (repo: sample) (kind: ship)\n' >> "$home/data/backlog.md"
   out=$(with_home "$home" env FM_CONTRIBUTIONS_NOW=2026-09-16T10:00:00Z "$ROOT/bin/fm-contributions.sh" poll) \
     || fail 'late-owner failing poll failed'
@@ -1025,11 +1004,9 @@ test_late_owner_keeps_failure_episode_suppressed() {
       || fail "owner $task did not end the shared failure episode"
   done
   printf 'down\n' > "$home/forge/fault"
-  with_home "$home" env FM_CONTRIBUTIONS_NOW=2026-09-16T12:00:00Z "$ROOT/bin/fm-contributions.sh" poll >/dev/null \
+  out=$(with_home "$home" env FM_CONTRIBUTIONS_NOW=2026-09-16T12:00:00Z "$ROOT/bin/fm-contributions.sh" poll) \
     || fail 'new shared failing poll failed'
-  out=$(with_home "$home" env FM_CONTRIBUTIONS_NOW=2026-09-16T13:00:00Z "$ROOT/bin/fm-contributions.sh" poll) \
-    || fail 'new shared lasting failure poll failed'
-  [ "$out" = "$line" ] || fail "a lasting failure after shared recovery did not wake: $out"
+  [ "$out" = "$line" ] || fail "a failure after shared recovery did not wake: $out"
   pass 'a late owner does not restart a shared forge failure episode'
 }
 
