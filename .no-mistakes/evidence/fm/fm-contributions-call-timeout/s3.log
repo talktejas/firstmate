@@ -1,0 +1,14 @@
+## S3: watcher sweep, defaults, every forge read takes 22s (7 reads = 154s, past the old 138s bound)
+watcher rc=124 elapsed=200s
+stdout: checkpoint: no actionable wake within 200s
+record: {"checked_at":"2026-09-16T08:00:00Z","error":null,"has_observation":true}
+forge calls:
+02:27:50 api repos/o/r/pulls/8
+02:28:12 api repos/o/r/issues/8/comments?per_page=100 --paginate --slurp
+02:28:34 api repos/o/r/pulls/8/reviews?per_page=100 --paginate --slurp
+02:28:56 api repos/o/r/pulls/8/comments?per_page=100 --paginate --slurp
+02:29:18 api repos/o/r/commits/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/check-runs?filter=all&per_page=100 --paginate --slurp
+02:29:41 api repos/o/r/commits/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/statuses?per_page=100 --paginate --slurp
+02:30:03 api repos/o/r
+02:30:27 api repos/o/r/pulls/8
+02:30:49 api repos/o/r/issues/8/comments?per_page=100 --paginate --slurp

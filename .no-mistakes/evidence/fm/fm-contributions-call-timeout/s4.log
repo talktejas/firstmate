@@ -1,0 +1,12 @@
+## S4: same sweep with the old FM_CONTRIBUTIONS_CHECK_TIMEOUT=138
+watcher rc=0 elapsed=136s
+stdout: check: /tmp/fm-contributions.MyPPhf/s4/state/contributions.check.sh: contributions: observation needs more than the 135s poll budget for https://github.com/o/r/pull/8; raise FM_CONTRIBUTIONS_CHECK_TIMEOUT to at least 273s
+record: {"checked_at":"2026-09-16T08:00:00Z","error":"forge observation needs more than the 135s poll budget; raise FM_CONTRIBUTIONS_CHECK_TIMEOUT to at least 273s","has_observation":true}
+forge calls:
+02:27:50 api repos/o/r/pulls/8
+02:28:12 api repos/o/r/issues/8/comments?per_page=100 --paginate --slurp
+02:28:34 api repos/o/r/pulls/8/reviews?per_page=100 --paginate --slurp
+02:28:56 api repos/o/r/pulls/8/comments?per_page=100 --paginate --slurp
+02:29:19 api repos/o/r/commits/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/check-runs?filter=all&per_page=100 --paginate --slurp
+02:29:41 api repos/o/r/commits/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/statuses?per_page=100 --paginate --slurp
+02:30:03 api repos/o/r

@@ -1,0 +1,6 @@
+## S1: core PR read takes 20s, nothing configured (default per-call timeout)
+poll rc=0 elapsed=21s stdout=[]
+record: {"checked_at":"2026-09-16T08:00:00Z","error":null,"has_observation":true}
+## S1b: same 20s read with FM_CONTRIBUTIONS_CALL_TIMEOUT=15 (the old default, via the override)
+poll rc=0 elapsed=16s stdout=[contributions: observation unavailable for https://github.com/o/r/pull/8: gh api repos/o/r/pulls/8 timed out after 15s]
+record: {"checked_at":"2026-09-16T08:00:00Z","error":"forge observation unavailable: gh api repos/o/r/pulls/8 timed out after 15s","has_observation":true}

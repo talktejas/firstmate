@@ -1,0 +1,6 @@
+## S2: core PR read hangs 45s, nothing configured
+poll rc=0 elapsed=30s stdout=[contributions: observation unavailable for https://github.com/o/r/pull/8: gh api repos/o/r/pulls/8 timed out after 30s]
+record: {"checked_at":"2026-09-16T08:00:00Z","error":"forge observation unavailable: gh api repos/o/r/pulls/8 timed out after 30s","has_observation":true}
+## second poll of the same failure episode
+poll rc=0 elapsed=31s stdout=[]
+record: {"checked_at":"2026-09-16T08:00:00Z","error":"forge observation unavailable: gh api repos/o/r/pulls/8 timed out after 30s","has_observation":true}
