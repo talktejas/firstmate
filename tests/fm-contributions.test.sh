@@ -801,16 +801,16 @@ test_per_call_timeout_is_unavailable() {
   printf 'hang\n' > "$home/forge/fault"
   out=$(with_home "$home" env FM_CONTRIBUTIONS_BUDGET=20 FM_CONTRIBUTIONS_CALL_TIMEOUT=1 "$ROOT/bin/fm-contributions.sh" poll) \
     || fail 'poll failed when its per-call timeout elapsed'
-  [ "$out" = 'contributions: observation unavailable for https://github.com/o/r/pull/8' ] \
+  [ "$out" = 'contributions: observation unavailable for https://github.com/o/r/pull/8: gh api repos/o/r/pulls/8 timed out after 1s' ] \
     || fail "a per-call timeout did not report the URL as unavailable exactly once: $out"
   jq -e --arg now "$NOW" '.records[0].checked_at == $now
-    and .records[0].error == "forge observation unavailable or changed during read"' \
+    and .records[0].error == "forge observation unavailable: gh api repos/o/r/pulls/8 timed out after 1s"' \
     "$home/data/delivery/contributions.json" >/dev/null \
     || fail 'a per-call timeout left the slow URL unchecked instead of recording it'
   jq -e --arg now "$NOW" '.records[0].checked_at == $now and .records[0].error == null
     and .records[0].observation != null' "$home/data/filed/contributions.json" >/dev/null \
     || fail 'a per-call timeout on the first URL starved the next URL of its observation'
-  pass 'a per-call timeout records one URL unavailable and still observes the next'
+  pass 'a per-call timeout records what timed out for one URL and still observes the next'
 }
 
 test_genuine_failure_near_deadline_is_unavailable() {
@@ -822,16 +822,16 @@ test_genuine_failure_near_deadline_is_unavailable() {
   /bin/date +%s > "$home/forge/clock"
   printf 'fail-late\n' > "$home/forge/fault"
   out=$(with_home "$home" "$ROOT/bin/fm-contributions.sh" poll) || fail 'poll failed on a genuine forge failure'
-  [ "$out" = 'contributions: observation unavailable for https://github.com/o/r/pull/8' ] \
-    || fail "a genuine forge failure past the deadline was swallowed: $out"
-  jq -e --arg now "$NOW" '.records[0].checked_at == $now
-    and .records[0].error == "forge observation unavailable or changed during read"' \
+  [ "$out" = 'contributions: observation unavailable for https://github.com/o/r/pull/8: gh api repos/o/r/pulls/8/reviews?per_page=100 failed: HTTP 502' ] \
+    || fail "a genuine forge failure past the deadline was swallowed or reported as a budget problem: $out"
+  jq -e --arg now "$NOW" '.records[0].checked_at == $now and .records[0].error
+    == "forge observation unavailable: gh api repos/o/r/pulls/8/reviews?per_page=100 failed: HTTP 502"' \
     "$home/data/delivery/contributions.json" >/dev/null || fail 'a genuine forge failure left no error evidence'
-  pass 'a genuine forge failure inside the budget still records the error and wakes'
+  pass 'a genuine forge failure past the deadline records and reports the failed read, not a budget shortfall'
 }
 
 test_shared_url_observed_once() {
-  local mode home out calls expected
+  local mode home out calls expected reason
   for mode in ok fail head; do
     home=$(new_home "shared-once-$mode")
     forge_home "$home"
@@ -845,8 +845,14 @@ test_shared_url_observed_once() {
       expected=null
       [ -z "$out" ] || fail "a healthy shared observation printed: $out"
     else
-      expected='"forge observation unavailable or changed during read"'
-      [ "$out" = 'contributions: observation unavailable for https://github.com/o/r/pull/8' ] \
+      if [ "$mode" = fail ]; then
+        reason='gh api repos/o/r/pulls/8/reviews?per_page=100 failed: HTTP 502'
+        [ "$(grep -cF 'api repos/o/r/pulls/8/reviews?' "$home/forge/calls")" = 1 ] || fail 'a failed read was repeated'
+      else
+        reason='head changed during observation'
+      fi
+      expected=$(jq -n --arg reason "$reason" '"forge observation unavailable: " + $reason')
+      [ "$out" = "contributions: observation unavailable for https://github.com/o/r/pull/8: $reason" ] \
         || fail "a shared unavailable observation did not wake exactly once ($mode): $out"
     fi
     for task in delivery duplicate; do
@@ -943,34 +949,37 @@ test_done_task_open_pr_still_observed() {
 }
 
 test_failure_wakes_once_per_episode() {
-  local home out line='contributions: observation unavailable for https://github.com/o/r/pull/8'
-  local error='"forge observation unavailable or changed during read"'
+  local home out hour reason='gh api repos/o/r/pulls/8 failed: HTTP 502'
+  local line="contributions: observation unavailable for https://github.com/o/r/pull/8: $reason"
   home=$(new_home failure-episode)
   forge_home "$home"
   wrap_forge "$home"
   printf 'down\n' > "$home/forge/fault"
   poll_at() { with_home "$home" env FM_CONTRIBUTIONS_NOW="$1" "$ROOT/bin/fm-contributions.sh" poll || fail "poll at $1 failed"; }
   out=$(poll_at 2026-09-16T09:00:00Z)
-  [ "$out" = "$line" ] || fail "the first failure of an episode did not wake: $out"
-  out=$(poll_at 2026-09-16T10:00:00Z)
-  [ -z "$out" ] || fail "an unchanged read failure woke again on the next cycle: $out"
-  jq -e --argjson error "$error" '.records[0] | .checked_at == "2026-09-16T10:00:00Z" and .error == $error' \
-    "$home/data/delivery/contributions.json" >/dev/null || fail 'a repeated read failure stopped recording its error'
-  [ "$(grep -cFx 'api repos/o/r/pulls/8' "$home/forge/calls")" = 2 ] || fail 'a failing open PR stopped being observed'
+  [ "$out" = "$line" ] || fail "the first failure of an episode did not wake with its reason: $out"
+  for hour in 10 11 12; do
+    out=$(poll_at "2026-09-16T$hour:00:00Z")
+    [ -z "$out" ] || fail "an unchanged read failure woke again on a later poll: $out"
+  done
+  jq -e --arg error "forge observation unavailable: $reason" \
+    '.records[0] | .checked_at == "2026-09-16T12:00:00Z" and .error == $error' \
+    "$home/data/delivery/contributions.json" >/dev/null || fail 'a repeated read failure stopped recording what failed'
+  [ "$(grep -cFx 'api repos/o/r/pulls/8' "$home/forge/calls")" = 4 ] || fail 'a failing open PR was not read once per poll'
   : > "$home/forge/fault"
-  out=$(poll_at 2026-09-16T11:00:00Z)
+  out=$(poll_at 2026-09-16T13:00:00Z)
   [ -z "$out" ] || fail "a successful read printed: $out"
   jq -e '.records[0].error == null' "$home/data/delivery/contributions.json" >/dev/null \
     || fail 'a successful read did not end the failure episode'
   printf 'down\n' > "$home/forge/fault"
-  out=$(poll_at 2026-09-16T12:00:00Z)
+  out=$(poll_at 2026-09-16T14:00:00Z)
   [ "$out" = "$line" ] || fail "a new failure after a successful read did not wake: $out"
-  pass 'a repeated read failure on an open PR records its error but wakes once per episode'
+  pass 'a repeated read failure on an open PR records what failed but wakes once per episode'
 }
 
 test_late_owner_keeps_failure_episode_suppressed() {
-  local home out line='contributions: observation unavailable for https://github.com/o/r/pull/8'
-  local error='forge observation unavailable or changed during read' task
+  local home out line='contributions: observation unavailable for https://github.com/o/r/pull/8: gh api repos/o/r/pulls/8 failed: HTTP 502'
+  local error='forge observation unavailable: gh api repos/o/r/pulls/8 failed: HTTP 502' task
   home=$(new_home late-owner-failure-episode)
   forge_home "$home"
   wrap_forge "$home"

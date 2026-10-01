@@ -56,14 +56,15 @@
 # ends with that URL's records untouched; a genuine forge failure, a per-call
 # timeout, a head change or a budget that cannot finish one observation
 # records an error and the poll continues with the next URL.
-# API failure leaves error evidence; an expired or absent observation is not
-# silence. FM_CONTRIBUTIONS_MAX_AGE (default 900 seconds) bounds freshness,
+# API failure leaves error evidence naming the read that failed and why; an
+# expired or absent observation is not silence. FM_CONTRIBUTIONS_MAX_AGE (default 900 seconds) bounds freshness,
 # and a URL observed inside half that window is not re-read, so traffic
 # follows staleness rather than the budget.
 # A URL whose last good observation is merged or closed is final: it is
 # never re-read, stays fresh, and a stale error beside it is cleared once.
-# A genuine failure prints its unavailable line only when it starts an episode
-# (no prior owner has an error); a successful read ends the episode.
+# A genuine failure prints its unavailable line, with that reason, only when
+# it starts an episode (no prior owner has an error); a successful read ends
+# the episode.
 # FM_CONTRIBUTIONS_NOW supplies an ISO UTC clock for tests, otherwise UTC now.
 # FM_CONTRIBUTIONS_READY_LABEL selects the equivalent triage label, default
 # ready-for-pr. Labels are matched case-insensitively and exactly.
@@ -234,12 +235,19 @@ forge() {
     gh "$@" 2> "$TMP/forge.err" || rc=$?
   # A read killed at the budget's own deadline is budget exhaustion too. A read
   # killed at the per-call bound is only this URL's unavailable outcome.
-  [ "$rc" -ne 124 ] || [ "$bounded" -eq 0 ] || BUDGET_EXHAUSTED=1
+  if [ "$rc" -eq 124 ]; then
+    [ "$bounded" -eq 0 ] || BUDGET_EXHAUSTED=1
+    FAIL_REASON="gh $1 ${2:-} timed out after ${remaining}s"
+  elif [ "$rc" -ne 0 ]; then
+    FAIL_REASON="gh $1 ${2:-} failed: $(head -n 1 "$TMP/forge.err" | cut -c 1-200)"
+  fi
   return "$rc"
 }
 
 observe() { # canonical GitHub URL -> normalized JSON
   local url=$1 part number kind endpoint head after label
+  # forge names the read that failed; anything else is a response it cannot use.
+  FAIL_REASON='forge returned an unusable response'
   case "$url" in https://github.com/*) ;; *) return 1 ;; esac
   part=${url#https://github.com/}; number=${part##*/}; part=${part%/*}; kind=${part##*/}; part=${part%/*}
   case "$kind" in pull) endpoint="repos/$part/pulls/$number" ;; issues) endpoint="repos/$part/issues/$number" ;; *) return 1 ;; esac
@@ -256,7 +264,7 @@ observe() { # canonical GitHub URL -> normalized JSON
     forge api "repos/$part" > "$TMP/repo.json" || return 1
     forge pr view "$url" --json headRefOid,reviewDecision > "$TMP/after.json" || return 1
     after=$(jq -er .headRefOid "$TMP/after.json")
-    [ "$head" = "$after" ] || { printf 'head changed during observation\n' > "$TMP/forge.err"; return 1; }
+    [ "$head" = "$after" ] || { FAIL_REASON='head changed during observation'; return 1; }
     jq -n --slurpfile core "$TMP/core.json" --slurpfile comments "$TMP/comments.json" \
       --slurpfile reviews "$TMP/reviews.json" --slurpfile inline "$TMP/inline.json" --slurpfile after "$TMP/after.json" --slurpfile checks "$TMP/checks.json" \
       --slurpfile statuses "$TMP/statuses.json" --slurpfile repo "$TMP/repo.json" '
@@ -404,7 +412,7 @@ poll() {
       'all($ARGS.positional[] as $task | [$saved[0][] | select(.task == $task) | .records[] | select(.url == $url)] | first;
         .error == null)' "${row[@]:1}" >/dev/null; then
       if [ "$starved" -eq 0 ]; then
-        printf 'contributions: observation unavailable for %s\n' "$url"
+        printf 'contributions: observation unavailable for %s: %s\n' "$url" "$FAIL_REASON"
       else
         printf 'contributions: observation needs more than the %ss poll budget for %s; %s\n' \
           "$BUDGET" "$url" "$advice"
@@ -428,7 +436,7 @@ poll() {
             pending:(($old.pending // []) + [$events[] | select(.token as $t | ($old.seen // [] | index($t)) == null)] | unique_by(.token))}' > "$TMP/row.json"
       else
         if [ "$starved" -eq 0 ]; then
-          error='forge observation unavailable or changed during read'
+          error="forge observation unavailable: $FAIL_REASON"
         else
           error="forge observation needs more than the ${BUDGET}s poll budget; ${advice}"
         fi
