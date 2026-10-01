@@ -39,14 +39,12 @@
 # whole bound and a configured one is capped by it. Each gh call is bounded by
 # the remaining budget and FM_CONTRIBUTIONS_CALL_TIMEOUT seconds (default 30);
 # a call killed at the smaller remaining budget is the deadline's outcome, one
-# killed at the per-call bound is the forge's. The 15-second default used to
-# leave headroom over the 12.2-second slow-link forge call observed in the
-# contributions-poll incident, but a private-repository read over an ordinary
-# connection was later timing out against that same 15-second bound, so the
-# default doubles to comfortably fit a slower read without configuring
-# anything. 8 x 30 = 240 seconds of forge time plus a ninth call of margin for
-# the local work between reads is why the default bound is 270 + 3: a PR on
-# that link is observed without configuring anything. An issue costs three
+# killed at the per-call bound is the forge's. The 30-second default leaves
+# headroom over an ordinary private-repository read, which a 15-second bound
+# cut short, and over a 12.2-second slow-link forge call. 8 x 30 = 240 seconds
+# of forge time plus a ninth call of margin for the local work between reads
+# is why the default bound is 270 + 3: a PR on such a link is observed without
+# configuring anything. An issue costs three
 # reads, so it wants 4 x 30. When the whole budget goes to one URL and it
 # still does not finish, the poll records that URL unavailable and names each
 # setting that actually bounds it with the value that URL's kind needs,
