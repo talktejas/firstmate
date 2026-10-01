@@ -231,8 +231,8 @@ CHECK_TIMEOUT=${FM_CHECK_TIMEOUT:-30}     # seconds allowed per *.check.sh
 # One pull request costs the contributions poll eight sequential forge reads,
 # which no sweep-wide bound can hold on a slow link, so that check carries its
 # own bound instead of pulling every other check's up with it.
-CONTRIBUTIONS_CHECK_TIMEOUT=${FM_CONTRIBUTIONS_CHECK_TIMEOUT:-138}
-case "$CONTRIBUTIONS_CHECK_TIMEOUT" in ''|*[!0-9]*|0) CONTRIBUTIONS_CHECK_TIMEOUT=138 ;; esac
+CONTRIBUTIONS_CHECK_TIMEOUT=${FM_CONTRIBUTIONS_CHECK_TIMEOUT:-273}
+case "$CONTRIBUTIONS_CHECK_TIMEOUT" in ''|*[!0-9]*|0) CONTRIBUTIONS_CHECK_TIMEOUT=273 ;; esac
 HOME_SUMMARY_INTERVAL=${FM_HOME_SUMMARY_INTERVAL:-300}
 case "$HOME_SUMMARY_INTERVAL" in
   ''|*[!0-9]*|0) HOME_SUMMARY_INTERVAL=300 ;;
