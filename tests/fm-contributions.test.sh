@@ -620,11 +620,11 @@ test_budget_too_small_for_one_observation_is_reported() {
   mutate_record "$home" delivery '.records[0].checked_at="2026-09-15T08:00:00Z"'
   /bin/date +%s > "$home/forge/clock"
   printf 'exhaust\n' > "$home/forge/fault"
-  expected='contributions: observation needs more than the 2s poll budget for https://github.com/o/r/pull/8; raise FM_CONTRIBUTIONS_BUDGET to at least 135s'
+  expected='contributions: observation needs more than the 2s poll budget for https://github.com/o/r/pull/8; raise FM_CONTRIBUTIONS_BUDGET to at least 270s'
   out=$(with_home "$home" env FM_CONTRIBUTIONS_BUDGET=2 "$ROOT/bin/fm-contributions.sh" poll) \
     || fail 'poll failed when its whole budget went to one observation'
   [ "$out" = "$expected" ] || fail "a budget too small for one observation was not reported: $out"
-  jq -e --arg now "$NOW" --arg error 'forge observation needs more than the 2s poll budget; raise FM_CONTRIBUTIONS_BUDGET to at least 135s' '
+  jq -e --arg now "$NOW" --arg error 'forge observation needs more than the 2s poll budget; raise FM_CONTRIBUTIONS_BUDGET to at least 270s' '
     .records[0].checked_at == $now and .records[0].error == $error' \
     "$home/data/delivery/contributions.json" >/dev/null \
     || fail 'a budget too small for one observation left no actionable evidence'
@@ -646,7 +646,7 @@ test_default_bound_observes_a_slow_pull_request() {
   printf 'slow\n' > "$home/forge/fault"
   out=$(with_home "$home" env FM_CONTRIBUTIONS_CHECK_TIMEOUT=30 "$ROOT/bin/fm-contributions.sh" poll) \
     || fail 'poll failed on a slow link'
-  [ "$out" = 'contributions: observation needs more than the 27s poll budget for https://github.com/o/r/pull/8; raise FM_CONTRIBUTIONS_CHECK_TIMEOUT to at least 138s' ] \
+  [ "$out" = 'contributions: observation needs more than the 27s poll budget for https://github.com/o/r/pull/8; raise FM_CONTRIBUTIONS_CHECK_TIMEOUT to at least 273s' ] \
     || fail "an unset budget did not take the whole check bound: $out"
   /bin/date +%s > "$home/forge/clock"
   out=$(with_home "$home" "$ROOT/bin/fm-contributions.sh" poll) || fail 'poll failed at the default bound'
@@ -667,9 +667,9 @@ test_starved_issue_asks_for_an_issue_sized_budget() {
   printf 'exhaust-issue\n' > "$home/forge/fault"
   out=$(with_home "$home" env FM_CONTRIBUTIONS_BUDGET=2 "$ROOT/bin/fm-contributions.sh" poll) \
     || fail 'poll failed when an issue consumed its whole budget'
-  [ "$out" = 'contributions: observation needs more than the 2s poll budget for https://github.com/o/r/issues/9; raise FM_CONTRIBUTIONS_BUDGET to at least 60s' ] \
+  [ "$out" = 'contributions: observation needs more than the 2s poll budget for https://github.com/o/r/issues/9; raise FM_CONTRIBUTIONS_BUDGET to at least 120s' ] \
     || fail "a starved issue was told to buy a pull request's budget: $out"
-  jq -e --arg now "$NOW" --arg error 'forge observation needs more than the 2s poll budget; raise FM_CONTRIBUTIONS_BUDGET to at least 60s' '
+  jq -e --arg now "$NOW" --arg error 'forge observation needs more than the 2s poll budget; raise FM_CONTRIBUTIONS_BUDGET to at least 120s' '
     .records[0].checked_at == $now and .records[0].error == $error' \
     "$home/data/filed/contributions.json" >/dev/null \
     || fail 'a starved issue recorded the wrong required budget'
@@ -770,12 +770,12 @@ test_call_timeout_above_budget_is_the_deadlines_outcome() {
   wrap_forge "$home"
   mutate_record "$home" delivery '.records[0].checked_at="2026-09-15T08:00:00Z"'
   printf 'hang\n' > "$home/forge/fault"
-  expected='contributions: observation needs more than the 3s poll budget for https://github.com/o/r/pull/8; raise FM_CONTRIBUTIONS_BUDGET to at least 225s and raise FM_CONTRIBUTIONS_CHECK_TIMEOUT to at least 228s'
-  out=$(with_home "$home" env FM_CONTRIBUTIONS_BUDGET=3 FM_CONTRIBUTIONS_CALL_TIMEOUT=25 \
+  expected='contributions: observation needs more than the 3s poll budget for https://github.com/o/r/pull/8; raise FM_CONTRIBUTIONS_BUDGET to at least 315s and raise FM_CONTRIBUTIONS_CHECK_TIMEOUT to at least 318s'
+  out=$(with_home "$home" env FM_CONTRIBUTIONS_BUDGET=3 FM_CONTRIBUTIONS_CALL_TIMEOUT=35 \
     "$ROOT/bin/fm-contributions.sh" poll) || fail 'poll failed with a per-call timeout above its budget'
   [ "$out" = "$expected" ] \
     || fail "a call killed at the deadline was not attributed to the budget that bound it: $out"
-  jq -e --arg now "$NOW" --arg error 'forge observation needs more than the 3s poll budget; raise FM_CONTRIBUTIONS_BUDGET to at least 225s and raise FM_CONTRIBUTIONS_CHECK_TIMEOUT to at least 228s' '
+  jq -e --arg now "$NOW" --arg error 'forge observation needs more than the 3s poll budget; raise FM_CONTRIBUTIONS_BUDGET to at least 315s and raise FM_CONTRIBUTIONS_CHECK_TIMEOUT to at least 318s' '
     .records[0].checked_at == $now and .records[0].error == $error' \
     "$home/data/delivery/contributions.json" >/dev/null \
     || fail 'a call killed at the deadline named no setting that could change it'
