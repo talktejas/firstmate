@@ -1,0 +1,18 @@
+== tree: 01M3WGAPX3JKD7KATC3KMQ6P0N  scenario: watch
+watcher checkpoint, 8 forge reads x 18s = 144s, nothing configured (rc=124, 175s)
+gh calls started: 10
+02:55:02 api repos/o/r/pulls/8
+02:55:20 api repos/o/r/issues/8/comments?per_page=100 --paginate --slurp
+02:55:38 api repos/o/r/pulls/8/reviews?per_page=100 --paginate --slurp
+02:55:57 api repos/o/r/pulls/8/comments?per_page=100 --paginate --slurp
+02:56:15 api repos/o/r/commits/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/check-runs?filter=all&per_page=100 --paginate --slurp
+02:56:33 api repos/o/r/commits/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/statuses?per_page=100 --paginate --slurp
+02:56:51 api repos/o/r
+02:57:09 pr view https://github.com/o/r/pull/8 --json headRefOid,reviewDecision
+02:57:29 api repos/o/r/pulls/8
+02:57:47 api repos/o/r/issues/8/comments?per_page=100 --paginate --slurp
+{"checked_at":"2026-09-16T08:00:00Z","error":null,"observed":true}
+==> /tmp/fm-contributions.b9p1A2/drive-watch/w.out <==
+checkpoint: no actionable wake within 175s
+
+==> /tmp/fm-contributions.b9p1A2/drive-watch/w.err <==

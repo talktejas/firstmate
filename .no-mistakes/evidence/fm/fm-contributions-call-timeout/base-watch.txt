@@ -1,0 +1,9 @@
+== tree: fm-base.SvTM  scenario: watch
+watcher checkpoint, 8 forge reads x 18s = 144s, nothing configured (rc=0, 17s)
+gh calls started: 1
+02:55:02 api repos/o/r/pulls/8
+{"checked_at":"2026-09-16T08:00:00Z","error":"forge observation unavailable: gh api repos/o/r/pulls/8 timed out after 15s","observed":true}
+==> /tmp/fm-contributions.mTprhw/drive-watch/w.out <==
+check: /tmp/fm-contributions.mTprhw/drive-watch/state/contributions.check.sh: contributions: observation unavailable for https://github.com/o/r/pull/8: gh api repos/o/r/pulls/8 timed out after 15s
+
+==> /tmp/fm-contributions.mTprhw/drive-watch/w.err <==

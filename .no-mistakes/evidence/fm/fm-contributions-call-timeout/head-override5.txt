@@ -1,0 +1,4 @@
+== tree: 01M3WGAPX3JKD7KATC3KMQ6P0N  scenario: override5
+$ FM_CONTRIBUTIONS_CALL_TIMEOUT=5 fm-contributions.sh poll   (rc=0, 5s)
+stdout: contributions: observation unavailable for https://github.com/o/r/pull/8: gh api repos/o/r/pulls/8 timed out after 5s
+{"checked_at":"2026-09-16T08:00:00Z","error":"forge observation unavailable: gh api repos/o/r/pulls/8 timed out after 5s","observed":true}
