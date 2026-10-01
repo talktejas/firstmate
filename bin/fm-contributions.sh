@@ -18,7 +18,8 @@
 #
 # This script owns fm-contributions.v1: one atomic file per durable task with
 # task and records[]. Each record contains url, kind, checked_at, error,
-# observation, verdict, seen event tokens, pending events, and notified tokens.
+# error_reported while an error stands, observation, verdict, seen event
+# tokens, pending events, and notified tokens.
 # observation is one coherent forge read (a PR head is rechecked after fetching
 # checks/reviews). Checks are normalized by name, id, started_at, status and
 # conclusion; projection picks the newest attempt per distinct name. The last
@@ -56,14 +57,17 @@
 # ends with that URL's records untouched; a genuine forge failure, a per-call
 # timeout, a head change or a budget that cannot finish one observation
 # records an error and the poll continues with the next URL.
-# API failure leaves error evidence; an expired or absent observation is not
-# silence. FM_CONTRIBUTIONS_MAX_AGE (default 900 seconds) bounds freshness,
+# API failure leaves error evidence naming the read that failed and why; an
+# expired or absent observation is not silence. FM_CONTRIBUTIONS_MAX_AGE (default 900 seconds) bounds freshness,
 # and a URL observed inside half that window is not re-read, so traffic
 # follows staleness rather than the budget.
 # A URL whose last good observation is merged or closed is final: it is
 # never re-read, stays fresh, and a stale error beside it is cleared once.
-# A genuine failure prints its unavailable line only when it starts an episode
-# (no prior owner has an error); a successful read ends the episode.
+# A failed forge read is retried once inside the poll. A failure episode runs
+# from the first failed poll to the next successful read and prints its
+# unavailable line once: a forge failure is recorded with error_reported false
+# and reported only when the following poll fails too, a starved read is
+# reported at once, and a later owner of the same URL joins the episode.
 # FM_CONTRIBUTIONS_NOW supplies an ISO UTC clock for tests, otherwise UTC now.
 # FM_CONTRIBUTIONS_READY_LABEL selects the equivalent triage label, default
 # ready-for-pr. Labels are matched case-insensitively and exactly.
@@ -225,21 +229,37 @@ budget_advice() { # pr|issue : the settings that bound this observation, with th
 }
 
 forge() {
-  local remaining bounded=0 rc=0
-  remaining=$((DEADLINE - $(date +%s)))
-  # The budget, not the forge, refused this read.
-  [ "$remaining" -gt 0 ] || { BUDGET_EXHAUSTED=1; return 1; }
-  if [ "$remaining" -le "$CALL_TIMEOUT" ]; then bounded=1; else remaining=$CALL_TIMEOUT; fi
-  fm_run_timed "$remaining" env GH_PROMPT_DISABLED=1 GH_NO_UPDATE_NOTIFIER=1 \
-    gh "$@" 2> "$TMP/forge.err" || rc=$?
-  # A read killed at the budget's own deadline is budget exhaustion too. A read
-  # killed at the per-call bound is only this URL's unavailable outcome.
-  [ "$rc" -ne 124 ] || [ "$bounded" -eq 0 ] || BUDGET_EXHAUSTED=1
+  local remaining bounded rc attempt
+  for attempt in 1 2; do
+    bounded=0 rc=0
+    remaining=$((DEADLINE - $(date +%s)))
+    if [ "$remaining" -le 0 ]; then
+      # The budget, not the forge, refused this read; a retry it refuses
+      # leaves the first attempt's failure standing.
+      [ "$attempt" -eq 2 ] || { BUDGET_EXHAUSTED=1; rc=1; }
+      break
+    fi
+    if [ "$remaining" -le "$CALL_TIMEOUT" ]; then bounded=1; else remaining=$CALL_TIMEOUT; fi
+    fm_run_timed "$remaining" env GH_PROMPT_DISABLED=1 GH_NO_UPDATE_NOTIFIER=1 \
+      gh "$@" > "$TMP/forge.out" 2> "$TMP/forge.err" || rc=$?
+    # A read killed at the budget's own deadline is budget exhaustion too. A read
+    # killed at the per-call bound is only this URL's unavailable outcome.
+    if [ "$rc" -eq 124 ]; then
+      [ "$bounded" -eq 0 ] || BUDGET_EXHAUSTED=1
+      FAIL_REASON="gh $1 ${2:-} timed out after ${remaining}s"
+      break
+    fi
+    [ "$rc" -ne 0 ] || { cat "$TMP/forge.out"; return 0; }
+    FAIL_REASON="gh $1 ${2:-} failed: $(head -n 1 "$TMP/forge.err" | cut -c 1-200)"
+    # A failed read is retried once at once; a timed-out one already spent its bound.
+  done
   return "$rc"
 }
 
 observe() { # canonical GitHub URL -> normalized JSON
   local url=$1 part number kind endpoint head after label
+  # forge names the read that failed; anything else is a response it cannot use.
+  FAIL_REASON='forge returned an unusable response'
   case "$url" in https://github.com/*) ;; *) return 1 ;; esac
   part=${url#https://github.com/}; number=${part##*/}; part=${part%/*}; kind=${part##*/}; part=${part%/*}
   case "$kind" in pull) endpoint="repos/$part/pulls/$number" ;; issues) endpoint="repos/$part/issues/$number" ;; *) return 1 ;; esac
@@ -256,7 +276,7 @@ observe() { # canonical GitHub URL -> normalized JSON
     forge api "repos/$part" > "$TMP/repo.json" || return 1
     forge pr view "$url" --json headRefOid,reviewDecision > "$TMP/after.json" || return 1
     after=$(jq -er .headRefOid "$TMP/after.json")
-    [ "$head" = "$after" ] || { printf 'head changed during observation\n' > "$TMP/forge.err"; return 1; }
+    [ "$head" = "$after" ] || { FAIL_REASON='head changed during observation'; return 1; }
     jq -n --slurpfile core "$TMP/core.json" --slurpfile comments "$TMP/comments.json" \
       --slurpfile reviews "$TMP/reviews.json" --slurpfile inline "$TMP/inline.json" --slurpfile after "$TMP/after.json" --slurpfile checks "$TMP/checks.json" \
       --slurpfile statuses "$TMP/statuses.json" --slurpfile repo "$TMP/repo.json" '
@@ -334,14 +354,14 @@ settle_final() { # canonical-url task... : copy the URL's final observation to e
         $final[0] + {error:null,pending:[],notified:[]}' > "$TMP/row.json"
       write_record "$task" "$TMP/row.json"
     elif jq -e '.error != null' "$TMP/old.json" >/dev/null; then
-      jq '.error = null' "$TMP/old.json" > "$TMP/row.json"
+      jq '.error = null | del(.error_reported)' "$TMP/old.json" > "$TMP/row.json"
       write_record "$task" "$TMP/row.json"
     fi
   done
 }
 
 poll() {
-  local task url old kind error observed starved advice progressed=0
+  local task url old kind error observed starved advice reported prior progressed=0
   local -a row
   acquire
   get_input
@@ -399,12 +419,23 @@ poll() {
       advice=$(budget_advice "$kind")
     fi
     progressed=1
-    # Wake once per failure episode: only when no owner has a prior error.
-    if [ "$observed" -ne 0 ] && jq -ne --slurpfile saved "$TMP/saved.json" --arg url "$url" --args \
-      'all($ARGS.positional[] as $task | [$saved[0][] | select(.task == $task) | .records[] | select(.url == $url)] | first;
-        .error == null)' "${row[@]:1}" >/dev/null; then
-      if [ "$starved" -eq 0 ]; then
-        printf 'contributions: observation unavailable for %s\n' "$url"
+    # Wake once per failure episode. A forge failure is reported only when the
+    # poll after it fails too: the first one is recorded unreported and retried,
+    # because a read that recovers by itself is nothing a supervisor can act on.
+    # A starved read is a setting, not a blip, so it is reported at once.
+    reported=false
+    if [ "$observed" -ne 0 ]; then
+      # A stored error without the marker predates it and was reported.
+      prior=$(jq -nr --slurpfile saved "$TMP/saved.json" --arg url "$url" --args \
+        '[$ARGS.positional[] as $task | $saved[0][] | select(.task == $task) | .records[] | select(.url == $url and .error != null)]
+        | if any(.[]; .error_reported != false) then "reported" elif length > 0 then "failed" else "clean" end' "${row[@]:1}")
+      reported=true
+      if [ "$prior" = reported ]; then
+        :
+      elif [ "$starved" -eq 0 ] && [ "$prior" = clean ]; then
+        reported=false
+      elif [ "$starved" -eq 0 ]; then
+        printf 'contributions: observation unavailable for %s: %s\n' "$url" "$FAIL_REASON"
       else
         printf 'contributions: observation needs more than the %ss poll budget for %s; %s\n' \
           "$BUDGET" "$url" "$advice"
@@ -422,17 +453,18 @@ poll() {
           | ($o.events + (if $o.ready == true and $old.observation.ready != true and (any($o.events[]; .type == "ready-for-pr") | not) then
               [{token:("ready-for-pr:" + $now),type:"ready-for-pr",source:$old.url,head:null,body:"filed issue reached ready-for-pr"}]
               else [] end)) as $events
-          | $old + {checked_at:$now,error:null,
+          | ($old | del(.error_reported)) + {checked_at:$now,error:null,
             observation:($o + {absent_checks:((($old.observation.absent_checks // []) + [($old.observation.checks // [])[] | .name]) - [$o.checks[].name] | unique)}),
             seen:($events | map(.token)),
             pending:(($old.pending // []) + [$events[] | select(.token as $t | ($old.seen // [] | index($t)) == null)] | unique_by(.token))}' > "$TMP/row.json"
       else
         if [ "$starved" -eq 0 ]; then
-          error='forge observation unavailable or changed during read'
+          error="forge observation unavailable: $FAIL_REASON"
         else
           error="forge observation needs more than the ${BUDGET}s poll budget; ${advice}"
         fi
-        jq --arg now "$NOW" --arg error "$error" '.checked_at=$now | .error=$error' "$old" > "$TMP/row.json"
+        jq --arg now "$NOW" --arg error "$error" --argjson reported "$reported" \
+          '.checked_at=$now | .error=$error | .error_reported=$reported' "$old" > "$TMP/row.json"
       fi
       write_record "$task" "$TMP/row.json"
       publish_pending "$task" "$url" "$TMP/row.json"
