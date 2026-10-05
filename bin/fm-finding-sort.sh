@@ -22,7 +22,7 @@
 #   and requires the file to be a regular nm-*-findings.txt directly inside
 #   data/<task-id>/ of at most FINDING_SORT_MAX_BYTES bytes, and a
 #   `## Captain's intent` in data/<task-id>/brief.md of at most
-#   FINDING_SORT_MAX_BYTES bytes. Nothing is cut to fit: anything over the
+#   FINDING_SORT_MAX_BYTES characters. Nothing is cut to fit: anything over the
 #   bound is left by hand.
 #   Only then does ONE request through fm_jev_choices ask, per named id,
 #   one Choice question over the intent and the findings file: inside-task,
