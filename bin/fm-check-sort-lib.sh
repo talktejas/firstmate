@@ -38,7 +38,7 @@
 # shared FM_JEV_CONFIDENCE_FLOOR. `flaky` and `environment` need the stricter
 # FM_CHECK_SORT_AWAY_FLOOR, because those two tell a worker the failure is not
 # in its code, and a live call labelled a pull request process failure
-# `environment` at 0.66 (docs/verification/failed-check-sort.md).
+# `environment` above the shared floor (docs/verification/failed-check-sort.md).
 #
 # ponytail: only the first FM_CHECK_SORT_MAX failed checks are sorted, so a
 # pull request with many red checks costs a bounded number of reads; each of
