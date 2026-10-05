@@ -34,7 +34,7 @@ Briefs: 15 real briefs from this home's recent work plus 10 synthetic ones writt
 | API errors | 0 |
 
 Of the five disagreements, one was a wrong hand label (the brief quoted the bug-fix rule's wording verbatim), three were real briefs the model read as the approval-gated design rule at 0.66 to 0.86 confidence and escalated by design, each of which the captain had in fact dispatched at the strongest-reasoning class, and one was a synthetic tweak that came back ambiguous at 0.41 confidence and was handed back to firstmate.
-A lean request that asks only the rule Choice matched the full request (rule, profile, and status) on all 25 briefs, which is why the tool then asked one question and kept every gate in code; "Small questions beside the rule question" below records the five-question request sent when a rule declares `match`.
+A lean request that asks only the rule Choice matched the full request (rule, profile, and status) on all 25 briefs, which is why the tool then asked one question and kept every gate in code; "Live run of the current selection" below records the five-question request sent when a rule declares `match`.
 That table records the 2026-09-16 run with the captain-authored none option.
 A second live run on 2026-09-17 used the same 25 briefs, held one quota snapshot constant through a fake `quota-axi`, and exercised a copy of this branch with the shipped neutral `No listed rule applies to this task.` option and option-free interface.
 
@@ -53,47 +53,36 @@ The maximum latency was one outlier; the next slowest request was 309 ms.
 The differing clear result was a synthetic small tweak that matched the simple-bug-fix rule at 0.90 and selected `cursor-grok-4.6-medium` instead of the hand-labeled `cursor-grok-4.6-high`: the tweak exemption removed from the none-option text belongs in that rule's own `when` text.
 Two default-labeled briefs became ambiguous.
 
-## Small questions beside the rule question
+## Small-question answers on a 19-rule file
 
-Run 2026-10-06 against `https://api.typesafe.ai`, model `jev-latest` answering as `jev-1.13.0`, timeout 5 s, floor 0.6, with the key read from a home `.env` by `fm_jev_key_load`.
-Rules: a 19-rule file with two `approval: captain` rules, whose rules lead to 12 distinct outcomes.
+Run 2026-10-06 against `https://api.typesafe.ai`, model `jev-latest` answering as `jev-1.13.0`, timeout 5 s, with the key read from a home `.env` by `fm_jev_key_load`.
+Rules: a 19-rule file whose rules lead to 12 distinct outcomes.
 Briefs: 12 synthetic briefs with a `# Task` section and one line of standing text after it, plus one real scaffolded brief of 16 KB.
-Each brief was resolved three ways, twice: by the single-question tool at commit 08a3a5cd, by this tool with the rule file as it stood, and by this tool with a `match` added to 18 of the 19 rules.
-The command was `FM_HOME=<scratch home> bin/fm-dispatch-resolve.sh <brief> --project demo`, and the figures were read back from each scratch home's `state/.dispatch-resolve.log`.
+Each brief was sent four times as the five-question request (`rule`, `kind`, `damage`, `settled`, `security`) over the task-only state, 52 requests, and the answers were read back from each scratch home's `state/.dispatch-resolve.log`.
+This section records the model's answers only; what the tool selects from such answers is recorded under "Live run of the current selection".
 
-The table shows the selected rule's confidence in run 1; `same` means the same rule as the single-question tool.
+| Brief | `kind` answer |
+| --- | --- |
+| Write a PRD | product_document 1.0 |
+| Write a specification from notes | product_document 1.0 |
+| Research competing products | product_document 1.0 |
+| Produce a study | product_document 0.95 |
+| Open-ended architecture | design 1.0 |
+| Small stated bug fix | bugfix 1.0 |
+| Review of a risky migration | review 1.0 |
+| Rename a function everywhere | refactor 0.83 |
+| Failing pipeline | ops 1.0 |
+| Password reset tokens | feature 0.77 |
+| Raise test coverage | tests 1.0 |
+| Locate behaviour, change nothing | lookup 0.99 |
+| Real scaffolded brief | feature 1.0 |
 
-| Brief | Single question | Five questions, no `match` | Five questions, `match` | `kind` answer |
-| --- | --- | --- | --- | --- |
-| Write a PRD | 0.97 | same, 0.97 | same, 1 | product_document 1.0 |
-| Write a specification from notes | 0.99 | same, 1 | same, 1 | product_document 1.0 |
-| Research competing products | 0.5, below the floor | none option, 0.46, below the floor | same, 1 | product_document 1.0 |
-| Produce a study | 0.7 | same, 0.61 | same, 1 | product_document 0.95 |
-| Open-ended architecture | 1.0 | same, 1 | same, 1 | design 1.0 |
-| Small stated bug fix | 0.99 | same, 0.99 | same, 1 | bugfix 1.0 |
-| Review of a risky migration | 0.99 | same, 1 | same, 1 | review 1.0 |
-| Rename a function everywhere | 0.67 | same, 0.56, below the floor | same, 0.54, below the floor | refactor 0.83 |
-| Failing pipeline | 1.0 | same, 1 | same, 1 | ops 1.0 |
-| Password reset tokens | 0.99, approval stop | same, approval stop | same, approval stop | feature 0.77 |
-| Raise test coverage | 1.0 | same, 1 | same, 1 | tests 1.0 |
-| Locate behaviour, change nothing | 1.0 | same, 1 | same, 1 | lookup 0.99 |
-| Real scaffolded brief | 0.65 | same, 0.49, below the floor | approval stop | feature 1.0 |
-
-Run 2 differed by at most 0.05 on any confidence and changed no row's side of the floor.
-All four product-document briefs selected the same rule at confidence 1 once that rule declared `match.kind` with `product_document`; the single-question tool left one of them below the floor in both runs.
+Repeat requests differed by at most 0.05 on any confidence.
 The password-reset brief answered `security` `yes` at 1.0, and every other synthetic brief answered `no` at 0.75 or higher.
-The real scaffolded brief answered `security` `yes` at 0.79 and 0.87, which met the `match` of the approval-gated security rule and stopped for approval; that brief's own text discusses API key handling and quotes the security question.
-Sending only its task part lowered that brief's rule confidence from 0.65 to about 0.5.
-The rename brief split between the mechanical-edit and wide-rename rules in every arrangement, and its single-question confidence was 0.67 and 0.62 across the two runs.
-Each five-question request used 1,869 to 1,884 input tokens and 416 to 417 output tokens on the synthetic briefs and 2,960 input tokens on the real one, and latency was 308 to 475 ms on 51 of 52 requests, with one at 845 ms.
-The vendor's published Choice confidence, `(p_max - 1/n) / (1 - 1/n)` over `n` options, is the formula the tool applies when it recounts.
-That run predates the current selection, and it has not been repeated since, so the last column is not what the tool returns now.
-The tool then dropped rules and the neutral option by `match` and recomputed the confidence over what was left, and it selected an approval-gated rule outright once its whole `match` was met; it does neither now.
-A rule answer at or above the floor now stands, so each such row keeps the rule and confidence of the "Five questions, no `match`" column.
-A row below the floor there (research, rename, the real brief) is now decided by the rules without an approval gate whose whole `match` the small answers meet, with the lowest of those answers' confidences, and is `ambiguous` when they do not agree on one outcome; what each of those rows returns under that rule is unmeasured.
-The tool then asked all five questions of every rules file; a file with no `match` now gets the `rule` question alone, so the "Five questions, no `match`" column describes a request that is no longer sent, and the token figures apply only to a file that declares `match`.
-The vendor formula above is now applied only when rules that lead to one outcome are counted as one answer.
-The quota snapshot was unmeasured for every provider during both runs, so each selection above ended as `escalate` with `no rankable eligible candidate` in all three arrangements; calls made on the PRD, bug-fix, and locate briefs while quota was measured ended `clear`.
+The real scaffolded brief answered `security` `yes` at 0.79 and 0.87; that brief's own text discusses API key handling.
+The single-question tool at commit 08a3a5cd, which sent the whole brief, answered that brief's rule at 0.65; with only the task part sent, the same rule came back at about 0.5.
+Each request used 1,869 to 1,884 input tokens and 416 to 417 output tokens on the synthetic briefs and 2,960 input tokens on the real one, and latency was 308 to 475 ms on 51 of the 52 requests, with one at 845 ms.
+The vendor's published Choice confidence, `(p_max - 1/n) / (1 - 1/n)` over `n` options, is the formula the tool applies when it counts rules that lead to one outcome as one answer.
 
 ## Live run of the current selection
 
