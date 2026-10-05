@@ -194,6 +194,13 @@ reset 'done: [2026-01-01T00:01:00Z] shipped'
 write_transcript "cd /srv/app && $(printf 'git status && %.0s' $(seq 40))npm test"
 STUB_YES='claims_checks_passed' check "$HOME_ON" "$(stop_json 'All tests pass.' "{\"transcript_path\":\"$transcript\"}")" >/dev/null
 assert_equals 'partial_or_blocked' "$(asked)" "a check late in a long command still withholds the checks question"
+for cmd in 'cargo clippy' 'go vet ./...' 'mypy src' 'pyright' 'phpstan analyse' 'npx eslint .' 'ruff format --diff' \
+  'npm run typecheck' 'dart analyze' 'npm audit' 'terraform validate'; do
+  reset 'done: [2026-01-01T00:01:00Z] shipped'
+  write_transcript "$cmd"
+  STUB_YES='claims_checks_passed' check "$HOME_ON" "$(stop_json 'All checks are clean.' "{\"transcript_path\":\"$transcript\"}")" >/dev/null
+  assert_equals 'partial_or_blocked' "$(asked)" "'$cmd' is a check command and withholds the checks question"
+done
 pass "claims_checks_passed needs the no-check-command fact"
 
 # --- layer 2: the executable, real library, fake curl -------------------------

@@ -42,9 +42,11 @@ _FM_FC_DIR=${BASH_SOURCE[0]%/*}
 # shellcheck source=bin/fm-classify-lib.sh
 . "$_FM_FC_DIR/fm-classify-lib.sh"
 
-# ponytail: a word list stands in for "a check ran"; it only ever withholds the
-# checks question, so a miss costs a missed catch, never a wrong send-back.
-FM_FC_CHECK_CMD_RE='test|spec|lint|check|build|compile|tsc|make|verify|no-mistakes|(^|[^a-z])ci([^a-z]|$)'
+# ponytail: a word list stands in for "a check ran". A check command it does
+# not know costs one wrong send-back (stop_hook_active bounds it to one per
+# stop); a non-check command it matches costs a missed catch. Add the word here
+# when a real checker is missed.
+FM_FC_CHECK_CMD_RE='test|spec|lint|check|build|compile|tsc|make|verify|validate|audit|analy[sz]e|clippy|vet|mypy|pyright|phpstan|ruff|no-mistakes|(^|[^a-z])ci([^a-z]|$)'
 
 FM_FC_INSTRUCTIONS='closing_message is the last message a software worker wrote before stopping its turn. Answer only from its words. Choose no whenever you are unsure.'
 
