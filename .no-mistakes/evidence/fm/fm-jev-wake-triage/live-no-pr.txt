@@ -1,0 +1,17 @@
+=== scenario: no-pr  pr=<none>  env: TYPESAFE_API_KEY=<set> 
+--- agent state seen by product: alive
+--- run 1 (first sight of the new paused: line)
+watcher exit=0
+stdout: signal: /tmp/fm-live-no-pr.LoTXdY/state/park.status
+curl calls so far: none
+--- run 2 (successor watcher: stale recheck of the same paused worker)
+watcher exit=0
+stdout: stale: test:fm-park
+--- wake queue
+1791217787	1	signal	park.status	signal: /tmp/fm-live-no-pr.LoTXdY/state/park.status
+1791217787	2	signal	park.status	signal: /tmp/fm-live-no-pr.LoTXdY/state/park.status
+1791217793	3	stale	test:fm-park	stale: test:fm-park
+--- triage log
+--- curl calls: none
+--- streak file: absent
+dir=/tmp/fm-live-no-pr.LoTXdY

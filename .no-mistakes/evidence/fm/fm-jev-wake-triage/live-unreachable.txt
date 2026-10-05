@@ -1,0 +1,18 @@
+=== scenario: unreachable  pr=https://github.com/cli/cli/pull/14580  env: TYPESAFE_API_KEY=<set> LIVE_CURL_EXTRA=--proxy http://127.0.0.1:9 
+--- agent state seen by product: alive
+--- run 1 (first sight of the new paused: line)
+watcher exit=0
+stdout: signal: /tmp/fm-live-unreachable.xT70sc/state/park.status
+curl calls so far: none
+--- run 2 (successor watcher: stale recheck of the same paused worker)
+watcher exit=0
+stdout: stale: test:fm-park
+--- wake queue
+1791217787	1	signal	park.status	signal: /tmp/fm-live-unreachable.xT70sc/state/park.status
+1791217787	2	signal	park.status	signal: /tmp/fm-live-unreachable.xT70sc/state/park.status
+1791217795	3	stale	test:fm-park	stale: test:fm-park
+--- triage log
+[2026-10-05T23:29:55+0700] jev triage delivered declared-pause-recheck (error: http 000 after 16 ms: ): stale: test:fm-park
+--- curl calls: https://api.typesafe.ai/v1/systemone
+--- streak file: absent
+dir=/tmp/fm-live-unreachable.xT70sc
