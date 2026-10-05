@@ -87,7 +87,7 @@ config/turnend-churn-absorb  optional presence flag opting this home into the de
 config/cmux-socket-password  optional cmux control-socket password; LOCAL, gitignored; read fresh on every cmux CLI call and passed through without ever overriding an operator's own ambient CMUX_SOCKET_PASSWORD when absent (docs/cmux-backend.md "Setup")
 config/wedge-alarm  optional away-mode wedge-alarm active-alert directives; LOCAL, gitignored; absent means auto (macOS Notification Center when available); see docs/wedge-alarm.md
 config/watched-tools.json  optional list of the tools this home depends on, read by the update check armed with bin/fm-tool-update-check.sh; LOCAL, gitignored, firstmate-maintained but human-editable, and NOT inherited by secondmate homes; see docs/configuration.md "Watched tool updates"
-config/jev-code-projects  optional list of project names, one per line, whose commit message, staged file names, and staged diff a worker's key-gated commit check may send to Jev; LOCAL, gitignored, absent = no project, and not inherited; see docs/configuration.md "Commit check"
+config/jev-code-projects  optional list of project names, one per line, whose ship and scout workers get the key-gated commit check: its git hooks, its credential stop, and a request sending the commit message, staged file names, and staged diff to Jev; LOCAL, gitignored, absent = no project, and not inherited; see docs/configuration.md "Commit check"
 config/x-mode.env    generated Relay watcher cadence; LOCAL, gitignored; source before arming watcher when present
 data/                personal fleet records; LOCAL, gitignored as a whole
   backlog.md         task queue, dependencies, history

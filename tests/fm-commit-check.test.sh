@@ -29,7 +29,11 @@ ERR="$TMP_ROOT/err"
 MSG="$TMP_ROOT/msg"
 
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.invalid GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.invalid
-mkdir -p "$HOME_ON/config" "$HOME_OFF"
+HOME_LIST="$TMP_ROOT/home-list"
+HOME_KEY="$TMP_ROOT/home-key"
+mkdir -p "$HOME_ON/config" "$HOME_OFF" "$HOME_LIST/config" "$HOME_KEY"
+printf 'listed\n' > "$HOME_LIST/config/jev-code-projects"
+printf 'TYPESAFE_API_KEY=%s\n' "$KEY" > "$HOME_KEY/.env"
 printf 'TYPESAFE_API_KEY=%s\n' "$KEY" > "$HOME_ON/.env"
 printf '# projects whose commits may be sent\nlisted\n' > "$HOME_ON/config/jev-code-projects"
 git init -q "$WT"
@@ -166,6 +170,9 @@ pass "markers, merges and empty changes: skipped"
 ghtoken="ghp_$(printf 'a%.0s' $(seq 1 36))"
 stage src/a.py 'x = 1\n' src/conf.py "TOKEN = \"$ghtoken\"\\npass" src/db.py 'db_password = "hunter2-hunter2"\n'
 STUB_YES='' check "$HOME_ON" unlisted 'Add the client'
+expect_code 0 $? "a project that is not listed has no credential check"
+assert_equals '' "$(asked)$(cat "$ERR")" "and is told nothing"
+STUB_YES='' check "$HOME_ON" listed 'Add the client'
 expect_code 1 $? "a credential must stop the commit"
 assert_grep 'src/conf.py:1: GitHub token' "$ERR" "the stop names file, line and kind"
 assert_no_grep "$ghtoken" "$ERR" "the value itself is never printed"
@@ -173,12 +180,18 @@ assert_grep 'Remove the credential from the change' "$ERR" "a stopped committer 
 assert_no_grep 'no-verify' "$ERR" "skipping the hooks is never suggested"
 assert_equals '' "$(asked)" "Jev has no part in the stop"
 stage src/key.pem '-----BEGIN RSA PRIVATE KEY-----\n'
-check "$HOME_ON" unlisted 'Add the signing key'
+check "$HOME_ON" listed 'Add the signing key'
 expect_code 1 $? "a private-key header must stop the commit"
-stage src/db.py 'db_password = "hunter2-hunter2"\n'
-check "$HOME_ON" unlisted 'Add the database settings'
+stage 'src/my conf.py' "x = 1\\nTOKEN = \"$ghtoken\"\\n"
+check "$HOME_ON" listed 'Add the client'
+assert_grep 'src/my conf.py:2: GitHub token' "$ERR" "a path holding a space keeps its line number"
+stage src/db.py 'port = 5432\ndb_password = "hunter2-hunter2"\n'
+check "$HOME_ON" listed 'Add the database settings'
 expect_code 0 $? "a quoted password literal must not stop the commit"
-assert_grep 'advisory, the commit goes through: an added line may hold a password or secret literal (src/db.py:1)' "$ERR" \
+assert_not_contains "$(cat "$SENT")" 'hunter2' "a flagged line is never sent"
+assert_contains "$(jq -r .commit.diff "$SENT")" '+[line withheld]' "a flagged line is sent as a fixed placeholder"
+assert_contains "$(jq -r .commit.diff "$SENT")" '+port = 5432' "the rest of the change is still sent"
+assert_grep 'advisory, the commit goes through: an added line may hold a password or secret literal (src/db.py:2)' "$ERR" \
   "a quoted password literal is warned about, by file and line"
 assert_no_grep 'hunter2' "$ERR" "the literal itself is never printed"
 assert_no_grep 'no-verify' "$ERR" "the warning never suggests skipping the hooks"
@@ -188,15 +201,15 @@ for line in 'token_type = "access_token"' '"tokenizer": "bert-base-uncased"' \
   stage src/conf.py ''
   cp "$TMP_ROOT/line" "$WT/src/conf.py"
   git -C "$WT" add -- src/conf.py
-  check "$HOME_ON" unlisted 'Name the token settings'
+  check "$HOME_ON" listed 'Name the token settings'
   expect_code 0 $? "ordinary code must not stop a commit: $line"
 done
 # shellcheck disable=SC2016 # A literal placeholder, as a source file would hold it.
 stage src/conf.py 'token = os.environ["API_TOKEN"]\npassword = "${DB_PASSWORD}"\n'
-check "$HOME_ON" unlisted 'Read the token from the environment'
+check "$HOME_ON" listed 'Read the token from the environment'
 expect_code 0 $? "a lookup or a placeholder is not a credential"
 stage src/conf.py "TOKEN = \"$ghtoken\"\\n"
-check "$HOME_OFF" unlisted 'Add the client'
+check "$HOME_OFF" listed 'Add the client'
 expect_code 0 $? "without a key even a credential goes through, as today"
 pass "credentials: stopped by pattern alone, only with a key"
 
@@ -229,14 +242,18 @@ out=$("$CHECK" --install "$TMP_ROOT/none" "$HOME_OFF" listed "$WT")
 expect_code 1 $? "install without a key must report off"
 assert_equals '' "$out" "install without a key prints no setting"
 assert_absent "$TMP_ROOT/none" "install without a key writes nothing"
-PARAMS=$(TYPESAFE_API_KEY=$KEY "$CHECK" --install "$HOOKS" "$HOME_OFF" listed "$WT")
+PARAMS=$(TYPESAFE_API_KEY=$KEY "$CHECK" --install "$HOOKS" "$HOME_LIST" listed "$WT")
 expect_code 0 $? "an environment key turns install on"
+out=$("$CHECK" --install "$TMP_ROOT/none" "$HOME_ON" unlisted "$WT")
+expect_code 1 $? "install for a project that is not listed must report off"
+assert_equals '' "$out" "install for an unlisted project prints no setting"
+assert_absent "$TMP_ROOT/none" "install for an unlisted project writes nothing"
 out=$("$CHECK" --install "$TMP_ROOT/none" "$HOME_ON" listed "$TMP_ROOT")
 expect_code 1 $? "install for a directory that is not a git work tree must report off"
 assert_absent "$TMP_ROOT/none" "install without a worktree writes nothing"
 PARAMS=$("$CHECK" --install "$HOOKS" "$HOME_ON" listed "$WT") || fail "install with a key must succeed"
 assert_equals "'core.hooksPath=$HOOKS'" "$PARAMS" "install prints the one git setting"
-pass "install: off without a key, one setting with one"
+pass "install: off without a key or a listed project, one setting with both"
 
 commit() {  # <message>
   PATH="$FAKEBIN:$PATH" GIT_CONFIG_PARAMETERS=$PARAMS git -C "$WT" commit -q -m "$1" 2> "$ERR"
@@ -308,8 +325,9 @@ pass "the project's own hooks still run and still decide"
 
 # --- layer 3: what bin/fm-spawn.sh sends the worker's pane ---------------------
 
-# spawn_lines <name> <home-with-or-without-key>: launch a ship worker on a fake
-# tmux and print every line the pane was sent.
+# spawn_lines <name> <home>: launch a ship worker for a project named `listed`
+# on a fake tmux, with <home>'s key and project list and the filtered launch
+# environment on, and print every line the pane was sent.
 spawn_lines() {
   local name=$1 keyhome=$2 dir="$TMP_ROOT/spawn-$1" fakebin id="cc$$-$1"
   fakebin=$(fm_fakebin "$dir/fake")
@@ -337,6 +355,8 @@ SH
   fm_test_fake_treehouse_lease "$fakebin"
   mkdir -p "$dir/home/data/$id" "$dir/home/projects" "$dir/home/state" "$dir/home/config" "$dir/home/user-home"
   [ ! -f "$keyhome/.env" ] || cp "$keyhome/.env" "$dir/home/.env"
+  [ ! -f "$keyhome/config/jev-code-projects" ] || cp "$keyhome/config/jev-code-projects" "$dir/home/config/"
+  printf '# the fixed floor only\n' > "$dir/home/config/launch-env-allowlist"
   printf 'claude\n' > "$dir/home/config/crew-harness"
   printf '%s\n' "$$" > "$dir/home/state/.lock"
   touch "$dir/home/state/.last-watcher-beat"
@@ -356,13 +376,24 @@ SH
   cat "$dir/launch.log"
 }
 
-lines=$(spawn_lines off "$HOME_OFF")
+# as_sent <name> <lines>: the lines with this launch's own id and paths named.
+as_sent() { printf '%s\n' "$2" | sed "s#$TMP_ROOT/spawn-$1#DIR#g; s#cc$$-$1#ID#g; s#wt-$1#BRANCH#g"; }
+
+lines=$(spawn_lines nokey "$HOME_OFF")
 assert_contains "$lines" 'export FM_TASK_ID=' "the keyless spawn still launches"
-assert_not_contains "$lines" GIT_CONFIG_PARAMETERS "without a key the pane is sent no git setting"
-assert_absent "/tmp/fm-cc$$-off/git-hooks" "without a key no hooks are written"
+assert_contains "$lines" '/usr/bin/env -i' "the launch environment is filtered"
+assert_not_contains "$lines" GIT_CONFIG_PARAMETERS "without a key the pane is sent no git setting and retains none"
+assert_absent "/tmp/fm-cc$$-nokey/git-hooks" "without a key no hooks are written"
+unlisted=$(spawn_lines nolist "$HOME_KEY")
+assert_equals "$(as_sent nokey "$lines")" "$(as_sent nolist "$unlisted")" \
+  "a key without the project listed sends the pane exactly the keyless launch"
+assert_absent "/tmp/fm-cc$$-nolist/git-hooks" "for an unlisted project no hooks are written"
 lines=$(spawn_lines on "$HOME_ON")
 export_line=$(printf '%s\n' "$lines" | grep '^export GIT_CONFIG_PARAMETERS=') \
-  || fail "with a key the pane must be sent the git setting: $lines"
+  || fail "with a key and a listed project the pane must be sent the git setting: $lines"
+# shellcheck disable=SC2016 # The launch text's own expansion, compared literally.
+assert_contains "$lines" '${GIT_CONFIG_PARAMETERS+"GIT_CONFIG_PARAMETERS=$GIT_CONFIG_PARAMETERS"}' \
+  "the filtered launch keeps the setting for the worker it was exported to"
 # Run the sent line as the pane's shell would, then commit as the worker would:
 # in the task's own worktree the check acts, in any other repository it does not.
 SPAWN_WT="$TMP_ROOT/spawn-on/wt"
@@ -380,7 +411,7 @@ stage src/g.py "TOKEN = \"$ghtoken\"\\n"
   PATH="$FAKEBIN:$PATH" git -C "$WT" commit -q -m 'wip' 2> "$ERR"
 ) || fail "a commit outside the task's worktree must go through under the spawned setting"
 assert_equals '' "$(cat "$ERR")" "and is told nothing"
-rm -rf "/tmp/fm-cc$$-off" "/tmp/fm-cc$$-on"
-pass "spawn: the pane gets the git setting only with a key, and it works as sent"
+rm -rf "/tmp/fm-cc$$-nokey" "/tmp/fm-cc$$-nolist" "/tmp/fm-cc$$-on"
+pass "spawn: the pane gets the git setting only with a key and a listed project, and it works as sent"
 
 echo "all fm-commit-check tests passed"

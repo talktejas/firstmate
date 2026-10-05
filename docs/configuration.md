@@ -329,13 +329,19 @@ Second mates carry no worker stop hook and are never checked.
 ## Commit check (.env TYPESAFE_API_KEY, config/jev-code-projects)
 
 Before each commit a worker makes, a git hook stops an added line that looks like a credential and asks typesafe.ai's System One model (Jev) whether the commit message matches the staged change, printing each mismatch as one advisory line the worker sees in the commit's own output.
-It is off unless `TYPESAFE_API_KEY` is available under the same environment-then-`.env` contract as [typed dispatch resolution](#typed-dispatch-resolution-env-typesafe_api_key); with the key absent a worker is launched and commits exactly as it does without the feature.
+It is off unless `TYPESAFE_API_KEY` is available under the same environment-then-`.env` contract as [typed dispatch resolution](#typed-dispatch-resolution-env-typesafe_api_key) and the worker's project is a line of the local, gitignored `config/jev-code-projects` (one project name per line, the name of its directory under `projects/`; blank lines and `#` lines are ignored; absent means no project; not inherited by second-mate homes).
+With the key absent, or for a project that is not listed, a worker is launched and commits exactly as it does without the feature: no hooks setting, no hook, no credential check, and nothing sent.
 
-With the key, `bin/fm-spawn.sh` writes a hooks directory under each ship and scout task's own temporary directory and exports one git setting, `GIT_CONFIG_PARAMETERS`, into that worker's terminal before the worker starts.
+With both, `bin/fm-spawn.sh` writes a hooks directory under that ship or scout task's own temporary directory and exports one git setting, `GIT_CONFIG_PARAMETERS`, into that worker's terminal before the worker starts.
 The hooks therefore exist only for that worker's own git commands: nothing is written into the project, its git directory, or its git configuration, no other copy of the repository sees them, and cleanup removes the directory with the task's other temporary files.
 The directory forwards every other hook to the repository's own, so a project's existing hooks keep running, and the repository's own commit-message hook runs first with its refusal standing.
 The check acts only on a commit to the task's own worktree, recorded at launch by its top-level and common git directory: a commit the worker's commands make in any other repository - a test fixture, a temporary repository, a clone, another worktree - is not stopped, is told nothing, and has nothing sent about it.
 Second mates are never given the hooks.
+
+That setting overrides `core.hooksPath` for every git command the worker runs, so a tool that installs git hooks sees the task's temporary hooks directory in place of the repository's own.
+`pre-commit install` refuses to install while `core.hooksPath` is set.
+`lefthook install` and `git lfs install` write their hook into the temporary directory, where it replaces the forwarder of that name or, for `commit-msg`, the check itself: the hook then runs only for that worker and is removed with the task, and the repository's own hooks directory is not updated.
+A listed project whose setup step installs hooks should have them installed in the repository before a worker is launched on it, or stay off the list.
 
 Code decides first, on the worker's machine:
 
@@ -344,11 +350,11 @@ Code decides first, on the worker's machine:
 - An added line that assigns a quoted literal to a password, secret, token, or API-key name is often ordinary code, so it only prints one advisory line naming the file and the line, and the commit goes through.
 - Merges, rebases, cherry-picks, reverts, `fixup!`, `squash!`, and `amend!` commits, and commits with nothing staged are not checked at all.
 
-The key alone sends nothing about a project.
-Only for a project whose name is a line of the local, gitignored `config/jev-code-projects` (one project name per line, the name of its directory under `projects/`; blank lines and `#` lines are ignored; absent means no project; not inherited by second-mate homes) does the hook then make one request carrying up to four yes/no questions: is the message filler, does it contradict the change, does the change carry debug leftovers, and is a staged file unaccounted for by the message.
+The hook then makes one request carrying up to four yes/no questions: is the message filler, does it contradict the change, does the change carry debug leftovers, and is a staged file unaccounted for by the message.
 A question code can already answer is left out: leftovers when the change adds no line of code, and unaccounted files when only one file is staged.
-Filler is judged only by that request, so it is not judged at all for a project that is not listed.
 That request carries the commit message (its last 4000 characters when longer), the staged file names (the first 200), and the staged diff with prose, lockfiles, generated, vendored, and secret-shaped paths left out (its last 24000 characters when longer).
+A diff line that matches the password-or-secret-literal pattern above is never sent: it is replaced by `[line withheld]`.
+A project taken off the list after a worker was launched is no longer checked by that worker's hook.
 A `yes` whose confidence and `yes` probability are both at or above the shared 0.6 floor prints one advisory line; a `no`, a low-confidence answer, a timeout, a transport or API error, and a malformed answer print nothing, and in every one of those cases the commit goes through.
 
 The setting reaches the worker on the same channel as the task marker, on every runtime backend, and applies wherever a harness runs the worker's git commands with the terminal's environment, which is the same inheritance the task marker already relies on for every supported harness.
@@ -527,7 +533,7 @@ OPENAI_API_KEY
 SSH_AUTH_SOCK
 ```
 
-Firstmate retains basic home, executable search, terminal, locale, temporary-directory, and backend routing variables, plus its explicit launch assignments, its ship and scout task marker, the [commit check](#commit-check-env-typesafe_api_key-configjev-code-projects)'s git setting, and enabled task trace.
+Firstmate retains basic home, executable search, terminal, locale, temporary-directory, and backend routing variables, plus its explicit launch assignments, its ship and scout task marker, the [commit check](#commit-check-env-typesafe_api_key-configjev-code-projects)'s git setting for a worker it was exported to, and enabled task trace.
 [`fm-spawn.sh --help`](../bin/fm-spawn.sh) owns the exact retained names and parsing mechanics.
 Other ambient names must be listed explicitly, including custom credential-store locations, proxy settings, and certificate overrides when required by the selected tools.
 The command shell and worker may still create their own variables.

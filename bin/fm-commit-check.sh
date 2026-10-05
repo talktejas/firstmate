@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # fm-commit-check.sh - a worker's commit-time check: credentials by pattern, and
 # "does the message match the change?" asked of typesafe.ai's System One model
-# (Jev). Off unless TYPESAFE_API_KEY is available.
+# (Jev). Off unless TYPESAFE_API_KEY is available and the project is listed in
+# config/jev-code-projects.
 #
 # Usage:
 #   fm-commit-check.sh --install <hooks-dir> <home> <project> <worktree>
@@ -9,8 +10,10 @@
 #
 # --install is run by bin/fm-spawn.sh for every ship and scout launch. With no
 #   key (environment, then <home>/.env; bin/fm-jev-lib.sh owns the key handling
-#   and the one Jev request) it writes nothing and exits 1, so the launch is
-#   exactly what it is without this script. With a key it fills <hooks-dir> -
+#   and the one Jev request), or for a <project> that fm_jev_code_allowed does
+#   not find in <home>/config/jev-code-projects, it writes nothing and exits 1,
+#   so the launch is exactly what it is without this script: no hooks path, no
+#   hook, no credential check. With both it fills <hooks-dir> -
 #   under the task's own temp root, which bin/fm-teardown.sh already removes -
 #   and prints the GIT_CONFIG_PARAMETERS value that points core.hooksPath at
 #   it. Spawn exports that value into the worker's pane, so the hooks exist
@@ -30,9 +33,10 @@
 #   1. Nothing is checked - the commit goes through with nothing said and
 #      nothing sent - when the repository being committed to is not the
 #      recorded worktree (a test fixture, a temp repository, a clone, another
-#      worktree), the key is absent, jq is missing, nothing is staged, the
-#      message is a fixup!, squash! or amend! marker, or a merge, rebase,
-#      cherry-pick or revert is replaying someone else's commit.
+#      worktree), the key is absent, <project> is no longer listed, jq is
+#      missing, nothing is staged, the message is a fixup!, squash! or amend!
+#      marker, or a merge, rebase, cherry-pick or revert is replaying someone
+#      else's commit.
 #   2. Credentials, by code alone: an added line that matches a recognised
 #      credential format (a private key block, or an AWS, GitHub, Slack,
 #      Google or sk- style key) stops the commit, exit 1, naming file:line and
@@ -41,16 +45,17 @@
 #      assigned to a password, secret, token or api-key name is too often
 #      ordinary code to stop on: it prints one advisory line naming file:line
 #      and the commit goes through.
-#   3. Only for a <project> that fm_jev_code_allowed lists in
-#      config/jev-code-projects, ONE request with up to four yes/no questions:
+#   3. ONE request with up to four yes/no questions:
 #        filler        always
 #        contradicts   always; the required answer
 #        leftovers     only when the diff adds a non-blank line
 #        unmentioned   only when two or more files are staged
 #      It sends the message (its last 4000 characters when longer), the staged
 #      file names (the first 200), and the staged diff with prose, lockfiles,
-#      generated, vendored and secret-shaped paths left out (its last 24000
-#      characters when longer, flagged as cut). A `yes` whose confidence and
+#      generated, vendored and secret-shaped paths left out and every diff
+#      line that matches the password-or-secret-literal pattern of step 2
+#      replaced by `[line withheld]` (its last 24000 characters when longer,
+#      flagged as cut). A `yes` whose confidence and
 #      `yes` probability both reach the shared FM_JEV_CONFIDENCE_FLOOR prints
 #      one advisory line on stderr.
 #
@@ -84,6 +89,8 @@ Slack token	xox[abprs]-[A-Za-z0-9-]{10,}
 Google API key	AIza[0-9A-Za-z_-]{35}
 API key	(^|[^A-Za-z0-9])sk-[A-Za-z0-9_-]{32,}'
 # Advisory only: it also matches ordinary code such as a token type or a URL.
+# A diff line that matches is never sent. Must not contain `#`, the delimiter
+# of the sed that withholds it.
 FM_CC_SECRET_LITERAL='([Pp][Aa][Ss][Ss][Ww][Oo]?[Rr]?[Dd]|[Ss][Ee][Cc][Rr][Ee][Tt]|[Tt][Oo][Kk][Ee][Nn]|[Aa][Pp][Ii][_-]?[Kk][Ee][Yy])[A-Za-z0-9_]*["'"'"']?[[:space:]]*[:=][[:space:]]*["'"'"'][^"'"'"'$<{[:space:]]{8,}["'"'"']'
 
 # shellcheck disable=SC2016 # Backticks are literal Markdown for the model.
@@ -130,6 +137,7 @@ _fm_cc_repo() {
 fm_commit_check_install() {  # <hooks-dir> <home> <project> <worktree>
   local dir=$1 home=$2 project=$3 worktree=$4 self name repo top common
   fm_jev_key_load "$home" || return 1
+  FM_HOME=$home fm_jev_code_allowed "$project" || return 1
   repo=$(cd "$worktree" 2>/dev/null && _fm_cc_repo) || return 1
   top=${repo%%$'\n'*}
   common=${repo#*$'\n'}
@@ -157,7 +165,7 @@ _fm_cc_added_lines() {
   git -c core.quotePath=false diff --cached --no-color --no-ext-diff --diff-filter=AMR -U0 \
     --src-prefix=a/ --dst-prefix=b/ 2>/dev/null | awk '
     /^diff --git / { inhunk = 0; file = ""; next }
-    !inhunk && /^\+\+\+ / { file = ($0 == "+++ /dev/null" || $0 ~ /^\+\+\+ "/) ? "" : substr($0, 7); next }
+    !inhunk && /^\+\+\+ / { file = ($0 == "+++ /dev/null" || $0 ~ /^\+\+\+ "/) ? "" : substr($0, 7); sub(/\t$/, "", file); next }
     /^@@ / && file != "" {
       inhunk = 1
       at = $0; sub(/^@@ -[0-9,]+ \+/, "", at); sub(/[, ].*$/, "", at); line = at + 0
@@ -171,6 +179,7 @@ fm_commit_check() {  # <home> <project> <commit-message-file>
   local gitdir marker message subject files nfiles added hits kind pattern found
   local kept=() file diff='' truncated=false keys state questions key conf
   fm_jev_key_load "$home" || return 0
+  FM_HOME=$home fm_jev_code_allowed "$project" || return 0
   command -v jq >/dev/null 2>&1 || return 0
   gitdir=$(git rev-parse --git-dir 2>/dev/null) || return 0
   for marker in MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD rebase-merge rebase-apply; do
@@ -203,14 +212,14 @@ EOF
   found=$(printf '%s\n' "$added" | grep -E -- "$FM_CC_SECRET_LITERAL" | cut -f1 | paste -sd ' ' -)
   [ -z "$found" ] || _fm_cc_advise "an added line may hold a password or secret literal ($found); keep real credentials out of the change."
 
-  FM_HOME=$home fm_jev_code_allowed "$project" || return 0
   while IFS= read -r file; do
     house_rules_path_skipped "$file" || kept+=("$file")
   done <<EOF
 $files
 EOF
   if [ "${#kept[@]}" -gt 0 ]; then
-    diff=$(git -c core.quotePath=false diff --cached --no-color --no-ext-diff -U3 -- "${kept[@]}" 2>/dev/null)
+    diff=$(git -c core.quotePath=false diff --cached --no-color --no-ext-diff -U3 -- "${kept[@]}" 2>/dev/null \
+      | sed -E "s#^(.).*($FM_CC_SECRET_LITERAL).*#\\1[line withheld]#")
   fi
   if [ "${#diff}" -gt "$FM_CC_DIFF_CHARS" ]; then
     diff=${diff: -$FM_CC_DIFF_CHARS}
