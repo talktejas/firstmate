@@ -159,7 +159,7 @@ _fm_cc_added_lines() {
   git -c core.quotePath=false diff --cached --no-color --no-ext-diff --diff-filter=AMR -U0 \
     --src-prefix=a/ --dst-prefix=b/ 2>/dev/null | LC_ALL=C awk '
     /^diff --git / { inhunk = 0; file = ""; next }
-    !inhunk && /^\+\+\+ / { file = ($0 == "+++ /dev/null" || $0 ~ /^\+\+\+ "/) ? "" : substr($0, 7); sub(/\t$/, "", file); next }
+    !inhunk && /^\+\+\+ / { file = ($0 == "+++ /dev/null") ? "" : ($0 ~ /^\+\+\+ "/) ? substr($0, 5) : substr($0, 7); sub(/\t$/, "", file); next }
     /^@@ / && file != "" {
       inhunk = 1
       at = $0; sub(/^@@ -[0-9,]+ \+/, "", at); sub(/[, ].*$/, "", at); line = at + 0

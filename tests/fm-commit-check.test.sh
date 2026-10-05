@@ -194,12 +194,17 @@ assert_no_grep "$ghtoken" "$ERR" "the value itself is never printed"
 assert_grep 'Remove the credential from the change' "$ERR" "a stopped committer is told to remove the credential"
 assert_no_grep 'no-verify' "$ERR" "skipping the hooks is never suggested"
 assert_equals '' "$(asked)" "Jev has no part in the stop"
-stage src/key.pem '-----BEGIN RSA PRIVATE KEY-----\n'
+pkhead='-----BEGIN RSA PRIVATE'
+stage src/key.pem "$pkhead KEY-----\\n"
 check "$HOME_ON" listed 'Add the signing key'
 expect_code 1 $? "a private-key header must stop the commit"
 stage 'src/my conf.py' "x = 1\\nTOKEN = \"$ghtoken\"\\n"
 check "$HOME_ON" listed 'Add the client'
 assert_grep 'src/my conf.py:2: GitHub token' "$ERR" "a path holding a space keeps its line number"
+stage 'src/we"ird.py' "TOKEN = \"$ghtoken\"\\n"
+check "$HOME_ON" listed 'Add the client'
+expect_code 1 $? "a credential in a file whose name git quotes must stop the commit"
+assert_grep 'ird.py":1: GitHub token' "$ERR" "the stop names the quoted file and its line"
 stage src/db.py 'port = 5432\ndb_password = "hunter2-hunter2"\n'
 check "$HOME_ON" listed 'Add the database settings'
 expect_code 0 $? "a quoted password literal must not stop the commit"
