@@ -4,8 +4,9 @@
 # Usage: . bin/fm-jev-lib.sh   (source it before the caller runs any child)
 #
 # This file is the single owner of the Jev request, response validation, and
-# key handling. Callers ask ONE Choice question over a JSON state and get back
-# the chosen option, a probability per option, and a status; every decision
+# key handling. Callers ask fixed-choice questions over a JSON state in one
+# request and get back, per question, the chosen option, a probability per
+# option, and a status; every decision
 # made from that answer (a confidence floor, an approval gate, an absorb) stays
 # in the caller's own code. bin/fm-dispatch-resolve.sh, the watcher's
 # routine-wake triage (bin/fm-watch.sh), and bin/fm-house-rules-check.sh are
@@ -38,6 +39,16 @@
 #   key and no network call. Every failure (missing curl or jq, a timeout, a
 #   non-200 reply, a malformed answer) is `error`, so a caller's fallback is
 #   one branch.
+#
+# fm_jev_choices <questions-json-file> <state-json-file> <required-question-key>
+#   The same single POST carrying several Choice questions over one state.
+#   <questions-json-file> holds one JSON object mapping each question key to
+#   {instructions, criteria}. Sets FM_JEV_STATUS, FM_JEV_ERROR, and
+#   FM_JEV_LATENCY_MS as above, plus:
+#     FM_JEV_ANSWERS        {model, usage, answers: {<key>: {choice, confidence, probabilities} | null}} JSON (ok only)
+#   The required question must come back well formed under the rule above, or
+#   the call is `error`; any other question whose answer is missing or
+#   malformed has a null answer.
 
 TYPESAFE_API_KEY_PRIVATE=${TYPESAFE_API_KEY:-}
 export -n TYPESAFE_API_KEY_PRIVATE 2>/dev/null || true
@@ -60,6 +71,7 @@ FM_JEV_STATUS=
 FM_JEV_ERROR=
 FM_JEV_LATENCY_MS=null
 FM_JEV_ANSWER=
+FM_JEV_ANSWERS=
 FM_JEV_CHOICE=
 FM_JEV_CONFIDENCE=
 FM_JEV_PROBABILITIES=
@@ -76,25 +88,28 @@ _fm_jev_fail() {  # <reason>
   return 1
 }
 
-fm_jev_choice() {  # <question-key> <instructions> <state-json-file> <criteria-json-file>
-  local key=$1 instructions=$2 state_file=$3 criteria_file=$4
-  local request resp http t0 t1 fields rc=0
-  FM_JEV_STATUS='' FM_JEV_ERROR='' FM_JEV_LATENCY_MS=null
-  FM_JEV_ANSWER='' FM_JEV_CHOICE='' FM_JEV_CONFIDENCE='' FM_JEV_PROBABILITIES=''
+# One POST carrying every question in <questions-json>, an object mapping each
+# question key to {instructions, criteria}. Sets FM_JEV_STATUS, FM_JEV_ERROR,
+# FM_JEV_LATENCY_MS, and FM_JEV_ANSWERS; the two public callers below own the rest.
+_fm_jev_ask() {  # <questions-json> <state-json-file> <required-question-key>
+  local questions=$1 state_file=$2 required=$3
+  local request resp http t0 t1 fields verdict rc=0
+  FM_JEV_STATUS='' FM_JEV_ERROR='' FM_JEV_LATENCY_MS=null FM_JEV_ANSWERS=''
   if [ -z "$TYPESAFE_API_KEY_PRIVATE" ]; then
     FM_JEV_STATUS=off
     return 1
   fi
   command -v curl >/dev/null 2>&1 || { _fm_jev_fail "curl not installed"; return 1; }
   command -v jq >/dev/null 2>&1 || { _fm_jev_fail "jq not installed"; return 1; }
-  request=$(jq -n --arg model "$FM_JEV_MODEL" --arg key "$key" --arg instructions "$instructions" \
-    --slurpfile state "$state_file" --slurpfile criteria "$criteria_file" '
-    if ($state | length) != 1 or ($criteria | length) != 1 or ($criteria[0] | type) != "object"
+  request=$(jq -n --arg model "$FM_JEV_MODEL" --argjson questions "$questions" --arg required "$required" \
+    --slurpfile state "$state_file" '
+    if ($state | length) != 1 or ($questions | type) != "object" or ($questions | has($required) | not)
+       or any($questions[]; (.instructions | type) != "string" or (.criteria | type) != "object")
     then error("bad input") else
     {
       model: $model,
       state: $state[0],
-      questions: {($key): {type: "choice", instructions: $instructions, criteria: $criteria[0]}}
+      questions: ($questions | map_values({type: "choice", instructions, criteria}))
     } end' 2>/dev/null) || { _fm_jev_fail "request could not be built"; return 1; }
   resp=$(mktemp) || { _fm_jev_fail "mktemp failed"; return 1; }
   t0=$(fm_timing_now_ms)
@@ -109,30 +124,62 @@ fm_jev_choice() {  # <question-key> <instructions> <state-json-file> <criteria-j
     rm -f "$resp"
     return 1
   fi
-  fields=$(printf '%s' "$request" | jq -r --arg key "$key" --slurpfile resp "$resp" '
-    (.questions[$key].criteria | keys | sort) as $choices |
-    ($resp | if length == 1 then .[0] else error("bad response") end) as $r |
-    ($r.answers[$key]) as $a |
-    if (($a.choice | type) == "string" and
-        ($a.confidence | type) == "number" and
-        $a.confidence >= 0 and $a.confidence <= 1 and
-        ($a.probabilities | type) == "object" and
-        (($a.probabilities | keys | sort) == $choices) and
-        all($a.probabilities[]; type == "number" and . >= 0 and . <= 1) and
-        (($a.probabilities | [.[]] | add) as $total | $total >= 0.99 and $total <= 1.01) and
-        (($r | has("usage") | not) or
-          (($r.usage | type) == "object" and
-           ($r.usage.input_tokens | type) == "number" and
-           ($r.usage.output_tokens | type) == "number")))
-    then
-      ({model: $r.model, usage: ($r.usage // null), choice: $a.choice,
-        confidence: $a.confidence, probabilities: $a.probabilities} | tojson),
-      ($a.choice | gsub("[\t\r\n]"; " ")),
-      ($a.confidence | tostring),
-      ([$a.probabilities | to_entries[] | "\(.key)=\(.value)"] | join(" "))
-    else error("bad answer") end' 2>/dev/null) || rc=1
+  # Prints "ok" and the answers, each one that is not well formed as null, or
+  # "bad" when the required question has no well-formed answer.
+  fields=$(printf '%s' "$request" | jq -r --arg required "$required" --slurpfile resp "$resp" '
+    def good($q; $a):
+      ($a | type) == "object" and
+      ($a.choice | type) == "string" and
+      ($a.confidence | type) == "number" and
+      $a.confidence >= 0 and $a.confidence <= 1 and
+      ($a.probabilities | type) == "object" and
+      (($a.probabilities | keys | sort) == ($q.criteria | keys | sort)) and
+      all($a.probabilities[]; type == "number" and . >= 0 and . <= 1) and
+      (($a.probabilities | [.[]] | add) as $total | $total >= 0.99 and $total <= 1.01);
+    .questions as $qs |
+    ($resp | if length == 1 and (.[0] | type) == "object" then .[0] else {} end) as $r |
+    ($r.answers | if type == "object" then . else {} end) as $as |
+    ($qs | with_entries(.key as $k | .value = (if good(.value; $as[$k]) then ($as[$k] | {choice, confidence, probabilities}) else null end))) as $answers |
+    (($r | has("usage") | not) or
+      (($r.usage | type) == "object" and
+       ($r.usage.input_tokens | type) == "number" and
+       ($r.usage.output_tokens | type) == "number")) as $usage_ok |
+    if $answers[$required] == null or ($usage_ok | not) then "bad"
+    else "ok", ({model: $r.model, usage: ($r.usage // null), answers: $answers} | tojson)
+    end' 2>/dev/null) || rc=1
   rm -f "$resp"
-  [ "$rc" -eq 0 ] || { _fm_jev_fail "response is not a $key Choice answer"; return 1; }
+  [ "$rc" -eq 0 ] || { _fm_jev_fail "response could not be read"; return 1; }
+  {
+    IFS= read -r verdict
+    IFS= read -r fields
+  } <<EOF
+$fields
+EOF
+  [ "$verdict" = ok ] || { _fm_jev_fail "response is not a $required Choice answer"; return 1; }
+  FM_JEV_ANSWERS=$fields
+  FM_JEV_STATUS=ok
+  return 0
+}
+
+fm_jev_choices() {  # <questions-json-file> <state-json-file> <required-question-key>
+  local questions
+  questions=$(jq -c . "$1" 2>/dev/null) || { _fm_jev_fail "request could not be built"; return 1; }
+  _fm_jev_ask "$questions" "$2" "$3"
+}
+
+fm_jev_choice() {  # <question-key> <instructions> <state-json-file> <criteria-json-file>
+  local key=$1 questions fields
+  FM_JEV_ANSWER='' FM_JEV_CHOICE='' FM_JEV_CONFIDENCE='' FM_JEV_PROBABILITIES=''
+  questions=$(jq -c --arg key "$key" --arg instructions "$2" \
+    '{($key): {instructions: $instructions, criteria: .}}' "$4" 2>/dev/null) \
+    || { FM_JEV_LATENCY_MS=null; _fm_jev_fail "request could not be built"; return 1; }
+  _fm_jev_ask "$questions" "$3" "$key" || return 1
+  fields=$(jq -r --arg key "$key" '
+    .answers[$key] as $a |
+    ({model, usage} + $a | tojson),
+    ($a.choice | gsub("[\t\r\n]"; " ")),
+    ($a.confidence | tostring),
+    ([$a.probabilities | to_entries[] | "\(.key)=\(.value)"] | join(" "))' <<<"$FM_JEV_ANSWERS")
   {
     IFS= read -r FM_JEV_ANSWER
     IFS= read -r FM_JEV_CHOICE
@@ -141,6 +188,5 @@ fm_jev_choice() {  # <question-key> <instructions> <state-json-file> <criteria-j
   } <<EOF
 $fields
 EOF
-    FM_JEV_STATUS=ok
   return 0
 }
