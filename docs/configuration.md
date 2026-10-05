@@ -380,6 +380,26 @@ For a project that is not listed the model is asked nothing and the forge is not
 The rating adds at most one change read (60 seconds), one forge read (20 seconds), and three model calls to a registration made with `bin/fm-pr-check.sh <id> <PR url>`, and stops calling the model after the first call that fails outright.
 The level is rated only then: the re-registration `bin/fm-pr-merge.sh` performs passes `--no-risk`, so a merge reads no change, sends nothing, waits on nothing, and prints no `risk:` line.
 `bin/fm-pr-risk-lib.sh`'s header owns the exact facts, thresholds, and questions, `bin/fm-jev-lib.sh` owns the request, the key handling, and the `fm_jev_code_allowed` project list read, and [`verification/jev-pr-risk.md`](verification/jev-pr-risk.md) records the live evidence.
+## Failed check sort (.env TYPESAFE_API_KEY, config/jev-code-projects)
+
+`bin/fm-pr-state.sh --sort-failed-checks <pr-url>` adds one advisory line under each failed required check it reports, labelling the failure a code bug, flaky, environment, or unknown, so a worker is not sent to fix a failure that is not in its code.
+The sort runs only when the caller passes that option: firstmate passes it when it reads a pull request's failed checks by hand, and the watcher's routine-wake triage never does, so its recheck reads and prints what it does without the feature and sends nothing.
+With the option it is still off unless `TYPESAFE_API_KEY` is available under the same environment-then-`.env` contract as [typed dispatch resolution](#typed-dispatch-resolution-env-typesafe_api_key); with the key absent the command reads and prints exactly what it does without the feature.
+The label never re-runs a check, never changes what a check reported, and never changes the command's blocker lines or exit status, so nothing merges, blocks, or discards on it.
+
+Fixed rules decide first from GitHub reads alone: a check that another attempt of the same workflow run passed is flaky, which a same-named job passing in the same attempt is not, and a check whose failed steps log a connection error while the same check also fails on the base branch is environment.
+Only a failure neither rule decides is put to typesafe.ai's System One model (Jev) as one fixed-choice question, `code_bug`, `flaky`, `environment`, or `unclear`.
+A `code_bug` answer needs the shared 0.6 confidence floor, and a `flaky` or `environment` answer needs 0.8, because those two point a worker away from the failure.
+A timeout, a transport or API error, a malformed answer, an `unclear` choice, an answer under its floor, a check with no GitHub Actions job log, and an unreadable GitHub read all print `unknown`, and the worker investigates as it does without the label.
+
+The question carries the check's name and the failure-naming lines of the job's failed steps, cut to their last 4000 characters.
+A failure log quotes the project's code, so it is sent only for a repository listed in the optional local, gitignored `config/jev-code-projects`, one entry per line, with blank lines and lines starting with `#` ignored.
+An entry takes one of two forms: `<owner>/<repo>` matches a caller keyed by repository, such as this sort, only when it equals the pull request's owner and repository exactly, so a same-named repository under another owner is not allowed; a bare name matches only a caller that passes a firstmate project name, and never a repository's basename.
+Only the first three failed required checks are sorted, and each one after them is printed as `unknown (not sorted)` with nothing read.
+An unlisted repository still gets the two fixed rules, and its undecided failures are `unknown` with no call.
+
+The sort covers GitHub pull requests only, which is all `bin/fm-pr-state.sh` reads, and it is the same on every harness and runtime backend because the command reads the forge and no worker surface.
+`bin/fm-check-sort-lib.sh`'s header owns the exact rules, bounds, and output, `bin/fm-jev-lib.sh` owns the request, the answer validation, the key handling, and the `fm_jev_code_allowed` project list read, and [`verification/failed-check-sort.md`](verification/failed-check-sort.md) records the live evidence.
 
 ## Gate defaults (.no-mistakes.yaml)
 
@@ -685,8 +705,8 @@ The tool never replaces firstmate's judgment, `quota-array-dispatch`, the captai
 By accepted design, a `clear` result does not enforce catalog/authentication, reasoning-class, or completion-runway gates.
 Firstmate passes its profile line unless it states a reason to override, such as the brief's reasoning class or an eligible-unranked-candidate note; every non-clear result returns to the full existing intake.
 
-The resolver, the watcher, the house-rules check, the finished check, the review finding sort, the pull request registration, and bootstrap copy an environment-provided key into a non-exported private variable and unset `TYPESAFE_API_KEY` before launching child processes, so the secret is absent from child environments.
-`bin/fm-jev-lib.sh` is the single owner of the Jev request, the answer validation, and that key handling for the resolver, for [routine-wake triage](#routine-wake-triage-env-typesafe_api_key), for the [house-rules check](#house-rules-check-env-typesafe_api_key-confighouse-rulesjson), for the [finished check](#finished-check-env-typesafe_api_key), for the [review finding sort](#review-finding-sort-env-typesafe_api_key-configjev-code-projects), and for the [pull request risk level](#pull-request-risk-level-env-typesafe_api_key); it sends the key to `curl` only as a header read from a file descriptor, never on argv, and nothing prints, logs, or writes it.
+The resolver, the watcher, the house-rules check, the finished check, the review finding sort, the pull request registration, the failed check sort, and bootstrap copy an environment-provided key into a non-exported private variable and unset `TYPESAFE_API_KEY` before launching child processes, so the secret is absent from child environments.
+`bin/fm-jev-lib.sh` is the single owner of the Jev request, the answer validation, and that key handling for the resolver, for [routine-wake triage](#routine-wake-triage-env-typesafe_api_key), for the [house-rules check](#house-rules-check-env-typesafe_api_key-confighouse-rulesjson), for the [finished check](#finished-check-env-typesafe_api_key), for the [review finding sort](#review-finding-sort-env-typesafe_api_key-configjev-code-projects), for the [pull request risk level](#pull-request-risk-level-env-typesafe_api_key), and for the [failed check sort](#failed-check-sort-env-typesafe_api_key-configjev-code-projects); it sends the key to `curl` only as a header read from a file descriptor, never on argv, and nothing prints, logs, or writes it.
 It fixes the endpoint at `https://api.typesafe.ai`, model at `jev-latest`, confidence floor at 0.6, and request timeout at 5 seconds; `TYPESAFE_API_KEY` is the resolver's only resolver-specific environment setting.
 The live rule-match evidence is recorded in [`verification/dispatch-resolve.md`](verification/dispatch-resolve.md).
 
@@ -1277,7 +1297,7 @@ FMX_RELAY_URL=https://myfirstmate.io   # optional Relay endpoint override, mainl
 FMX_ENV_FILE=           # optional alternate .env file for direct Relay client invocations; bootstrap still checks $FM_HOME/.env
 FMX_DRY_RUN=            # truthy previews Relay replies and dismissals to state/x-outbox/ without posting or requiring a token
 FMX_X_REPLY_MAX_CHARS=280   # X reply per-message split budget; values below 50 clamp to 50
-TYPESAFE_API_KEY=       # typed dispatch resolution opt-in, from the environment or .env; absent means bin/fm-dispatch-resolve.sh is off (docs/configuration.md "Typed dispatch resolution"), and so are routine-wake triage, the finished check, the pull request risk level, the house-rules check, which also needs a project opted in in config/house-rules.json, and the review finding sort, which also needs the project listed in config/jev-code-projects
+TYPESAFE_API_KEY=       # typed dispatch resolution opt-in, from the environment or .env; absent means bin/fm-dispatch-resolve.sh is off (docs/configuration.md "Typed dispatch resolution"), and so are routine-wake triage, the finished check, the pull request risk level, the failed check sort, the house-rules check, which also needs a project opted in in config/house-rules.json, and the review finding sort, which also needs the project listed in config/jev-code-projects
 FMX_DISCORD_REPLY_MAX_CHARS=1900   # Discord reply per-message split budget; values below 50 clamp to 50, values above 2000 reset to 1900
 FMX_X_THREAD_MAX=25     # maximum messages in one auto-split reply thread
 FMX_FOLLOWUP_MAX_AGE_SECS=604800   # local window for posting Relay completion follow-ups (7 days)

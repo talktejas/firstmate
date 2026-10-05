@@ -11,8 +11,9 @@
 # in the caller's own code. bin/fm-dispatch-resolve.sh, the watcher's
 # routine-wake triage (bin/fm-watch.sh), bin/fm-house-rules-check.sh, the
 # worker stop hook's finished check (bin/fm-finished-check.sh), the review
-# finding sort (bin/fm-finding-sort.sh), and the pull request risk level
-# (bin/fm-pr-risk-lib.sh) are the callers.
+# finding sort (bin/fm-finding-sort.sh), the pull request risk level
+# (bin/fm-pr-risk-lib.sh), and the failed check sort
+# (bin/fm-check-sort-lib.sh) are the callers.
 #
 # Key handling: sourcing this file copies an environment-provided
 # TYPESAFE_API_KEY into one non-exported shell variable and unsets the exported
@@ -25,8 +26,11 @@
 #   0 when a key is available, 1 when it is absent from both sources.
 #
 # fm_jev_code_allowed <project>
-#   0 only when <project> is a line of $FM_HOME/config/jev-code-projects (one
-#   project name per line; blank lines and lines starting with # are ignored).
+#   0 only when <project> is a whole line of $FM_HOME/config/jev-code-projects
+#   (one entry per line; blank lines and lines starting with # are ignored).
+#   A caller keyed by repository passes `<owner>/<repo>`, and a caller keyed by
+#   a firstmate project passes that project's name; neither form matches the
+#   other, so a bare name never allows a repository by its basename.
 #   The key alone lets a caller send routing text and status lines; a caller
 #   that would send a project's code, file list, or pull request text asks this
 #   first. An absent or empty file allows no project.

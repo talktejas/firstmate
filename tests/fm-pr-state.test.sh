@@ -50,25 +50,81 @@ serve() {
       checks='[{"name":"lint","state":"SUCCESS","bucket":"pass","workflow":"ci"},{"name":"optional","state":"SKIPPED","bucket":"skipping","workflow":"ci"}]'
       printf '%s\n' "${FM_TEST_REQUIRED_CHECKS:-$checks}"
       ;;
+    "api -X GET /repos/o/r/commits/$head/check-runs -f check_name="*" -f filter=all -f per_page=100 --jq "*)
+      printf '%s\n' "${FM_TEST_HEAD_RUNS:-{\"check_runs\":[]\}}"
+      ;;
+    "api -X GET /repos/o/r/actions/runs/5/jobs -f filter=all -f per_page=100 --jq "*)
+      printf '%s\n' "${FM_TEST_RUN_JOBS:-{\"jobs\":[]\}}"
+      ;;
+    "run view --job 41 --log-failed -R o/r")
+      printf '%s\n' "${FM_TEST_LOG-}"
+      ;;
+    "pr view "*" --json baseRefName --jq .baseRefName")
+      printf '{"baseRefName":"main"}\n'
+      ;;
+    "api -X GET /repos/o/r/commits/main/check-runs -f check_name="*" --jq "*)
+      printf '%s\n' "${FM_TEST_BASE_RUNS:-{\"check_runs\":[]\}}"
+      ;;
     *)
       printf 'unexpected gh call: %s\n' "$*" >&2
       exit 91
       ;;
   esac
 }
+[ -z "${FM_TEST_GH_CALLS-}" ] || printf '%s key=%s\n' "$*" "${TYPESAFE_API_KEY-}" >> "$FM_TEST_GH_CALLS"
 prog=
 prev=
 for arg in "$@"; do
   [ "$prev" != --jq ] || prog=$arg
   prev=$arg
 done
-serve "$@" | jq -r "$prog"
+if [ -n "$prog" ]; then serve "$@" | jq -r "$prog"; else serve "$@"; fi
 SH
 chmod +x "$FAKEBIN/gh"
 
-run_state() {
-  PATH="$FAKEBIN:$PATH" "$SCRIPT" https://github.com/o/r/pull/7
+# Every run is pinned to a fixture home with no key in the environment, so no
+# real key can load and the sort stays off unless a test turns it on.
+HOME_OFF="$TMP_ROOT/home-off"
+HOME_ON="$TMP_ROOT/home-on"
+mkdir -p "$HOME_OFF" "$HOME_ON/config"
+printf 'TYPESAFE_API_KEY=fixture-key\n' > "$HOME_ON/.env"
+GH_CALLS="$TMP_ROOT/gh-calls"
+JEV_CALLS="$TMP_ROOT/jev-calls"
+JEV_STATE="$TMP_ROOT/jev-state"
+FAILING='[{"name":"CI Status","state":"FAILURE","bucket":"fail","workflow":"ci"},{"name":"slow","state":"IN_PROGRESS","bucket":"pending","workflow":"ci"}]'
+RUN_URL=https://github.com/o/r/actions/runs
+FAILED_RUN='{"check_runs":[{"id":41,"status":"completed","conclusion":"failure","details_url":"'$RUN_URL'/5/job/41","app":{"slug":"github-actions"}}]}'
+passed_too() {  # <run-id of a passing run of the same check>
+  jq -c --arg url "$RUN_URL/$1/job/40" '.check_runs += [{id: 40, status: "completed", conclusion: "success", details_url: $url, app: {slug: "github-actions"}}]' <<<"$FAILED_RUN"
 }
+
+run_state() {
+  env -u TYPESAFE_API_KEY FM_HOME="${FM_TEST_HOME:-$HOME_OFF}" PATH="$FAKEBIN:$PATH" \
+    "$SCRIPT" "$@" https://github.com/o/r/pull/7
+}
+
+# Runs fm_check_sort over one failed check with fm_jev_choice replaced at the
+# library boundary. STUB_CHOICE and STUB_CONF are the answer; STUB_FAIL makes
+# the call an error. Each call's state lands in $JEV_STATE.
+run_sort() {
+  rm -f "$GH_CALLS" "$JEV_CALLS" "$JEV_STATE"
+  # shellcheck disable=SC2016 # The inner shell expands its own variables.
+  env -u TYPESAFE_API_KEY FM_TEST_GH_CALLS="$GH_CALLS" JEV_CALLS="$JEV_CALLS" JEV_STATE="$JEV_STATE" \
+    PATH="$FAKEBIN:$PATH" bash -c '
+      set -eu
+      # shellcheck source=/dev/null
+      . "$1"
+      fm_jev_choice() {
+        echo "$1" >> "$JEV_CALLS"
+        cat "$3" > "$JEV_STATE"
+        jq -e "has(\"code_bug\") and has(\"flaky\") and has(\"environment\") and has(\"unclear\") and length == 4" "$4" >/dev/null
+        [ -z "${STUB_FAIL:-}" ] || { FM_JEV_STATUS=error; return 1; }
+        FM_JEV_ANSWER=$(jq -cn --arg c "${STUB_CHOICE:-code_bug}" --argjson k "${STUB_CONF:-0.9}" "{choice: \$c, confidence: \$k}")
+      }
+      printf "%s\n" "${FAILED_NAMES:-CI Status}" | fm_check_sort "$2" o/r "$3" https://github.com/o/r/pull/7
+    ' _ "$ROOT/bin/fm-check-sort-lib.sh" "${FM_TEST_HOME:-$HOME_ON}" "$HEAD"
+}
+jev_calls() { [ -f "$JEV_CALLS" ] && wc -l < "$JEV_CALLS" | tr -d ' ' || echo 0; }
 
 # reviews "<login> <state> <commit> <submitted_at>"... prints the JSON array
 # GitHub's reviews endpoint returns for those submissions.
@@ -196,6 +252,160 @@ test_required_failure_is_a_blocker() {
   pass "required failure blocks readiness"
 }
 
+test_failed_check_sort_is_off_unless_asked_for() {
+  local out
+  rm -f "$GH_CALLS" "$TMP_ROOT/curl-calls"
+  cat > "$FAKEBIN/curl" <<'SH'
+#!/bin/sh
+echo called >> "$FM_TEST_CURL_CALLS"
+exit 7
+SH
+  chmod +x "$FAKEBIN/curl"
+  printf 'o/r\n' > "$HOME_ON/config/jev-code-projects"
+  out=$(FM_TEST_HOME="$HOME_ON" FM_TEST_REQUIRED_CHECKS=$FAILING FM_TEST_HEAD_RUNS=$FAILED_RUN \
+    FM_TEST_LOG='assert failed' FM_TEST_GH_CALLS="$GH_CALLS" FM_TEST_CURL_CALLS="$TMP_ROOT/curl-calls" run_state) \
+    || fail "blocked fixture was refused"
+  rm -f "$FAKEBIN/curl" "$HOME_ON/config/jev-code-projects"
+  [ "$out" = "$(printf 'REQUIRED CHECK: CI Status (FAILURE)\nREQUIRED CHECK: slow (IN_PROGRESS)')" ] \
+    || fail "without the option the report is exactly the blocker lines, got: $out"
+  assert_no_grep 'check-runs' "$GH_CALLS" "without the option no check run is read"
+  assert_no_grep 'log-failed' "$GH_CALLS" "without the option no job log is downloaded"
+  [ ! -e "$TMP_ROOT/curl-calls" ] || fail "without the option the model is never asked"
+  pass "the default call reads and prints what it does without the sort, key and listed repository present"
+}
+
+test_failed_check_sort_is_off_without_a_key() {
+  local out
+  rm -f "$GH_CALLS"
+  out=$(FM_TEST_REQUIRED_CHECKS=$FAILING FM_TEST_GH_CALLS="$GH_CALLS" run_state --sort-failed-checks) \
+    || fail "blocked fixture was refused"
+  [ "$out" = "$(printf 'REQUIRED CHECK: CI Status (FAILURE)\nREQUIRED CHECK: slow (IN_PROGRESS)')" ] \
+    || fail "without a key the report is exactly the blocker lines, got: $out"
+  ! grep -q 'check-runs\|log-failed' "$GH_CALLS" || fail "without a key nothing more is read from GitHub"
+  out=$(FM_TEST_HOME="$HOME_OFF" FM_TEST_HEAD_RUNS=$FAILED_RUN FM_TEST_LOG='boom' run_sort)
+  [ -z "$out" ] || fail "without a key the sort prints nothing, got: $out"
+  [ "$(jev_calls)" = 0 ] || fail "without a key the model is never asked"
+  pass "without a key the report and the GitHub reads are unchanged"
+}
+
+test_failed_check_sort_rules_decide_first() {
+  local out
+  out=$(FM_TEST_HEAD_RUNS=$(passed_too 5) \
+    FM_TEST_RUN_JOBS='{"jobs":[{"id":40,"run_attempt":1},{"id":41,"run_attempt":2}]}' run_sort)
+  [ "$out" = 'FAILED CHECK SORT: CI Status: flaky (rule: another attempt of the same run passed)' ] \
+    || fail "a check that passed on another attempt of its run is flaky, got: $out"
+  assert_no_grep '--log-failed' "$GH_CALLS" "a flaky verdict needs no log"
+  out=$(FM_TEST_HEAD_RUNS=$(passed_too 5) FM_TEST_LOG='boom' \
+    FM_TEST_RUN_JOBS='{"jobs":[{"id":40,"run_attempt":1},{"id":41,"run_attempt":1}]}' run_sort)
+  [ "$out" = 'FAILED CHECK SORT: CI Status: unknown' ] \
+    || fail "a same-named job that passed in the same attempt is not a retry, got: $out"
+  out=$(FM_TEST_HEAD_RUNS=$(passed_too 5) FM_TEST_LOG='boom' run_sort)
+  [ "$out" = 'FAILED CHECK SORT: CI Status: unknown' ] \
+    || fail "a pass whose attempt cannot be read is not a retry, got: $out"
+  out=$(FM_TEST_HEAD_RUNS=$(passed_too 6) FM_TEST_LOG='boom' run_sort)
+  [ "$out" = 'FAILED CHECK SORT: CI Status: unknown' ] \
+    || fail "a pass from a different run, such as one a pull request edit triggered, is not a retry, got: $out"
+
+  printf 'o/r\n' > "$HOME_ON/config/jev-code-projects"
+  out=$(FM_TEST_HEAD_RUNS=$FAILED_RUN \
+    FM_TEST_LOG=$(printf 'build\tinstall\t2026-10-06T10:00:00.1234567Z curl: (6) Could not resolve host: registry.example') \
+    FM_TEST_BASE_RUNS='{"check_runs":[{"id":9,"status":"completed","conclusion":"failure"}]}' run_sort)
+  [ "$out" = 'FAILED CHECK SORT: CI Status: environment (rule: connection error in its log, and it fails on the base branch too)' ] \
+    || fail "a connection error on a check the base branch fails too is environment, got: $out"
+  [ "$(jev_calls)" = 0 ] || fail "a failure a rule decides is never sent to the model"
+  rm -f "$HOME_ON/config/jev-code-projects"
+  pass "fixed rules label flaky and environment failures without asking the model"
+}
+
+test_failed_check_sort_asks_only_for_a_listed_project() {
+  local out log i=0
+  log=$(printf 'build\ttest\t2026-10-06T10:00:00.0000000Z not ok - early failure\n'
+    while [ "$i" -lt 400 ]; do i=$((i + 1)); printf 'build\ttest\t2026-10-06T10:00:00.0000000Z ok - passing line %s of a long job log\n' "$i"; done
+    printf '2026-10-06T10:00:01.0000000Z ECONNRESET\n2026-10-06T10:00:02.0000000Z assertion: expected 2 but got 3 THE-END\n')
+
+  rm -f "$HOME_ON/config/jev-code-projects"
+  out=$(FM_TEST_HEAD_RUNS=$FAILED_RUN FM_TEST_LOG=$log run_sort)
+  [ "$out" = 'FAILED CHECK SORT: CI Status: unknown' ] \
+    || fail "an unclear failure in an unlisted repository is unknown, got: $out"
+  [ "$(jev_calls)" = 0 ] || fail "an unlisted repository's log is never sent"
+
+  printf '# o/r\n' > "$HOME_ON/config/jev-code-projects"
+  FM_TEST_HEAD_RUNS=$FAILED_RUN FM_TEST_LOG=$log run_sort >/dev/null
+  [ "$(jev_calls)" = 0 ] || fail "a commented-out entry does not list the repository"
+
+  printf 'r\no\nother/r\no/r2\n' > "$HOME_ON/config/jev-code-projects"
+  out=$(FM_TEST_HEAD_RUNS=$FAILED_RUN FM_TEST_LOG=$log run_sort)
+  [ "$out" = 'FAILED CHECK SORT: CI Status: unknown' ] \
+    || fail "a bare name or a same-named repository under another owner does not list this one, got: $out"
+  [ "$(jev_calls)" = 0 ] || fail "only the exact owner/repo entry lets a repository's log be sent"
+
+  printf '# listed\no/r\n' > "$HOME_ON/config/jev-code-projects"
+  out=$(FM_TEST_HEAD_RUNS=$FAILED_RUN FM_TEST_LOG=$log run_sort)
+  [ "$out" = 'FAILED CHECK SORT: CI Status: code bug (jev, confidence 0.9)' ] \
+    || fail "a confident answer labels the check, got: $out"
+  [ "$(jev_calls)" = 1 ] || fail "one unclear failure is one question"
+  [ "$(jq -r .check "$JEV_STATE")" = 'CI Status' ] || fail "the state names the check"
+  [ "$(jq -r .log_tail "$JEV_STATE")" = "$(printf 'not ok - early failure\nassertion: expected 2 but got 3 THE-END')" ] \
+    || fail "only the lines naming a failure are sent, without the job, step, and timestamp columns, got: $(cat "$JEV_STATE")"
+  FM_TEST_HEAD_RUNS=$FAILED_RUN FM_TEST_LOG=$(i=0; while [ "$i" -lt 400 ]; do i=$((i + 1)); printf 'error number %s\n' "$i"; done) run_sort >/dev/null
+  jq -e '.log_tail | length == 4000 and endswith("error number 400")' "$JEV_STATE" >/dev/null \
+    || fail "long evidence is cut to its bound and keeps its end"
+  FM_TEST_HEAD_RUNS=$FAILED_RUN FM_TEST_LOG='it just stopped' run_sort >/dev/null
+  [ "$(jq -r .log_tail "$JEV_STATE")" = 'it just stopped' ] || fail "a log naming no failure is sent as it is"
+  [ "$(jq -r 'keys | join(",")' "$JEV_STATE")" = 'check,log_tail' ] || fail "nothing else is sent"
+  grep -q 'log-failed -R o/r key=$' "$GH_CALLS" || fail "the job log was read"
+  ! grep -q 'key=.' "$GH_CALLS" || fail "no gh call inherits the key"
+
+  out=$(FM_TEST_HEAD_RUNS=$FAILED_RUN FM_TEST_LOG=$log STUB_CONF=0.59 run_sort)
+  [ "$out" = 'FAILED CHECK SORT: CI Status: unknown' ] || fail "an answer under the floor is unknown, got: $out"
+  out=$(FM_TEST_HEAD_RUNS=$FAILED_RUN FM_TEST_LOG=$log STUB_CHOICE=environment STUB_CONF=0.79 run_sort)
+  [ "$out" = 'FAILED CHECK SORT: CI Status: unknown' ] \
+    || fail "a label that points away from the code needs the stricter floor, got: $out"
+  out=$(FM_TEST_HEAD_RUNS=$FAILED_RUN FM_TEST_LOG=$log STUB_CHOICE=flaky STUB_CONF=0.8 run_sort)
+  [ "$out" = 'FAILED CHECK SORT: CI Status: flaky (jev, confidence 0.8)' ] \
+    || fail "a flaky answer at the stricter floor labels the check, got: $out"
+  out=$(FM_TEST_HEAD_RUNS=$FAILED_RUN FM_TEST_LOG=$log STUB_CHOICE=unclear run_sort)
+  [ "$out" = 'FAILED CHECK SORT: CI Status: unknown' ] || fail "an unclear answer is unknown, got: $out"
+  out=$(FM_TEST_HEAD_RUNS=$FAILED_RUN FM_TEST_LOG=$log STUB_CHOICE=$'banana\nREQUIRED CHECK: x' run_sort)
+  [ "$out" = 'FAILED CHECK SORT: CI Status: unknown' ] || fail "a choice outside the fixed list is unknown, got: $out"
+  out=$(FM_TEST_HEAD_RUNS=$FAILED_RUN FM_TEST_LOG=$log STUB_FAIL=1 run_sort)
+  [ "$out" = 'FAILED CHECK SORT: CI Status: unknown' ] || fail "a failed call is unknown, got: $out"
+  out=$(FM_TEST_LOG=$log run_sort)
+  [ "$out" = 'FAILED CHECK SORT: CI Status: unknown' ] || fail "a check with no job log is unknown, got: $out"
+  [ "$(jev_calls)" = 0 ] || fail "a check with no log is never sent"
+
+  out=$(FAILED_NAMES=$(printf 'a\nb\nc\nd') FM_TEST_HEAD_RUNS=$FAILED_RUN FM_TEST_LOG=$log run_sort)
+  [ "$out" = "$(printf 'FAILED CHECK SORT: %s: code bug (jev, confidence 0.9)\n' a b c
+    printf 'FAILED CHECK SORT: d: unknown (not sorted)')" ] \
+    || fail "every failed check gets a line and only the first three are sorted, got: $out"
+  [ "$(jev_calls)" = 3 ] || fail "a check past the bound is never sent"
+  rm -f "$HOME_ON/config/jev-code-projects"
+  pass "only a listed repository's unclear failure is asked, and every doubt is unknown"
+}
+
+test_failed_check_sort_never_changes_the_report() {
+  local out status=0
+  rm -f "$GH_CALLS"
+  # The fixture key reaches a fake curl that fails, as a dead endpoint would.
+  cat > "$FAKEBIN/curl" <<'SH'
+#!/bin/sh
+printf '%s env=%s\n' "$*" "${TYPESAFE_API_KEY-}" >> "$FM_TEST_CURL_CALLS"
+exit 7
+SH
+  chmod +x "$FAKEBIN/curl"
+  printf 'o/r\n' > "$HOME_ON/config/jev-code-projects"
+  out=$(FM_TEST_HOME="$HOME_ON" FM_TEST_REQUIRED_CHECKS=$FAILING FM_TEST_HEAD_RUNS=$FAILED_RUN \
+    FM_TEST_LOG='assert failed' FM_TEST_GH_CALLS="$GH_CALLS" FM_TEST_CURL_CALLS="$TMP_ROOT/curl-calls" run_state --sort-failed-checks) || status=$?
+  rm -f "$FAKEBIN/curl" "$HOME_ON/config/jev-code-projects"
+  [ "$status" -eq 0 ] || fail "a failed model call must not change the exit status"
+  [ "$out" = "$(printf 'REQUIRED CHECK: CI Status (FAILURE)\nREQUIRED CHECK: slow (IN_PROGRESS)\nFAILED CHECK SORT: CI Status: unknown')" ] \
+    || fail "the blocker lines stay and only the failed check gains a label, got: $out"
+  assert_present "$TMP_ROOT/curl-calls" "the model was asked through the shared caller"
+  assert_no_grep 'fixture-key' "$TMP_ROOT/curl-calls" "the key reaches neither curl's argv nor its environment"
+  assert_no_grep 'fixture-key' "$GH_CALLS" "the key reaches no gh call"
+  pass "with the model down the blocker lines are intact and the check is unknown"
+}
+
 # The next two cases supply gh's own "nothing reported" sentences through
 # FM_TEST_CHECKS_ERROR, so they prove the behaviour GIVEN those strings and
 # nothing about the strings themselves. A gh reword is invisible to this
@@ -279,6 +489,11 @@ test_changes_requested_decision_is_never_silent
 test_authors_own_changes_requested_review_is_not_a_blocker
 test_pending_approval_is_not_a_blocker
 test_required_failure_is_a_blocker
+test_failed_check_sort_is_off_unless_asked_for
+test_failed_check_sort_is_off_without_a_key
+test_failed_check_sort_rules_decide_first
+test_failed_check_sort_asks_only_for_a_listed_project
+test_failed_check_sort_never_changes_the_report
 test_unreported_required_checks_are_unconfirmed
 test_no_reported_checks_is_unverified
 test_help_states_what_silence_means_and_what_is_out_of_scope
