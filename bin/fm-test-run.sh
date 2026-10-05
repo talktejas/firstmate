@@ -377,7 +377,7 @@ family_for_basename() {
       printf '%s\n' backend-dispatch
       ;;
     fm-check-unregister.test.sh|fm-pr-check-security.test.sh|fm-pr-merge.test.sh|\
-    fm-pr-reviewers.test.sh|fm-pr-state.test.sh|\
+    fm-pr-reviewers.test.sh|fm-pr-risk.test.sh|fm-pr-state.test.sh|\
     fm-review-diff.test.sh|fm-teardown.test.sh|fm-x-mode.test.sh)
       printf '%s\n' pr-forge
       ;;
@@ -1456,12 +1456,13 @@ families_for_changed_path() {
       ;;
     bin/fm-jev-lib.sh)
       # The one Jev caller, sourced by bin/fm-dispatch-resolve.sh, the watcher's
-      # routine-wake triage, bin/fm-house-rules-check.sh, and the worker stop
-      # hook's finished check.
+      # routine-wake triage, bin/fm-house-rules-check.sh, the worker stop
+      # hook's finished check, and the pull request risk level.
       printf '%s\n' "__script__:fm-dispatch-resolve.test.sh"
       printf '%s\n' "__script__:fm-jev-wake-triage.test.sh"
       printf '%s\n' "__script__:fm-house-rules-check.test.sh"
       printf '%s\n' "__script__:fm-finished-check.test.sh"
+      printf '%s\n' "__script__:fm-pr-risk.test.sh"
       ;;
     bin/fm-house-rules-check.sh)
       printf '%s\n' "__script__:fm-house-rules-check.test.sh"

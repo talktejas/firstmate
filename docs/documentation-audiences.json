@@ -473,6 +473,10 @@
       "audience": "maintainer-verification"
     },
     {
+      "path": "docs/verification/jev-pr-risk.md",
+      "audience": "maintainer-verification"
+    },
+    {
       "path": "docs/verification/jev-wake-triage.md",
       "audience": "maintainer-verification"
     },
