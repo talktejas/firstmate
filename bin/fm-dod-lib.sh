@@ -40,7 +40,7 @@
 # ordinary ship brief and the durable contract written during scout promotion.
 # fm_dod_block's optional third and fourth arguments are the firstmate home and
 # the task's project. When `bin/fm-house-rules-check.sh --enabled` succeeds for
-# them (the project's name is opted in in that home's config/house-rules.json
+# them (the project's name is a line of that home's config/jev-code-projects
 # and TYPESAFE_API_KEY is present), every mode's block gains the advisory
 # house-rules step from fm_dod_house_rules_step; otherwise, and whenever either
 # argument is omitted, the block is byte-identical to the one without it.

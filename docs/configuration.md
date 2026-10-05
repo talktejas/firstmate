@@ -245,16 +245,26 @@ One task may receive six routine answers in a row before the next wake is delive
 Each call sends the wake's class and reason line, the task id, its last six status lines cut to 400 characters each, its pull request read, and whether its agent is running or has exited, or for a contributions check its diagnostic lines; it sends no brief, pane content, or quota.
 `bin/fm-jev-lib.sh` owns the request, the answer validation, and the key handling shared with typed dispatch resolution, `bin/fm-watch.sh`'s `jev_triage_routine` header owns the exact eligibility gates, and [`verification/jev-wake-triage.md`](verification/jev-wake-triage.md) records the live evidence.
 
+## Jev code projects (config/jev-code-projects)
+
+`TYPESAFE_API_KEY` alone lets a Jev check send routing text and status lines; a check that would send a project's code, file list, review findings, pull request text, or failure logs first requires that project to be named in the local, gitignored `config/jev-code-projects`.
+The file holds one entry per line, matched as a whole line, with blank lines and lines starting with `#` ignored; an absent or empty file names no project, and the file is not inherited by secondmate homes.
+An entry takes one of two forms, and neither matches the other.
+A bare project name, the last path component of the task's project, matches a check keyed by firstmate project: the [house-rules check](#house-rules-check-env-typesafe_api_key-confighouse-rulesjson), the [review finding sort](#review-finding-sort-env-typesafe_api_key-configjev-code-projects), the [pull request risk level](#pull-request-risk-level-env-typesafe_api_key), and the [commit check](#commit-check-env-typesafe_api_key-configjev-code-projects).
+`<owner>/<repo>` matches a check keyed by repository, the [failed check sort](#failed-check-sort-env-typesafe_api_key-configjev-code-projects), only when it equals the pull request's owner and repository exactly, so a same-named repository under another owner is not allowed and a bare name never allows a repository by its basename.
+`bin/fm-jev-lib.sh`'s `fm_jev_code_allowed` is the one read of this file, and every check above calls it.
+This file replaces the `projects` list of `config/house-rules.json`; a `projects` key in that file is ignored.
+
 ## House-rules check (.env TYPESAFE_API_KEY, config/house-rules.json)
 
 `bin/fm-house-rules-check.sh` asks typesafe.ai's System One model (Jev) whether each changed block of a task's own work breaks a standing rule that a text search cannot catch, and prints each suspected break as a `file:line` flag before the work is handed over.
 It is off for every project by default, and it runs for a project only when both of these hold:
 
-- the project's name is in the `projects` list of the local, gitignored `config/house-rules.json`;
+- the project's name is a line of [`config/jev-code-projects`](#jev-code-projects-configjev-code-projects);
 - `TYPESAFE_API_KEY` is available under the same environment-then-`.env` contract as [typed dispatch resolution](#typed-dispatch-resolution-env-typesafe_api_key).
 
 The key alone never turns the check on: a home that holds it for typed dispatch resolution or routine-wake triage sends no source until a project is named in the list.
-With no file, no `projects` list, an empty list, or a project that is not in it, the generated ship brief is byte-identical to the one without the feature, and the script, if run anyway, makes no call.
+With no list or a project that is not in it, the generated ship brief is byte-identical to the one without the feature, and the script, if run anyway, makes no call.
 No project is opted in by default.
 
 **An opted-in project's changed source lines are sent to typesafe.ai.**
@@ -277,11 +287,10 @@ Asking stops after 60 questions, 120 seconds, or three failed calls, and the sum
 Each call sends the file path, one block of the diff with three lines of context and each line cut to 400 characters, and one rule's question and criteria.
 
 Two rules are built in: `hardcoded-choice` (the added lines hard-code a behaviour choice that should be a setting) and `own-compat-layer` (the added lines add a redirect or compatibility layer for one of the project's own old decisions).
-`config/house-rules.json` holds the opt-in list and, optionally, rules that replace the built-in two for every opted-in project in the home:
+The optional `config/house-rules.json` holds rules that replace the built-in two for every opted-in project in the home:
 
 ```json
 {
-  "projects": ["my-project"],
   "rules": [
     {
       "id": "hardcoded-choice",
@@ -293,13 +302,12 @@ Two rules are built in: `hardcoded-choice` (the added lines hard-code a behaviou
 }
 ```
 
-`projects` is a list of project names, matched exactly.
-`rules` is optional: absent or empty means the two built-in rules.
+The file and its `rules` array are both optional: absent or empty means the two built-in rules.
 Every rule needs a unique lowercase-dash `id` and non-empty `question`, `yes`, and `no` strings; invalid rules mean no check runs and no step is added to new briefs.
 The file is read from the home that wrote the brief and is not inherited by secondmate homes.
 
 The step is plain brief text and one shell command, so it reaches every supported harness and runtime backend the same way; it needs `git`, `jq`, `curl`, outbound network, and read access to the home's `.env` from the worker, and a worker that lacks any of them carries on unflagged.
-`bin/fm-house-rules-check.sh`'s header owns the exact bounds and output, `bin/fm-dod-lib.sh` owns the brief step, `bin/fm-jev-lib.sh` owns the request, the answer validation, and the key handling, and [`verification/house-rules-check.md`](verification/house-rules-check.md) records the live evidence.
+`bin/fm-house-rules-check.sh`'s header owns the exact bounds and output, `bin/fm-dod-lib.sh` owns the brief step, `bin/fm-jev-lib.sh` owns the request, the answer validation, the key handling, and the `fm_jev_code_allowed` project list read, and [`verification/house-rules-check.md`](verification/house-rules-check.md) records the live evidence.
 
 ## Finished check (.env TYPESAFE_API_KEY)
 
@@ -334,10 +342,9 @@ Second mates carry no worker stop hook and are never checked.
 It is off for every project by default, and it asks about a task only when both of these hold:
 
 - `TYPESAFE_API_KEY` is available under the same environment-then-`.env` contract as [typed dispatch resolution](#typed-dispatch-resolution-env-typesafe_api_key);
-- the task's project is a line of the local, gitignored `config/jev-code-projects`.
+- the task's project is a line of [`config/jev-code-projects`](#jev-code-projects-configjev-code-projects).
 
 The key alone never turns the sort on, because a review finding names the project's files and may quote its code.
-`config/jev-code-projects` holds one project name per line (the directory name of the task's `project=` metadata), with blank lines and lines starting with `#` ignored; an absent or empty file lists no project, and the file is not inherited by secondmate homes.
 
 Each finding is sorted into one of four fixed kinds: `inside-task` (fixing it corrects the work that was asked for), `grows-task` (fixing it adds something that was not asked for), `style-only`, or `destructive`.
 The script prints `settle` only for an `inside-task` or `style-only` answer whose confidence reaches the shared 0.6 floor, and `by hand` for everything else: `grows-task`, `destructive`, low confidence, a finding with no usable answer, a timeout, a transport or API error, a missing key, and a project that is not listed.
@@ -374,7 +381,7 @@ A counted yes can only raise the level, to high for something hard to undo and t
 A change that cannot be read at all is `risk: not rated`.
 
 The key alone sends nothing about any project.
-The local, gitignored `config/jev-code-projects` lists the projects whose changes the model may see; it is the same file, with the same format and the same no-project default, as the one [review finding sort](#review-finding-sort-env-typesafe_api_key-configjev-code-projects) describes.
+[`config/jev-code-projects`](#jev-code-projects-configjev-code-projects) lists the projects whose changes the model may see.
 For a listed project each call sends the pull request's title and description, its file list with line counts, the facts above, and the first 30000 bytes of its diff to `https://api.typesafe.ai`; that text is written by the pull request's author, so it can sway an answer, which is why an answer may raise the level and nothing more.
 For a project that is not listed the model is asked nothing and the forge is not read for a description: the level comes from the facts alone, every question code could not settle is named as unanswered with `project not listed`, and the line is `risk: not rated` when no fact raised the level, never `risk: low`.
 The rating adds at most one change read (60 seconds), one forge read (20 seconds), and three model calls to a registration made with `bin/fm-pr-check.sh <id> <PR url>`, and stops calling the model after the first call that fails outright.
@@ -394,8 +401,7 @@ A `code_bug` answer needs the shared 0.6 confidence floor, and a `flaky` or `env
 A timeout, a transport or API error, a malformed answer, an `unclear` choice, an answer under its floor, a check with no GitHub Actions job log, and an unreadable GitHub read all print `unknown`, and the worker investigates as it does without the label.
 
 The question carries the check's name and the failure-naming lines of the job's failed steps, cut to their last 4000 characters.
-A failure log quotes the project's code, so it is sent only for a repository listed in the optional local, gitignored `config/jev-code-projects`, one entry per line, with blank lines and lines starting with `#` ignored.
-An entry takes one of two forms: `<owner>/<repo>` matches a caller keyed by repository, such as this sort, only when it equals the pull request's owner and repository exactly, so a same-named repository under another owner is not allowed; a bare name matches only a caller that passes a firstmate project name, and never a repository's basename.
+A failure log quotes the project's code, so it is sent only for a repository that [`config/jev-code-projects`](#jev-code-projects-configjev-code-projects) lists as its exact `<owner>/<repo>`.
 Only the first three failed required checks are sorted, and each one after them is printed as `unknown (not sorted)` with nothing read.
 An unlisted repository still gets the two fixed rules, and its undecided failures are `unknown` with no call.
 
@@ -405,7 +411,7 @@ The sort covers GitHub pull requests only, which is all `bin/fm-pr-state.sh` rea
 ## Commit check (.env TYPESAFE_API_KEY, config/jev-code-projects)
 
 Before each commit a worker makes, a git hook stops an added line that looks like a credential and asks typesafe.ai's System One model (Jev) whether the commit message matches the staged file names, printing each mismatch as one advisory line the worker sees in the commit's own output.
-It is off unless `TYPESAFE_API_KEY` is available under the same environment-then-`.env` contract as [typed dispatch resolution](#typed-dispatch-resolution-env-typesafe_api_key) and the worker's project is a line of the local, gitignored `config/jev-code-projects` (one project name per line, the name of its directory under `projects/`; blank lines and `#` lines are ignored; absent means no project; not inherited by second-mate homes).
+It is off unless `TYPESAFE_API_KEY` is available under the same environment-then-`.env` contract as [typed dispatch resolution](#typed-dispatch-resolution-env-typesafe_api_key) and the worker's project is a line of [`config/jev-code-projects`](#jev-code-projects-configjev-code-projects).
 With the key absent, or for a project that is not listed, a worker is launched and commits exactly as it does without the feature: no hooks setting, no hook, no credential check, and nothing sent.
 
 With both, `bin/fm-spawn.sh` writes a hooks directory under that ship or scout task's own temporary directory and exports one git setting, `GIT_CONFIG_PARAMETERS`, into that worker's terminal before the worker starts.
@@ -1336,7 +1342,7 @@ FMX_RELAY_URL=https://myfirstmate.io   # optional Relay endpoint override, mainl
 FMX_ENV_FILE=           # optional alternate .env file for direct Relay client invocations; bootstrap still checks $FM_HOME/.env
 FMX_DRY_RUN=            # truthy previews Relay replies and dismissals to state/x-outbox/ without posting or requiring a token
 FMX_X_REPLY_MAX_CHARS=280   # X reply per-message split budget; values below 50 clamp to 50
-TYPESAFE_API_KEY=       # typed dispatch resolution opt-in, from the environment or .env; absent means bin/fm-dispatch-resolve.sh is off (docs/configuration.md "Typed dispatch resolution"), and so are routine-wake triage, the finished check, the pull request risk level, the failed check sort, the house-rules check, which also needs a project opted in in config/house-rules.json, and the review finding sort and the commit check, which also need the project listed in config/jev-code-projects
+TYPESAFE_API_KEY=       # typed dispatch resolution opt-in, from the environment or .env; absent means bin/fm-dispatch-resolve.sh is off (docs/configuration.md "Typed dispatch resolution"), and so are routine-wake triage, the finished check, the pull request risk level, the failed check sort, the house-rules check, the review finding sort, and the commit check, the last five sending a project's code or text only for a project listed in config/jev-code-projects
 FMX_DISCORD_REPLY_MAX_CHARS=1900   # Discord reply per-message split budget; values below 50 clamp to 50, values above 2000 reset to 1900
 FMX_X_THREAD_MAX=25     # maximum messages in one auto-split reply thread
 FMX_FOLLOWUP_MAX_AGE_SECS=604800   # local window for posting Relay completion follow-ups (7 days)
