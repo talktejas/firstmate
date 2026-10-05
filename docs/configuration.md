@@ -264,7 +264,8 @@ The optional local, gitignored `config/jev-code-projects` lists the projects who
 An absent or empty file lists no project, which is how firstmate ships, and the file is not inherited by secondmate homes, so each home opts its own projects in.
 For a listed project each call sends the pull request's title and description, its file list with line counts, the facts above, and the first 30000 bytes of its diff to `https://api.typesafe.ai`; that text is written by the pull request's author, so it can sway an answer, which is why an answer may raise the level and nothing more.
 For a project that is not listed the model is asked nothing and the forge is not read for a description: the level comes from the facts alone, every question code could not settle is named as unanswered with `project not listed`, and the line is `risk: not rated` when no fact raised the level, never `risk: low`.
-The rating adds at most one change read (60 seconds), one forge read (20 seconds), and three model calls to a registration, and stops calling the model after the first call that fails outright.
+The rating adds at most one change read (60 seconds), one forge read (20 seconds), and three model calls to a registration made with `bin/fm-pr-check.sh <id> <PR url>`, and stops calling the model after the first call that fails outright.
+The level is rated only then: the re-registration `bin/fm-pr-merge.sh` performs passes `--no-risk`, so a merge reads no change, sends nothing, waits on nothing, and prints no `risk:` line.
 `bin/fm-pr-risk-lib.sh`'s header owns the exact facts, thresholds, and questions, `bin/fm-jev-lib.sh` owns the request, the key handling, and the `fm_jev_code_allowed` project list read, and [`verification/jev-pr-risk.md`](verification/jev-pr-risk.md) records the live evidence.
 
 ## Gate defaults (.no-mistakes.yaml)

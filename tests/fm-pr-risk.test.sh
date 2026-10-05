@@ -274,6 +274,22 @@ out=$(check FAKE_CHOICE=yes) || fail "the registration failed for an unlisted pr
 assert_equals "armed: state/task-a.check.sh
 risk: not rated - no risk fact found; unanswered: $NOT_LISTED" "$out" "an unlisted project still registers and is not rated"
 assert_absent "$H/log/body" "the key alone sends nothing about an unlisted project"
+rm -f "$H/.env"
+check >/dev/null || fail "the keyless registration failed"
+keyless_children=$(sort "$H/log/child-env")
+printf 'TYPESAFE_API_KEY=%s\n' "$KEY" > "$H/.env"
+printf 'alpha\n' > "$LISTED"
+merge_time() {
+  fm_write_meta "$H/state/task-a.meta" "window=fm-task-a" "kind=ship" "worktree=$WT" "project=$PROJ"
+  rm -f "$H/log/"*
+  FM_STATE_OVERRIDE="$H/state" "$ROOT/bin/fm-pr-check.sh" task-a "$URL" --no-risk 2>"$TMP_ROOT/err"
+}
+out=$(merge_time) || fail "the merge-time registration failed: $(cat "$TMP_ROOT/err")"
+assert_equals 'armed: state/task-a.check.sh' "$out" "a merge-time registration of a listed project prints no risk line"
+assert_absent "$H/log/body" "a merge-time registration makes no Jev call"
+assert_equals "$keyless_children" "$(sort "$H/log/child-env")" \
+  "a merge-time registration reads no change and no description: it starts only what a keyless registration starts"
+assert_present "$H/state/task-a.pr-poll" "a merge-time registration still arms the merge poll"
 pass "fm-pr-check: unchanged without the key; one advisory line with it; the key stays off argv and child environments"
 
 printf '# all fm-pr-risk tests passed\n'
