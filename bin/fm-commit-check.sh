@@ -156,7 +156,7 @@ fm_commit_check_install() {  # <hooks-dir> <home> <project> <worktree>
 
 # Print "<file>:<line>\t<added text>" for every added line of the staged change.
 _fm_cc_added_lines() {
-  git -c core.quotePath=false diff --cached --no-color --no-ext-diff --diff-filter=AMR -U0 \
+  git -c core.quotePath=false diff --cached --no-color --no-ext-diff --diff-filter=d --no-renames -U0 \
     --src-prefix=a/ --dst-prefix=b/ 2>/dev/null | LC_ALL=C awk '
     /^diff --git / { inhunk = 0; file = ""; next }
     !inhunk && /^\+\+\+ / { file = ($0 == "+++ /dev/null") ? "" : ($0 ~ /^\+\+\+ "/) ? substr($0, 5) : substr($0, 7); sub(/\t$/, "", file); next }

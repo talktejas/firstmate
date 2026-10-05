@@ -205,6 +205,19 @@ stage 'src/we"ird.py' "TOKEN = \"$ghtoken\"\\n"
 check "$HOME_ON" listed 'Add the client'
 expect_code 1 $? "a credential in a file whose name git quotes must stop the commit"
 assert_grep 'ird.py":1: GitHub token' "$ERR" "the stop names the quoted file and its line"
+stage
+ln -s src "$WT/link"
+git -C "$WT" add -- link
+git -C "$WT" commit -q -m 'Seed a tracked symlink'
+rm "$WT/link"
+printf 'TOKEN = "%s"\n' "$ghtoken" > "$WT/link"
+git -C "$WT" add -- link
+check "$HOME_ON" listed 'Add the client'
+expect_code 1 $? "a credential in a symlink replaced by a regular file must stop the commit"
+assert_grep 'link:1: GitHub token' "$ERR" "the stop names the type-changed file and its line"
+git -C "$WT" reset -q --hard
+git -C "$WT" rm -q link
+git -C "$WT" commit -q -m 'Drop the seeded symlink'
 stage src/db.py 'port = 5432\ndb_password = "hunter2-hunter2"\n'
 check "$HOME_ON" listed 'Add the database settings'
 expect_code 0 $? "a quoted password literal must not stop the commit"
