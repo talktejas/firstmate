@@ -447,6 +447,24 @@ test_verified_merge_records_pr_and_head() {
   pass "fm-pr-merge records pr= and pr_head= for a verified GitHub merge"
 }
 
+test_merge_registration_never_rates_risk() {
+  local case_dir rc
+  case_dir=$(make_case merge-no-risk)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" deadbeefcafefeed0000000000000000deadbeef
+
+  set +e
+  TYPESAFE_API_KEY=merge-test-key run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/9 \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "merge-no-risk: fm-pr-merge should succeed"
+  assert_grep 'armed: state/task-x1.check.sh' "$case_dir/stdout" "merge-no-risk: the merge did not re-register the pull request"
+  assert_no_grep 'risk:' "$case_dir/stdout" "merge-no-risk: a merge printed a risk line"
+  pass "fm-pr-merge re-registers without rating the pull request"
+}
+
 # The forge call is the point of no return: once gh-axi has merged, nothing this
 # script does afterwards can un-merge it. Proving pr= is already in the task's
 # meta at that moment is what makes a later failure unable to lose the merge.
@@ -2152,6 +2170,7 @@ test_github_closed_unqueued_outcome_omits_retry_flags
 test_github_agreeing_queue_rules_keep_retry_guidance
 test_github_conflicting_queue_rules_report_ambiguity
 test_verified_merge_records_pr_and_head
+test_merge_registration_never_rates_risk
 test_pr_metadata_is_recorded_before_the_forge_call
 test_merge_failure_propagates_after_recording
 test_github_open_unqueued_outcome_refuses

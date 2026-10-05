@@ -107,7 +107,7 @@ finding_sort_main() {
   project=$(sed -n 's/^project=//p' "$FM_HOME/state/$id.meta" 2>/dev/null | head -n 1)
   project=${project##*/}
   if ! fm_jev_code_allowed "$project"; then
-    by_hand "off, project \"$project\" is not a line of $FM_HOME/config/jev-code-projects"; return
+    by_hand "off, project \"$project\" is not a line of ${FM_CONFIG_OVERRIDE:-$FM_HOME/config}/jev-code-projects"; return
   fi
   command -v jq >/dev/null 2>&1 || { by_hand "jq not installed"; return; }
 

@@ -268,7 +268,9 @@
 #   TMUX TMUX_PANE HERDR_ENV HERDR_SESSION HERDR_SOCKET_PATH HERDR_PANE_ID
 #   CMUX_WORKSPACE_ID CMUX_SURFACE_ID CMUX_TAB_ID CMUX_PANEL_ID CMUX_SOCKET_PATH
 #   ZELLIJ ZELLIJ_SESSION_NAME ZELLIJ_PANE_ID FM_ZELLIJ_SESSION, plus the task
-#   marker FM_TASK_ID that ship and scout panes receive above.
+#   marker FM_TASK_ID that ship and scout panes receive above and, only for a
+#   pane the commit check (bin/fm-commit-check.sh) exported it into, the
+#   GIT_CONFIG_PARAMETERS setting.
 #   An enabled task trace also retains TRACEPARENT. Explicit Firstmate launch
 #   assignments still apply inside the filtered environment. Raw commands must
 #   be POSIX sh compatible under this opt-in; the absent-file path is unchanged.
@@ -4675,8 +4677,20 @@ spawn_send_text_line "$T" "unset $FM_LAUNCH_SCRUB_ENV" || LAUNCH="unset $FM_LAUN
 # ones assigned an isolated worktree; a secondmate runs its own home instead.
 # The id reached a validated bare-slug charset above, so it carries no shell
 # syntax of its own.
+COMMIT_CHECK_GIT=
 if [ "$KIND" = ship ] || [ "$KIND" = scout ]; then
   spawn_send_text_line "$T" "export FM_TASK_ID=$ID"
+  # The commit check (bin/fm-commit-check.sh): with a key and a project listed
+  # in config/jev-code-projects it fills a hooks directory under the task temp
+  # root and prints the one setting that points this pane's git at it;
+  # otherwise it prints nothing and the launch is unchanged. It rides the same
+  # channel, so it reaches every backend and harness, and only this worker's
+  # process tree ever sees the hooks. The check acts only on commits to this
+  # task's own worktree.
+  COMMIT_CHECK_GIT=$("$FM_ROOT/bin/fm-commit-check.sh" --install "$TASK_TMP/git-hooks" "$FM_HOME" "${PROJ_ABS##*/}" "$WT" 2>/dev/null) || COMMIT_CHECK_GIT=
+  [ -z "$COMMIT_CHECK_GIT" ] \
+    || spawn_send_text_line "$T" "export GIT_CONFIG_PARAMETERS=$(shell_quote "$COMMIT_CHECK_GIT")" \
+    || COMMIT_CHECK_GIT=
 fi
 # Send through the exact channel that already ships GOTMPDIR, so every backend
 # and harness - ship, scout, and secondmate - gets it before launch. Skipped
@@ -4701,7 +4715,7 @@ if [ "$LAUNCH_ENV_ENABLED" = 1 ]; then
     TMPDIR TMP TEMP GOTMPDIR TMUX TMUX_PANE HERDR_ENV HERDR_SESSION HERDR_SOCKET_PATH \
     HERDR_PANE_ID CMUX_WORKSPACE_ID CMUX_SURFACE_ID CMUX_TAB_ID CMUX_PANEL_ID \
     CMUX_SOCKET_PATH ZELLIJ ZELLIJ_SESSION_NAME ZELLIJ_PANE_ID FM_ZELLIJ_SESSION \
-    FM_TASK_ID \
+    FM_TASK_ID ${COMMIT_CHECK_GIT:+GIT_CONFIG_PARAMETERS} \
     $LAUNCH_ENV_NAMES; do
     # Only validated names enter shell syntax. Values expand once, quoted, in
     # the pane shell and never become source text or spawn-process snapshots.

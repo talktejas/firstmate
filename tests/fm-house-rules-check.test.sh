@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # tests/fm-house-rules-check.test.sh - the advisory house-rules check
-# (bin/fm-house-rules-check.sh, off unless the project is opted in in
-# config/house-rules.json and TYPESAFE_API_KEY is present) and the
+# (bin/fm-house-rules-check.sh, off unless the project is a line of
+# config/jev-code-projects and TYPESAFE_API_KEY is present) and the
 # definition-of-done step that asks a worker to run it (bin/fm-dod-lib.sh).
 #
 # Three layers, none of which touches the network, each pinned to a fixture
@@ -33,7 +33,7 @@ ERR="$TMP_ROOT/stderr"
 mkdir -p "$ON/config" "$KEYONLY" "$OPTED/config" "$REPO/src" "$REPO/docs" "$STATES"
 printf 'TYPESAFE_API_KEY=%s\n' "$KEY" > "$ON/.env"
 printf 'TYPESAFE_API_KEY=%s\n' "$KEY" > "$KEYONLY/.env"
-opt_in() { printf '{"projects": ["%s"]}\n' "$PROJ" > "$1/config/house-rules.json"; }
+opt_in() { rm -f "$1/config/house-rules.json"; printf '# opted in\n%s\n' "$PROJ" > "$1/config/jev-code-projects"; }
 opt_in "$ON"
 opt_in "$OPTED"
 export -n FM_CONFIG_OVERRIDE FM_ROOT_OVERRIDE 2>/dev/null || true
@@ -120,10 +120,10 @@ expect_code 0 "$code" "--enabled is true with a key, an opted-in project, and th
 pass "off without the key: no call, no flag, exit 0"
 
 out=$(STUB_YES='src/a.sh' run_stubbed "$KEYONLY" "$PROJ"); code=$?
-expect_code 0 "$code" "a key with no house-rules.json exits 0"
-assert_equals '' "$out" "a key with no house-rules.json prints no flag"
+expect_code 0 "$code" "a key with no project list exits 0"
+assert_equals '' "$out" "a key with no project list prints no flag"
 assert_equals 0 "$(calls)" "the key alone asks nothing"
-assert_contains "$(cat "$ERR")" "off (project \"$PROJ\" is not listed" "the key alone says the project is not opted in"
+assert_contains "$(cat "$ERR")" "off (project \"$PROJ\" is not a line of" "the key alone says the project is not opted in"
 run_stubbed "$KEYONLY" --enabled "$PROJ"; code=$?
 expect_code 1 "$code" "--enabled is false with the key alone"
 out=$(STUB_YES='src/a.sh' run_stubbed "$ON" other-proj)
@@ -131,15 +131,16 @@ assert_equals '' "$out" "a project outside the list prints no flag"
 assert_equals 0 "$(calls)" "a project outside the list asks nothing"
 run_stubbed "$ON" --enabled other-proj; code=$?
 expect_code 1 "$code" "--enabled is false for a project outside the list"
-for unlisted in '{}' '{"projects": []}' '{"projects": "some-proj"}' '{"rules": []}'; do
-  printf '%s\n' "$unlisted" > "$ON/config/house-rules.json"
+printf '{"projects": ["%s"]}\n' "$PROJ" > "$ON/config/house-rules.json"
+for unlisted in '' "# $PROJ" "owner/$PROJ" "$PROJ-two"; do
+  printf '%s\n' "$unlisted" > "$ON/config/jev-code-projects"
   run_stubbed "$ON" "$PROJ" >/dev/null
-  assert_equals 0 "$(calls)" "$unlisted opts no project in"
+  assert_equals 0 "$(calls)" "a project list holding only \"$unlisted\" opts the project out, whatever house-rules.json names"
   run_stubbed "$ON" --enabled "$PROJ"; code=$?
-  expect_code 1 "$code" "--enabled is false for $unlisted"
+  expect_code 1 "$code" "--enabled is false for a project list holding only \"$unlisted\""
 done
 opt_in "$ON"
-pass "the key alone sends nothing: only a project named in the projects list is checked"
+pass "the key alone sends nothing: only a project named in config/jev-code-projects is checked"
 
 out=$(STUB_YES='src/a.sh' run_stubbed "$ON" "$PROJ"); code=$?
 expect_code 0 "$code" "a flagged run still exits 0"
@@ -180,16 +181,16 @@ expect_code 2 "$code" "a missing project name is a usage error"
 assert_equals 0 "$(calls)" "a missing project name asks nothing"
 pass "errors, a missing base, and bad usage never flag and never fail the change"
 
-printf '{"projects": ["%s"], "rules": [{"id": "only-rule", "question": "Is it \\\\d so?", "yes": "Y1", "no": "N1"}]}\n' "$PROJ" \
+printf '%s\n' '{"rules": [{"id": "only-rule", "question": "Is it \\d so?", "yes": "Y1", "no": "N1"}]}' \
   > "$ON/config/house-rules.json"
 out=$(STUB_YES='src/a.sh' run_stubbed "$ON" "$PROJ")
 assert_equals 3 "$(calls)" "configured rules replace the built-in rules"
 assert_equals 'src/a.sh:3: only-rule (confidence 0.9): Is it \d so?' "$out" "a configured rule flags under its own id and question, backslash intact"
 assert_equals 'Y1' "$(cut -d'|' -f2 "$CALLS" | sort -u)" "the rule's own criteria are what is asked"
-printf '{"projects": ["%s"], "rules": []}\n' "$PROJ" > "$ON/config/house-rules.json"
+printf '{"rules": []}\n' > "$ON/config/house-rules.json"
 out=$(run_stubbed "$ON" "$PROJ")
 assert_equals 6 "$(calls)" "an empty rules array means the two built-in rules"
-printf '{"projects": ["%s"], "rules": [{"id": "Bad Id", "question": "q"}]}\n' "$PROJ" > "$ON/config/house-rules.json"
+printf '{"rules": [{"id": "Bad Id", "question": "q"}]}\n' > "$ON/config/house-rules.json"
 out=$(run_stubbed "$ON" "$PROJ"); code=$?
 expect_code 0 "$code" "malformed rules exit 0"
 assert_equals 0 "$(calls)" "malformed rules ask nothing"
@@ -271,5 +272,35 @@ done
 FM_HOME="$ON" "$ROOT/bin/fm-brief.sh" hr-scout "$PROJ" --scout >/dev/null 2>&1 || fail "fm-brief.sh failed for a scout"
 assert_no_grep 'advisory house-rule flags' "$ON/data/hr-scout/brief.md" "a scout brief carries no check"
 pass "brief: every ship mode gains the advisory step only for an opted-in project in a home with the key"
+
+# --- credential lines never leave -------------------------------------------
+
+PLANTED="ghp_$(printf 'a%.0s' $(seq 1 36))"
+printf 'retries = 3\nGH_TOKEN=%s\n' "$PLANTED" > "$REPO/src/client.sh"
+rgit add -A
+rgit commit -qm client
+rm -rf "$LOG"; mkdir -p "$LOG"
+(cd "$REPO" && env PATH="$FAKEBIN:$PATH" FAKE_CURL_LOG="$LOG" FAKE_CURL_RESPONSE="$TMP_ROOT/response.json" \
+  TYPESAFE_API_KEY="$KEY" FM_HOME="$OPTED" "$TOOL" "$PROJ" >/dev/null 2>&1)
+sent=$(cat "$LOG"/body.*)
+assert_contains "$sent" 'retries = 3' "the block holding the credential line is still asked about"
+assert_not_contains "$sent" "$PLANTED" "a changed line holding a credential is in no request"
+assert_contains "$sent" 'line withheld: looks like a credential' "the credential line is replaced by the placeholder"
+pass "executable: a changed line that looks like a credential is withheld from every request"
+
+# --- the gate and the rules read one config directory -------------------------
+
+ALT="$TMP_ROOT/alt-config"
+mkdir -p "$ALT"
+printf '%s\n' "$PROJ" > "$ALT/jev-code-projects"
+printf '{"rules":[{"id":"alt-rule","question":"Alt?","yes":"Alt yes.","no":"Alt no."}]}\n' > "$ALT/house-rules.json"
+FM_CONFIG_OVERRIDE="$ALT" run_stubbed "$KEYONLY" --enabled "$PROJ"; code=$?
+expect_code 0 "$code" "FM_CONFIG_OVERRIDE's project list opts the project in for a home that lists none"
+out=$(FM_CONFIG_OVERRIDE="$ALT" STUB_YES='src/a.sh' run_stubbed "$KEYONLY" "$PROJ")
+assert_contains "$out" 'src/a.sh:3: alt-rule ' "the rules come from the same directory as the project list"
+: > "$ALT/jev-code-projects"
+FM_CONFIG_OVERRIDE="$ALT" run_stubbed "$ON" --enabled "$PROJ"; code=$?
+expect_code 1 "$code" "the home's own project list is not read when FM_CONFIG_OVERRIDE names another directory"
+pass "FM_CONFIG_OVERRIDE selects one directory for both the project list and the rules"
 
 printf '# all fm-house-rules-check tests passed\n'

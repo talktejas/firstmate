@@ -47,7 +47,7 @@ That is the reason the check stays advice only.
 ## Offline behavior
 
 `tests/fm-house-rules-check.test.sh` proves the rest without the network.
-With `fm_jev_choice` stubbed at the library boundary it proves which blocks code offers and which it never does, the flag line, the split of a long hunk, the confidence floor, the stop after three failed calls, the choice of the closest default-branch base, the no-base and usage outcomes, that a project outside the `projects` list is never asked about, and the configured, empty, and invalid rules.
+With `fm_jev_choice` stubbed at the library boundary it proves which blocks code offers and which it never does, the flag line, the split of a long hunk, the confidence floor, the stop after three failed calls, the choice of the closest default-branch base, the no-base and usage outcomes, that a project outside `config/jev-code-projects` is never asked about, and the configured, empty, and invalid rules.
 With the real library and a fake `curl` it proves the request shape and that the key reaches `curl` only on the file-descriptor header and no child environment, argv, or output.
 It also proves each ship mode's brief gains the step only for an opted-in project in a home with the key, and is unchanged otherwise.
 

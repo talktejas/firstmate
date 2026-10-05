@@ -461,7 +461,15 @@
       "audience": "maintainer-verification"
     },
     {
+      "path": "docs/verification/commit-check.md",
+      "audience": "maintainer-verification"
+    },
+    {
       "path": "docs/verification/dispatch-resolve.md",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "docs/verification/failed-check-sort.md",
       "audience": "maintainer-verification"
     },
     {
@@ -474,6 +482,10 @@
     },
     {
       "path": "docs/verification/house-rules-check.md",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "docs/verification/jev-pr-risk.md",
       "audience": "maintainer-verification"
     },
     {
