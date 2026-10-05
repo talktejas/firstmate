@@ -1,0 +1,17 @@
+== [target] fm-crew-state.sh worker
+-- clean environment
+   stdout: state: unknown · source: none · backend target gone: fm:fm-worker
+-- inherited pair naming another task in a snapshot dir that is gone (the reported shape)
+   stdout: state: unknown · source: none · backend target gone: fm:fm-worker
+   stderr: fm-crew-state: ignoring inherited FM_CREW_STATE_META_OVERRIDE=/tmp/fm-fleet-tasks.gone/b2b.meta and FM_CREW_STATE_STATUS_OVERRIDE=/tmp/fm-fleet-tasks.gone/b2b.status: they are not the captured records of task worker, so this read uses <home>/state; start firstmate from an environment without them
+-- adversarial: inherited pair naming another task whose files EXIST
+   stdout: state: unknown · source: none · backend target gone: fm:fm-worker
+   stderr: fm-crew-state: ignoring inherited FM_CREW_STATE_META_OVERRIDE=<home>/other/b2b.meta and FM_CREW_STATE_STATUS_OVERRIDE=<home>/other/b2b.status: they are not the captured records of task worker, so this read uses <home>/state; start firstmate from an environment without them
+-- adversarial: only the metadata half inherited, for this task
+   stdout: state: unknown · source: none · backend target gone: fm:fm-worker
+   stderr: fm-crew-state: ignoring inherited FM_CREW_STATE_META_OVERRIDE=<home>/capture/worker.meta and FM_CREW_STATE_STATUS_OVERRIDE=: they are not the captured records of task worker, so this read uses <home>/state; start firstmate from an environment without them
+-- adversarial: only the status half inherited
+   stdout: state: unknown · source: none · backend target gone: fm:fm-worker
+   stderr: fm-crew-state: ignoring inherited FM_CREW_STATE_META_OVERRIDE= and FM_CREW_STATE_STATUS_OVERRIDE=/tmp/fm-fleet-tasks.gone/b2b.status: they are not the captured records of task worker, so this read uses <home>/state; start firstmate from an environment without them
+-- fleet snapshot's own captured pair for this task (must still be honored)
+   stdout: state: unknown · source: none · backend target gone: fm:fm-worker

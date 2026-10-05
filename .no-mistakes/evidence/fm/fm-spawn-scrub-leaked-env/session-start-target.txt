@@ -1,0 +1,12 @@
+-- clean start
+   digest lines: 136 | reached NEXT STEP: 1 | truncation banner: 0
+-- the exact set reported on 2026-10-05
+   INHERITED ENVIRONMENT: this session was started with FM_CREW_STATE_META_OVERRIDE FM_CREW_STATE_STATUS_OVERRIDE FM_SESSION_START_STAGE_FILE FM_HOME_SUMMARY_IF_IDLE FM_HOME_SUMMARY_WORKER_BEST_EFFORT CLAUDE_CODE_CHILD_SESSION already set, left behind by another command. This session cannot repair that: its conversation may not be saved and anything it launches inherits them. Exit and start firstmate with: env -u FM_CREW_STATE_META_OVERRIDE -u FM_CREW_STATE_STATUS_OVERRIDE -u FM_SESSION_START_STAGE_FILE -u FM_HOME_SUMMARY_IF_IDLE -u FM_HOME_SUMMARY_WORKER_BEST_EFFORT -u CLAUDE_CODE_CHILD_SESSION claude
+   digest lines: 137 | reached NEXT STEP: 1 | truncation banner: 0
+   inherited stage file untouched
+-- adversarial: settings present but empty
+   INHERITED ENVIRONMENT: this session was started with FM_HOME_SUMMARY_IF_IDLE CLAUDE_CODE_CHILD_SESSION already set, left behind by another command. This session cannot repair that: its conversation may not be saved and anything it launches inherits them. Exit and start firstmate with: env -u FM_HOME_SUMMARY_IF_IDLE -u CLAUDE_CODE_CHILD_SESSION claude
+   digest lines: 137 | reached NEXT STEP: 1 | truncation banner: 0
+-- only the nested-session marker
+   INHERITED ENVIRONMENT: this session was started with CLAUDE_CODE_CHILD_SESSION already set, left behind by another command. This session cannot repair that: its conversation may not be saved and anything it launches inherits them. Exit and start firstmate with: env -u CLAUDE_CODE_CHILD_SESSION claude
+   digest lines: 137 | reached NEXT STEP: 1 | truncation banner: 0

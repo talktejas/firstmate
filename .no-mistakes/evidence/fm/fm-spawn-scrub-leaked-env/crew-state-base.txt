@@ -1,0 +1,13 @@
+== [base] fm-crew-state.sh worker
+-- clean environment
+   stdout: state: unknown · source: none · backend target gone: fm:fm-worker
+-- inherited pair naming another task in a snapshot dir that is gone (the reported shape)
+   stdout: state: unknown · source: none · no metadata for worker
+-- adversarial: inherited pair naming another task whose files EXIST
+   stdout: state: unknown · source: none · backend target gone: fm:fm-worker
+-- adversarial: only the metadata half inherited, for this task
+   stdout: state: unknown · source: none · backend target gone: fm:fm-worker
+-- adversarial: only the status half inherited
+   stdout: state: unknown · source: none · backend target gone: fm:fm-worker
+-- fleet snapshot's own captured pair for this task (must still be honored)
+   stdout: state: unknown · source: none · backend target gone: fm:fm-worker

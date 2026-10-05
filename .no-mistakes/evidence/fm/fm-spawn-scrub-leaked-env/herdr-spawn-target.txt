@@ -1,0 +1,18 @@
+== [target] 97f98a0 | herdr 0.8.2 | session fm-lab-scrub-target-49131
+-- A: fm-spawn run from a polluted command scope starts the Herdr server and launches an agent
+  long-lived Herdr server process (/proc/<pid>/environ)      leaked: none | unrelated sentinel: present
+  launched agent process                                     leaked: none | unrelated sentinel: present
+-- B: the server is ALREADY polluted (started by hand that way); fm-spawn runs from a clean scope
+  long-lived Herdr server process (deliberately polluted)    leaked: FM_CREW_STATE_META_OVERRIDE FM_CREW_STATE_STATUS_OVERRIDE FM_SESSION_START_STAGE_FILE FM_HOME_SUMMARY_IF_IDLE FM_HOME_SUMMARY_WORKER_BEST_EFFORT CLAUDE_CODE_CHILD_SESSION | unrelated sentinel: present
+  launched agent process                                     leaked: none | unrelated sentinel: present
+-- C: fm-crew-state.sh reads the live task cm2 (real pane, real records in this home)
+  clean environment
+     stdout: state: unknown · source: pane · harness state unavailable (unknown missing)
+  inherited pair naming another task's vanished snapshot (the reported shape)
+     stdout: state: unknown · source: pane · harness state unavailable (unknown missing)
+     stderr: fm-crew-state: ignoring inherited FM_CREW_STATE_META_OVERRIDE=/tmp/fm-fleet-tasks.gone/b2b.meta and FM_CREW_STATE_STATUS_OVERRIDE=/tmp/fm-fleet-tasks.gone/b2b.status: they are not the captured records of task cm2, so this read uses <tmp>/home/state; start firstmate from an environment without them
+  adversarial: only the metadata half, pointing at this task's capture
+     stdout: state: unknown · source: pane · harness state unavailable (unknown missing)
+     stderr: fm-crew-state: ignoring inherited FM_CREW_STATE_META_OVERRIDE=<tmp>/capture/cm2.meta and FM_CREW_STATE_STATUS_OVERRIDE=: they are not the captured records of task cm2, so this read uses <tmp>/home/state; start firstmate from an environment without them
+  fleet snapshot's own captured pair for this task (must still be honored)
+     stdout: state: unknown · source: pane · harness state unavailable (unknown missing)
