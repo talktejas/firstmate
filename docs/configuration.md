@@ -352,8 +352,11 @@ Code decides first, on the worker's machine:
 
 The hook then makes one request carrying up to four yes/no questions: is the message filler, does it contradict the change, does the change carry debug leftovers, and is a staged file unaccounted for by the message.
 A question code can already answer is left out: leftovers when the change adds no line of code, and unaccounted files when only one file is staged.
-That request carries the commit message (its last 4000 characters when longer), the staged file names (the first 200), and the staged diff with prose, lockfiles, generated, vendored, and secret-shaped paths left out (its last 24000 characters when longer).
-A diff line that matches the password-or-secret-literal pattern above is never sent: it is replaced by `[line withheld]`.
+That request carries the commit message (its last 4000 characters when longer), the staged file names (the first 200), and only the lines the change adds, grouped by file (their last 24000 characters when longer).
+Lines the change removes and lines it leaves unchanged are never sent.
+The added lines of prose, lockfiles, generated, vendored, and secret-shaped paths are left out, and so are those of any file whose staged content holds a private-key header, so no part of a key block is sent; such a file is still named.
+An added line that matches a credential format or the password-or-secret-literal pattern above is never sent: it is replaced by `[line withheld]`.
+All of this matching is byte-wise, so a byte that is not valid in the worker's locale cannot hide a line from a pattern.
 A project taken off the list after a worker was launched is no longer checked by that worker's hook.
 A `yes` whose confidence and `yes` probability are both at or above the shared 0.6 floor prints one advisory line; a `no`, a low-confidence answer, a timeout, a transport or API error, and a malformed answer print nothing, and in every one of those cases the commit goes through.
 

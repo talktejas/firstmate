@@ -6,10 +6,14 @@ This record supports the key-gated commit check owned by [`../configuration.md`]
 It records only facts that must be re-established when git's hook lookup, the typesafe.ai model, or the questions in `bin/fm-commit-check.sh` change.
 The API shape itself is recorded in [`dispatch-resolve.md`](dispatch-resolve.md).
 
-## Live answers to the shipped questions
+## Live answers to an earlier form of the request
+
+These rows are not evidence for the request the final code sends, which has not been run live.
+They were made when the request carried the staged change as a unified diff with removed and unchanged lines, and when the instructions and the `contradicts` criteria described that diff.
+The final code sends only added lines and words the instructions and `contradicts` accordingly, so `contradicts` in particular must be re-established live; the `filler` and `unmentioned` criteria are unchanged.
 
 Run 2026-10-06 against `https://api.typesafe.ai`, model `jev-latest`, timeout 5 s, floor 0.6, git 2.53.0.
-Each row is one real request made by `fm_commit_check`, sourced from `bin/fm-commit-check.sh` with its instructions and criteria unmodified, over a change staged in a throwaway repository of synthetic files, with the key taken from the environment by the library and the project named in a fixture `config/jev-code-projects`.
+Each row is one real request made by `fm_commit_check`, sourced from `bin/fm-commit-check.sh` with its instructions and criteria as they then were, over a change staged in a throwaway repository of synthetic files, with the key taken from the environment by the library and the project named in a fixture `config/jev-code-projects`.
 Each cell is the choice and its confidence; a dash means code left the question out.
 Each request took between 314 and 364 ms.
 
@@ -24,7 +28,7 @@ Each request took between 314 and 364 ms.
 ## Live commits through the installed hooks
 
 Run the same day against the same endpoint: `--install` wrote the hooks directory, and `git commit` ran with the printed value exported as `GIT_CONFIG_PARAMETERS`.
-The transcript shows only the lines the final code still prints for these two commits; the worktree scoping, the stop's closing line, the secret-literal advisory, and the withheld diff lines were not run live and are covered by the portable suite below.
+The transcript shows only the lines the final code still prints for these two commits, and the first commit's request had the earlier form described above; the worktree scoping, the stop's closing line, the secret-literal advisory, and the added-lines-only request with its withheld lines were not run live and are covered by the portable suite below.
 
 ```text
 $ git commit -q -m 'Remove the retry loop from fetch'    # staged: the retry loop added
@@ -45,7 +49,7 @@ A Claude Code worker's shell was observed the same day to carry the task marker 
 ## Portable coverage
 
 `tests/fm-commit-check.test.sh` covers the rest with no network, against a fixture home.
-With `fm_jev_choices` stubbed at the library boundary it asserts: nothing asked or said without a key; nothing sent, and filler not judged, for a project that is not listed; which questions each code fact leaves out; that filler is always asked for a listed project, including for a subject with no ASCII letters; silence for a low-confidence answer and for a failed call; the path filter; that a long diff and a long message are sent as their ends; the skipped commit kinds; the credential stop for a token format and a private-key header, including that it never prints the value, never suggests skipping the hooks, and does nothing without a key or for a project that is not listed; that a quoted password literal and four ordinary lines naming a token or secret do not stop a commit; that the flagged literal line is sent as `[line withheld]` while the rest of the change is sent; and that a stop for a path holding a space names its line.
+With `fm_jev_choices` stubbed at the library boundary it asserts: nothing asked or said without a key; nothing sent, and filler not judged, for a project that is not listed; which questions each code fact leaves out; that filler is always asked for a listed project, including for a subject with no ASCII letters; silence for a low-confidence answer and for a failed call; the path filter; that long added lines and a long message are sent as their ends; the skipped commit kinds; the credential stop for a token format and a private-key header, including that it never prints the value, never suggests skipping the hooks, and does nothing without a key or for a project that is not listed; that a quoted password literal and four ordinary lines naming a token or secret do not stop a commit; that the flagged literal line is sent as `[line withheld]` while the rest of the change is sent, also when the line holds a byte that is invalid in a UTF-8 locale; that only added lines are sent, so a removed credential line, one beside an edited line, and every line of a file holding a private-key block stay out of the request; and that a stop for a path holding a space names its line.
 With the real library and a fake `curl` it asserts that `--install` writes nothing without a key, for a project that is not listed, or for a directory that is not a git work tree, then makes real commits through the installed hooks and asserts one request per commit, that the key reaches neither `curl`'s argv nor its environment, that a git without the exported setting is untouched, that a commit in an unrelated repository or in another worktree of the same repository is not stopped, is told nothing, has nothing sent, and still runs that repository's own hook, and that the project's own hooks still run and still decide.
 It then runs `bin/fm-spawn.sh` on a fake tmux and asserts the pane is sent the setting only when the home holds a key and lists the project, that every line sent for an unlisted project with a key equals the keyless launch, that the filtered launch environment retains the setting only for the listed project, that a commit made under the sent line in the task's worktree is checked, and that one made under it in another repository is not.
 The timeout, transport-error, and malformed-answer paths were exercised only there and in the library's own callers' suites, not against the live endpoint.
