@@ -250,29 +250,10 @@ assert_equals 0 "$(calls)" "a captain-held stale never asks Jev"
 assert_equals 1 "$(queued)" "a captain-held stale is delivered"
 pass "eligible: a declared-wait deferral is absorbed; a captain-held wait is never offered"
 
-# -- eligible: a bare turn-end from an already paused worker ------------------
-reset
-mk_task park '' 'paused: rate limited until the hourly reset'
-: > "$USTATE/park.turn-ended"
-jev_triage_signal_routine "$USTATE/park.turn-ended" || fail "a bare turn-end from a paused worker was not absorbed"
-assert_equals 'paused-turn-end' "$(jq -r '.wake.class' "$U/jev-state.json")" "a bare turn-end is the paused-turn-end class"
-assert_equals 'signal: park.turn-ended' "$(jq -r '.wake.reason' "$U/jev-state.json")" "the signal reason names files, not home paths"
-pass "eligible: a bare turn-end from a paused worker whose declaration was delivered is absorbed"
-
 # -- never eligible: a declaration firstmate has not been shown ---------------
 reset
 mk_task park '' 'working: implementing'
 printf 'paused: rate limited until the hourly reset\n' >> "$USTATE/park.status"
-rc=0
-jev_triage_signal_routine "$USTATE/park.status" || rc=$?
-expect_never_asked "$rc" "a signal carrying a new paused: declaration"
-: > "$USTATE/park.turn-ended"
-rc=0
-jev_triage_signal_routine "$USTATE/park.status" "$USTATE/park.turn-ended" || rc=$?
-expect_never_asked "$rc" "a turn-end batched with a new paused: declaration"
-rc=0
-jev_triage_signal_routine "$USTATE/park.turn-ended" || rc=$?
-expect_never_asked "$rc" "a turn-end after an undelivered paused: declaration"
 rc=0
 jev_triage_pause_routine park "stale: test:fm-park" || rc=$?
 expect_never_asked "$rc" "a stale wake after an undelivered paused: declaration"
@@ -286,7 +267,7 @@ rc=0
 jev_triage_pause_routine park "stale: test:fm-park" || rc=$?
 [ "$rc" -ne 0 ] || fail "a recheck after a newer undelivered declaration was absorbed"
 assert_equals 1 "$(calls)" "a newer undelivered declaration is not offered"
-pass "never eligible: a new paused: declaration, and any recheck before that declaration was delivered"
+pass "never eligible: any recheck before the paused: declaration was delivered"
 
 # -- eligible: a contributions observation timeout --------------------------
 reset
@@ -312,17 +293,13 @@ for event in 'needs-decision [key=scope]: pick an option' 'blocked: cannot reach
   mk_task park '' 'paused: waiting on the upstream release'
   printf '%s\n' "$event" >> "$USTATE/park.status"
   rc=0
-  jev_triage_signal_routine "$USTATE/park.status" || rc=$?
-  expect_never_asked "$rc" "a new '${event%%:*}' status event"
+  jev_triage_pause_routine park "stale: test:fm-park" || rc=$?
+  expect_never_asked "$rc" "a stale wake after a new, undelivered '${event%%:*}' status event"
   reset
   mk_task park '' 'paused: waiting on the upstream release' "$event"
-  : > "$USTATE/park.turn-ended"
-  rc=0
-  jev_triage_signal_routine "$USTATE/park.turn-ended" || rc=$?
-  expect_never_asked "$rc" "a turn-end after a '${event%%:*}' status event"
   rc=0
   jev_triage_pause_routine park "stale: test:fm-park" || rc=$?
-  expect_never_asked "$rc" "a stale wake after a '${event%%:*}' status event"
+  expect_never_asked "$rc" "a stale wake after a delivered '${event%%:*}' status event"
 done
 reset
 mk_task park '' 'needs-decision [key=scope]: pick an option' 'paused: waiting on the upstream release'
@@ -366,14 +343,7 @@ mk_task park '' 'paused: waiting for the window until 2020-01-01T00:00Z'
 rc=0
 jev_triage_pause_routine park "stale: test:fm-park" || rc=$?
 expect_never_asked "$rc" "a declared clearing time that has passed"
-reset
-mk_task park '' 'paused: waiting on the upstream release'
-mk_task other '' 'paused: waiting on the upstream release'
-: > "$USTATE/park.turn-ended"; : > "$USTATE/other.turn-ended"
-rc=0
-jev_triage_signal_routine "$USTATE/park.turn-ended" "$USTATE/other.turn-ended" || rc=$?
-expect_never_asked "$rc" "a signal batch spanning two tasks"
-pass "never eligible: a dead, missing, or unproven endpoint, a secondmate, the away posture, a passed clearing time, a multi-task batch"
+pass "never eligible: a dead, missing, or unproven endpoint, a secondmate, the away posture, a passed clearing time"
 
 # -- the deterministic pull-request read settles what it can -----------------
 reset
@@ -545,6 +515,16 @@ make_delivered() {  # <name> -> dir
   wait_for_exit "$pid" 150 || fail_parked "$dir" "$pid" "$1: the first paused: declaration was not delivered"
   printf '%s\n' "$dir"
 }
+
+dir=$(make_delivered turn-end)
+: > "$dir/state/park.turn-ended"
+watch_parked "$dir" TYPESAFE_API_KEY="$KEY" FM_WATCH_HANDLING_SUCCESSOR=1
+pid=$!
+wait_for_exit "$pid" 150 || fail_parked "$dir" "$pid" "a bare turn-end from a paused, delivered worker was not delivered"
+assert_grep 'signal:' "$dir/watch.out" "a bare turn-end from a paused, delivered worker is delivered as a signal wake"
+assert_grep 'park.turn-ended' "$dir/state/.wake-queue" "a bare turn-end from a paused, delivered worker is queued"
+assert_absent "$dir/log/calls" "a bare turn-end is delivered without asking Jev"
+pass "watcher: a bare turn-end from an already paused, already delivered worker is delivered unasked"
 
 dir=$(make_delivered needs)
 write_answer "$dir/response.json" needs_firstmate 0.9

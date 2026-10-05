@@ -126,7 +126,7 @@ pass "_fm_status_file_size returns correct byte size under GNU stat shadowing"
 # fm-watch.sh runs a top-level `mkdir -p` on its state dir when sourced; pin it
 # to the temp root via FM_STATE_OVERRIDE so no artifact escapes into the repo's
 # git-ignored state/ directory.
-export FM_STATE_OVERRIDE="$TMP_ROOT/state"
+export FM_HOME="$TMP_ROOT/home" FM_STATE_OVERRIDE="$TMP_ROOT/state"
 . "$ROOT/bin/fm-watch.sh"
 RESULT_WATCH_MTIME=$(stat_mtime "$TESTFILE") || true
 if [ -z "$RESULT_WATCH_MTIME" ] || [ "$RESULT_WATCH_MTIME" != "$EXPECTED_MTIME" ]; then

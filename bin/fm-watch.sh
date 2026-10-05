@@ -1651,13 +1651,12 @@ surface_nonterminal_stale() {  # <window> <hash>
 #   declared-pause-recheck   a stale wake for a worker whose latest status event
 #                            is a `paused:` external wait (handle_paused_stale,
 #                            wedge_defer_wait, surface_nonterminal_stale)
-#   paused-turn-end          a bare turn-end from a worker already `paused:`
 #   contributions-observation-timeout
 #                            a contributions check that reports only forge reads
 #                            that timed out
-# What keeps the rest out is code, never the model. A signal that names a status
-# log is never offered, so a new status event, a first `paused:` declaration
-# included, is always delivered; captain notes, merge and PR-ready outcomes,
+# What keeps the rest out is code, never the model. No signal is ever offered,
+# so a new status event, a first `paused:` declaration included, and every bare
+# turn-end are always delivered; captain notes, merge and PR-ready outcomes,
 # process-event and Relay wakes, and every other check have no call site here.
 # jev_triage_enabled refuses while the away daemon or the away-posture record
 # exists, and jev_triage_task_evidence refuses a secondmate, a task with any
@@ -1679,8 +1678,8 @@ JEV_TRIAGE_MAX_STREAK=6
 JEV_TRIAGE_PR_TIMEOUT=30
 FM_PR_STATE_BIN="${FM_PR_STATE_BIN:-$SCRIPT_DIR/fm-pr-state.sh}"
 # shellcheck disable=SC2016 # The backticks are literal markup in the question text.
-JEV_TRIAGE_INSTRUCTIONS='A monitoring event in `wake` is about to interrupt the supervisor of a fleet of software workers. Decide from the evidence in `wake` alone whether the supervisor has to look at it now. Every status event listed in `wake` has already been delivered to the supervisor, so judge only whether anything has changed since. A reminder to confirm that a declared wait still holds is not by itself a reason to interrupt. Choose `needs_firstmate` whenever you are unsure.'
-JEV_TRIAGE_CRITERIA='{"needs_firstmate":"A worker asks for a choice, an answer, a review, or help; reports a failure, an error, or newly finished work; or it is not clear that nothing changed.","routine":"An expected wait that was already declared and has not changed, such as an open pull request waiting to be merged, a rate limit, a scheduled window, or an upstream release; or one transient read timeout that the monitor retries on its own. Nothing new is reported or asked, and nothing the supervisor could do now would move it."}'
+JEV_TRIAGE_INSTRUCTIONS='A monitoring reminder in `wake` is about to interrupt the supervisor of a fleet of software workers. The supervisor has already seen every status event listed in `wake`, so nothing in it is news. Decide from the words of the evidence what is being waited on. Choose `routine` only when the wait will clear without any action from the supervisor or another person, apart from the already reported merge of an open pull request. When the worker is waiting on a person or on the supervisor to choose, answer, review, approve, or unblock something, or it stopped after a failure, the reminder is how the supervisor remembers that someone still owes the worker a reply, so choose `needs_firstmate`. Choose `needs_firstmate` whenever you are unsure.'
+JEV_TRIAGE_CRITERIA='{"needs_firstmate":"The newest status event shows the worker waiting on a person or on the supervisor: to choose between options, answer a question, review or accept finished work, supply or repair a credential or access, or unblock it; or the worker stopped after a failure or an error; or a diagnostic reports anything other than a read that timed out; or it is not clear what the wait is for.","routine":"The newest status event declares a wait on an automatic external event that clears without the supervisor: an open pull request with nothing failing that only awaits its already reported merge, a running CI job, a rate limit or quota reset, a scheduled window, or an upstream release; or one transient read timeout that the monitor retries on its own."}'
 JEV_TRIAGE_TASK_EVIDENCE=
 
 jev_triage_enabled() {
@@ -1760,27 +1759,6 @@ jev_triage_pause_routine() {  # <task> <reason>
   jev_triage_enabled || return 1
   jev_triage_task_evidence "$1" || return 1
   jev_triage_routine declared-pause-recheck "$1" "$2" "[$JEV_TRIAGE_TASK_EVIDENCE]"
-}
-
-# A no-verb signal batch made only of bare turn-ends from exactly ONE task. A
-# batch that names a status log carries a new status event and is never offered.
-jev_triage_signal_routine() {  # <file> ...
-  local f base this task='' files_named=''
-  jev_triage_enabled || return 1
-  [ "$#" -gt 0 ] || return 1
-  for f in "$@"; do
-    base=${f##*/}
-    [ "$f" = "$STATE/$base" ] || return 1
-    case "$base" in
-      *.turn-ended) this=${base%.turn-ended} ;;
-      *)            return 1 ;;
-    esac
-    [ -z "$task" ] || [ "$task" = "$this" ] || return 1
-    task=$this
-    files_named="$files_named $base"
-  done
-  jev_triage_task_evidence "$task" || return 1
-  jev_triage_routine paused-turn-end "$task" "signal:$files_named" "[$JEV_TRIAGE_TASK_EVIDENCE]"
 }
 
 jev_triage_contributions_routine() {  # <diagnostic-lines>
@@ -2645,9 +2623,7 @@ EOF
     # (signal_turnend_panes_churned) - the only proof available to a harness whose
     # busy state has no verified semantic source, bounded so it cannot defer that
     # task's turn-ends forever. Absorb stays evidence-driven: with neither proof the
-    # wake surfaces exactly as before, unless the home holds the routine-wake
-    # triage key and a bare turn-end from one task's already-delivered declared
-    # wait reads as routine (jev_triage_signal_routine).
+    # wake surfaces exactly as before.
     # Actionable -> enqueue, advance .seen-* markers, exit. Benign (a no-verb wake
     # whose crew is still executing) in always-on mode -> advance the markers so it
     # will not re-fire, log, and keep blocking without enqueuing. Both evidence
@@ -2671,8 +2647,7 @@ EOF
     # bin/fm-supervise-daemon.sh).
     # shellcheck disable=SC2086  # same space-separated status-path list
     if afk_present || [ "$signal_actionable" -eq 0 ] \
-      || { ! signal_crew_provably_working $files && ! signal_turnend_panes_churned $files \
-        && ! jev_triage_signal_routine $files; }; then
+      || { ! signal_crew_provably_working $files && ! signal_turnend_panes_churned $files; }; then
       while IFS=$(printf '\t') read -r sf sig f; do
         [ -n "$sf" ] || continue
         file_reason="$reason"
