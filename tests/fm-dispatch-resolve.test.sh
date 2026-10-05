@@ -688,7 +688,7 @@ assert_not_contains "$out" '  profile:' "the unmerged split emits no profile"
 cp "$BASE_RULES" "$RULES"
 pass "same-outcome rules add up; an approval gate keeps a rule separate"
 
-# --- small answers narrow the rules through each rule's declared match ---------
+# --- small answers decide an unsure rule answer through each rule's declared match ---
 MATCH_RULES="$TMP_ROOT/match-rules.json"
 cat > "$MATCH_RULES" <<'JSON'
 {
@@ -740,76 +740,102 @@ for doc_task in \
   assert_equals 'choice choice choice choice choice' "$(jq -r '[.questions[].type] | join(" ")' "$LOG/body")" "every question is a fixed-choice question: $doc_task"
   assert_equals '1' "$(grep -c 'https://api.typesafe.ai/v1/systemone' "$LOG/argv")" "one request carries all five questions: $doc_task"
   assert_contains "$out" '  status: clear' "product-document work clears instead of unsure: $doc_task"
-  assert_contains "$out" '  rule: rule_1 (Ambiguous investigation, or writing a plan or spec from a va)   confidence: 0.95' "product-document work lands on its existing rule: $doc_task"
+  assert_contains "$out" '  rule: rule_1 (Ambiguous investigation, or writing a plan or spec from a va)   confidence: 0.9' "product-document work lands on its existing rule at the small answer's confidence: $doc_task"
   assert_contains "$out" '  questions: kind=product_document(0.9) damage=low(0.9) settled=partly(0.9) security=no(0.9)' "the small answers are printed: $doc_task"
-  assert_contains "$out" '  selection: small answers left 2 of 4 rules and ruled out the none option; rule answer alone rule_1 0.23' "the selection line names the narrowing: $doc_task"
+  assert_contains "$out" '  selection: small answers (kind=product_document) meet the declared match of rule_1; rule answer rule_1 0.23' "the selection line names the met match: $doc_task"
   assert_contains "$out" "  profile: --harness 'claude' --model 'opus' --effort 'high'" "product-document work gets its rule's setting: $doc_task"
 done
 reset_log
 match_response "$RESPONSE" rule_3 0.3 0.25 0.2 0.44 0.01 0.1 bugfix medium settled no 0.9
+jq '.answers.damage.confidence = 0.7' "$RESPONSE" > "$RESPONSE.tmp" && mv "$RESPONSE.tmp" "$RESPONSE"
 TYPESAFE_API_KEY=$KEY run code out err "$BRIEF" --project pager
-assert_contains "$out" '  status: clear' "code work clears through the same narrowing"
+assert_contains "$out" '  status: clear' "code work clears through its met match"
+assert_contains "$out" '  rule: rule_3 (A small bug fix or familiar feature work.)   confidence: 0.7' "the confidence is the lowest of the small answers that met the match"
+assert_contains "$out" '  selection: small answers (damage=medium, kind=bugfix) meet the declared match of rule_3; rule answer rule_3 0.3' "every small answer the match used is named"
 assert_contains "$out" "  profile: --harness 'claude' --model 'sonnet' --effort 'medium'" "code work lands on its existing rule"
 reset_log
 match_response "$RESPONSE" default 0.4 0.3 0.1 0.07 0.01 0.52 product_document low partly no 0.9
 TYPESAFE_API_KEY=$KEY run code out err "$DOC_BRIEF" --project shop
-assert_contains "$out" '  status: clear' "a rule whose declared match is met outranks an unsure none pick"
-assert_contains "$out" '  rule: rule_1 (Ambiguous investigation, or writing a plan or spec from a va)   confidence: 0.94' "the met rule is selected over the none option"
-assert_contains "$out" '  selection: small answers left 2 of 4 rules and ruled out the none option; rule answer alone default 0.4' "the selection line names the overruled none pick"
-for unmet in \
-  '{}|0.35|0.6|a rule with no match' \
-  '{"approval": "captain", "match": {"security": ["yes"]}}|0.4|0.55|an approval-gated rule whose match is not met'; do
-  IFS='|' read -r unmet_fields unmet_p none_p unmet_name <<<"$unmet"
-  jq --argjson extra "$unmet_fields" '{rules: [(.rules[0] | .match = {kind: ["product_document"]}), ({when: "Some other work.", use: {harness: "claude", model: "sonnet"}} + $extra)], default}' "$MATCH_RULES" > "$RULES"
+assert_contains "$out" '  status: clear' "a met match decides an unsure none pick"
+assert_contains "$out" '  rule: rule_1 (Ambiguous investigation, or writing a plan or spec from a va)   confidence: 0.9' "the met rule is chosen over the unsure none pick"
+assert_contains "$out" '  selection: small answers (kind=product_document) meet the declared match of rule_1; rule answer default 0.4' "the selection line names the unsure none pick"
+reset_log
+match_response "$RESPONSE" rule_1 0.23 0.38 0.31 0.24 0.01 0.06 product_document low partly no 0.4
+TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
+assert_contains "$out" '  status: ambiguous' "small answers below the floor meet nothing"
+assert_contains "$out" '  reason: confidence 0.23 below floor 0.6' "the rule answer's own confidence decides when nothing is met"
+assert_not_contains "$out" '  selection:' "nothing is reported as chosen by the small answers"
+reset_log
+match_response "$RESPONSE" rule_1 0.23 0.38 0.31 0.24 0.01 0.06 tests low partly no 0.9
+TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
+assert_contains "$out" '  status: ambiguous' "an unsure rule answer stays unsure when no rule's match is met"
+assert_contains "$out" '  rule: rule_1 (Ambiguous investigation, or writing a plan or spec from a va)   confidence: 0.23' "the unsure rule answer is reported unchanged"
+jq '.rules[1].match = {settled: ["partly"]}' "$MATCH_RULES" > "$RULES"
+reset_log
+match_response "$RESPONSE" rule_1 0.23 0.38 0.31 0.24 0.01 0.06 product_document low partly no 0.9
+TYPESAFE_API_KEY=$KEY run code out err "$DOC_BRIEF"
+assert_contains "$out" '  status: ambiguous' "met rules that lead to different outcomes decide nothing"
+assert_contains "$out" '  reason: confidence 0.23 below floor 0.6' "the unsure rule answer is what is reported"
+assert_not_contains "$out" '  profile:' "disagreeing met rules emit no profile"
+jq '.rules[1].match = {settled: ["partly"]} | .rules[1].use = .rules[0].use' "$MATCH_RULES" > "$RULES"
+TYPESAFE_API_KEY=$KEY run code out err "$DOC_BRIEF"
+assert_contains "$out" '  status: clear' "met rules that lead to one outcome decide together"
+assert_contains "$out" '  rule: rule_1 (Ambiguous investigation, or writing a plan or spec from a va)   confidence: 0.9' "the shared outcome is chosen"
+assert_contains "$out" '  selection: small answers (kind=product_document, settled=partly) meet the declared match of rule_1+rule_2; rule answer rule_1 0.59' "the rule answer named is the counted-together one"
+assert_contains "$out" "  profile: --harness 'claude' --model 'opus' --effort 'high'" "the shared setting is emitted"
+cp "$MATCH_RULES" "$RULES"
+pass "below the floor, ungated rules whose match is met decide when they share one outcome"
+
+# The rule answer is unsure and rule_1's match is met; rule_2 is the rule the
+# probabilities favour, and no small answer supports it.
+for other in \
+  '{}|default|0.5|0.35|0.6|a none pick beside a rule with no match' \
+  '{"approval": "captain", "match": {"security": ["yes"]}}|default|0.5|0.4|0.55|a none pick beside an approval-gated rule' \
+  '{}|rule_2|0.45|0.5|0.45|a pick of a rule with no match' \
+  '{"approval": "captain"}|rule_2|0.45|0.5|0.45|a pick of an approval-gated rule'; do
+  IFS='|' read -r other_fields other_choice other_conf other_p none_p other_name <<<"$other"
+  jq --argjson extra "$other_fields" '{rules: [(.rules[0] | .match = {kind: ["product_document"]}), ({when: "Some other work.", use: {harness: "claude", model: "sonnet"}} + $extra)], default}' "$MATCH_RULES" > "$RULES"
   reset_log
-  jq -n --argjson p2 "$unmet_p" --argjson pd "$none_p" '{model: "jev-1.13.0", usage: {input_tokens: 500, output_tokens: 80},
-    answers: {rule: {type: "choice", choice: "default", confidence: 0.5, probabilities: {rule_1: 0.05, rule_2: $p2, default: $pd}}}}' > "$RESPONSE"
+  jq -n --arg choice "$other_choice" --argjson c "$other_conf" --argjson p2 "$other_p" --argjson pd "$none_p" '{model: "jev-1.13.0", usage: {input_tokens: 500, output_tokens: 80},
+    answers: {rule: {type: "choice", choice: $choice, confidence: $c, probabilities: {rule_1: 0.05, rule_2: $p2, default: $pd}}}}' > "$RESPONSE"
   add_facets "$RESPONSE" product_document low partly no 0.9
   TYPESAFE_API_KEY=$KEY run code out err "$DOC_BRIEF" --project shop
-  assert_contains "$out" '  status: ambiguous' "an unsure none pick set aside by a met match never passes to $unmet_name"
-  assert_contains "$out" '  rule: default (No listed rule applies to this task.)   confidence: 0.5' "the none pick stands with its own confidence against $unmet_name"
-  assert_contains "$out" '  reason: confidence 0.5 below floor 0.6' "the result is unsure as it was, against $unmet_name"
-  assert_not_contains "$out" 'approval' "no approval stop is added by $unmet_name"
-  assert_not_contains "$out" '  profile:' "no profile is emitted for $unmet_name"
+  assert_contains "$out" '  status: clear' "the met rule decides: $other_name"
+  assert_contains "$out" '  rule: rule_1 (Ambiguous investigation, or writing a plan or spec from a va)   confidence: 0.9' "only the rule whose match is met is chosen: $other_name"
+  assert_contains "$out" "  profile: --harness 'claude' --model 'opus' --effort 'high'" "the met rule's setting is emitted: $other_name"
+  assert_not_contains "$out" 'approval' "no approval stop is added: $other_name"
+  add_facets "$RESPONSE" product_document low partly no 0.4
+  TYPESAFE_API_KEY=$KEY run code out err "$DOC_BRIEF" --project shop
+  assert_contains "$out" '  status: ambiguous' "with the small answer below the floor the result is unsure as before: $other_name"
+  assert_contains "$out" "  reason: confidence $other_conf below floor 0.6" "the rule answer's own confidence is reported: $other_name"
+  assert_not_contains "$out" '  profile:' "no profile is emitted: $other_name"
 done
 cp "$MATCH_RULES" "$RULES"
+pass "a rule the small answers do not support never wins on them"
+
 reset_log
-match_response "$RESPONSE" default 0.9 0.02 0.02 0.02 0.01 0.93 tests low settled no 0.9
+match_response "$RESPONSE" rule_1 0.7 0.76 0.1 0.1 0.01 0.03 design low partly no 0.9
 TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
-assert_contains "$out" '  rule: default (No listed rule applies to this task.)   confidence: 0.9' "work no rule declares keeps the none option"
-assert_contains "$out" "  profile: --harness 'claude' --model 'haiku'" "work no rule declares resolves among the default profiles"
+assert_contains "$out" '  status: clear' "a rule answer at or above the floor stands against small answers that meet another rule"
+assert_contains "$out" '  rule: rule_1 (Ambiguous investigation, or writing a plan or spec from a va)   confidence: 0.7' "the confident rule pick keeps its own confidence"
+assert_not_contains "$out" '  selection:' "the small answers are not consulted for a confident rule pick"
+reset_log
+match_response "$RESPONSE" default 0.9 0.02 0.02 0.02 0.01 0.93 product_document low partly no 0.9
+TYPESAFE_API_KEY=$KEY run code out err "$DOC_BRIEF"
+assert_contains "$out" '  rule: default (No listed rule applies to this task.)   confidence: 0.9' "a confident none pick stands against a met match"
+assert_contains "$out" "  profile: --harness 'claude' --model 'haiku'" "a confident none pick resolves among the default profiles"
 jq '{rules: [.rules[0] | .match = {kind: ["product_document"]}], default}' "$MATCH_RULES" > "$RULES"
 reset_log
 jq -n '{model: "jev-1.13.0", usage: {input_tokens: 500, output_tokens: 80},
   answers: {rule: {type: "choice", choice: "default", confidence: 0.9, probabilities: {rule_1: 0.07, default: 0.93}}}}' > "$RESPONSE"
 add_facets "$RESPONSE" product_document low partly no 0.6
 TYPESAFE_API_KEY=$KEY run code out err "$DOC_BRIEF" --project shop
-assert_contains "$out" '  status: clear' "a confident none pick resolves"
-assert_contains "$out" '  rule: default (No listed rule applies to this task.)   confidence: 0.9' "a confident none pick stands, with its own confidence, against a met match"
-assert_not_contains "$out" '  selection:' "a confident none pick is not narrowed"
-assert_contains "$out" "  profile: --harness 'claude' --model 'haiku'" "a confident none pick resolves among the default profiles"
+assert_contains "$out" '  status: clear' "a confident none pick resolves in a one-rule file"
+assert_contains "$out" '  rule: default (No listed rule applies to this task.)   confidence: 0.9' "a confident none pick is never turned into the met rule"
+assert_not_contains "$out" '  selection:' "the small answers are not consulted for a confident none pick"
+assert_contains "$out" "  profile: --harness 'claude' --model 'haiku'" "the one-rule file resolves among the default profiles"
 cp "$MATCH_RULES" "$RULES"
-pass "small answers land product-document and code work on their existing rules"
-
-reset_log
-match_response "$RESPONSE" rule_1 0.23 0.38 0.31 0.24 0.01 0.06 product_document low partly no 0.4
-TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
-assert_contains "$out" '  status: ambiguous' "small answers below the floor narrow nothing"
-assert_contains "$out" '  reason: confidence 0.23 below floor 0.6' "the rule answer's own confidence decides when nothing narrowed"
-assert_not_contains "$out" '  selection:' "nothing is reported as narrowed or counted together"
-reset_log
-match_response "$RESPONSE" rule_1 0.5 0.56 0.2 0.2 0.01 0.03 design low partly no 0.9
-TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
-assert_contains "$out" '  status: ambiguous' "small answers that exclude an unsure rule pick hand the decision back"
-assert_contains "$out" '  reason: small answers (kind=design, damage=low, settled=partly, security=no) exclude the rule pick rule_1' "the disagreement is named"
-assert_not_contains "$out" '  profile:' "a disagreement emits no profile"
-reset_log
-match_response "$RESPONSE" rule_1 0.7 0.76 0.1 0.1 0.01 0.03 design low partly no 0.9
-TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
-assert_contains "$out" '  status: clear' "a rule pick at or above the floor is not narrowed"
-assert_contains "$out" '  rule: rule_1 (Ambiguous investigation, or writing a plan or spec from a va)   confidence: 0.7' "the confident rule pick stands with its own confidence"
-assert_not_contains "$out" '  selection:' "nothing is reported as narrowed for a confident rule pick"
-pass "low-confidence small answers change nothing, an unsure disagreement is ambiguous, and a confident pick stands"
+pass "a rule answer at or above the floor stands and the small answers are not consulted"
 
 reset_log
 match_response "$RESPONSE" rule_3 0.9 0.02 0.02 0.92 0.02 0.02 feature medium settled yes 0.9
@@ -818,21 +844,26 @@ assert_contains "$out" '  status: clear' "a met approval-gated match adds no app
 assert_contains "$out" '  rule: rule_3 (A small bug fix or familiar feature work.)   confidence: 0.9' "the rule pick stands"
 assert_contains "$out" "  profile: --harness 'claude' --model 'sonnet' --effort 'medium'" "the picked rule's setting is emitted"
 reset_log
-match_response "$RESPONSE" rule_3 0.4 0.1 0.1 0.5 0.2 0.1 feature medium settled yes 0.9
+match_response "$RESPONSE" rule_3 0.4 0.1 0.1 0.5 0.2 0.1 tests medium settled yes 0.9
 TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
-assert_contains "$out" '  status: ambiguous' "a met approval-gated match adds no approval stop to an unsure rule pick"
-assert_contains "$out" '  rule: rule_3 (A small bug fix or familiar feature work.)   confidence: 0.43' "the gated rule stays in the count and is not selected"
-assert_contains "$out" '  selection: small answers left 2 of 4 rules and ruled out the none option; rule answer alone rule_3 0.4' "the gated rule is kept though its match is not what kept it"
+assert_contains "$out" '  status: ambiguous' "an approval-gated rule whose match is met is never chosen for an unsure rule answer"
+assert_contains "$out" '  reason: confidence 0.4 below floor 0.6' "the unsure rule answer is reported unchanged"
 assert_not_contains "$out" 'approval' "no approval stop is reported"
 assert_not_contains "$out" '  profile:' "an unsure result emits no profile"
 reset_log
+match_response "$RESPONSE" rule_3 0.4 0.1 0.1 0.5 0.2 0.1 feature medium settled yes 0.9
+TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
+assert_contains "$out" '  status: clear' "a met approval-gated match does not stop a met ungated rule from deciding"
+assert_contains "$out" '  rule: rule_3 (A small bug fix or familiar feature work.)   confidence: 0.9' "the ungated met rule is chosen"
+assert_not_contains "$out" 'approval' "the gated rule adds no approval stop"
+reset_log
 match_response "$RESPONSE" rule_4 0.9 0.02 0.02 0.02 0.92 0.02 bugfix low settled no 0.9
 TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
-assert_contains "$out" '  status: escalate' "a gated rule Jev picks still stops when the small answers exclude its match"
-assert_contains "$out" "  reason: rule requires the captain's explicit approval before dispatch" "small answers never drop an approval-gated rule"
+assert_contains "$out" '  status: escalate' "a gated rule Jev picks still stops when the small answers meet another rule"
+assert_contains "$out" "  reason: rule requires the captain's explicit approval before dispatch" "small answers never remove an approval stop"
 assert_not_contains "$out" '  profile:' "small answers cannot turn a gated pick into a profile"
 cp "$BASE_RULES" "$RULES"
-pass "small answers never add an approval stop, and approval-gated rules are never narrowed away"
+pass "a small answer never adds or removes an approval stop"
 
 # --- every decision is recorded, privately and size-capped -------------------------
 RECORD="$HOME_DIR/state/.dispatch-resolve.log"
@@ -879,17 +910,17 @@ rm -f "$HOME_DIR/state"
 cp "$BASE_RULES" "$RULES"
 pass "every outcome after the gate is recorded to a private, size-capped log"
 
-# --- a missing or malformed small answer narrows nothing --------------------------
+# --- a missing, malformed, or off-list small answer meets nothing ------------------
 cp "$MATCH_RULES" "$RULES"
-for damaged in 'del(.answers.kind)' '.answers.kind.confidence = 2'; do
+for damaged in 'del(.answers.kind)' '.answers.kind.confidence = 2' '.answers.kind.choice = "bogus"'; do
   reset_log
   match_response "$RESPONSE" rule_1 0.23 0.38 0.31 0.24 0.01 0.06 product_document low partly no 0.9
   jq "$damaged" "$RESPONSE" > "$TMP_ROOT/damaged-small.json" && mv "$TMP_ROOT/damaged-small.json" "$RESPONSE"
   TYPESAFE_API_KEY=$KEY run code out err "$DOC_BRIEF"
   assert_contains "$out" '  status: ambiguous' "an unusable small answer is not an error outcome: $damaged"
-  assert_contains "$out" '  reason: confidence 0.23 below floor 0.6' "an unusable small answer narrows nothing: $damaged"
+  assert_contains "$out" '  reason: confidence 0.23 below floor 0.6' "an unusable small answer meets nothing: $damaged"
   assert_contains "$out" '  questions: kind=unusable damage=low(0.9) settled=partly(0.9) security=no(0.9)' "the unusable small answer is shown as such: $damaged"
-  assert_not_contains "$out" '  selection:' "nothing is reported as narrowed: $damaged"
+  assert_not_contains "$out" '  selection:' "nothing is reported as chosen by the small answers: $damaged"
 done
 reset_log
 match_response "$RESPONSE" rule_3 0.9 0.02 0.02 0.92 0.02 0.02
@@ -898,7 +929,7 @@ TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
 assert_contains "$out" '  status: clear' "a response with no small answers still resolves from the rule answer"
 assert_contains "$out" "  profile: --harness 'claude' --model 'sonnet' --effort 'medium'" "the rule answer alone selects the setting"
 cp "$BASE_RULES" "$RULES"
-pass "a missing or malformed small answer degrades to no narrowing"
+pass "a missing, malformed, or off-list small answer meets nothing and is never an error"
 
 # --- configuration errors exit 2 and select nothing ----------------------------------
 reset_log

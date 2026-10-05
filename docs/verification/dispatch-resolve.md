@@ -87,11 +87,12 @@ Sending only its task part lowered that brief's rule confidence from 0.65 to abo
 The rename brief split between the mechanical-edit and wide-rename rules in every arrangement, and its single-question confidence was 0.67 and 0.62 across the two runs.
 Each five-question request used 1,869 to 1,884 input tokens and 416 to 417 output tokens on the synthetic briefs and 2,960 input tokens on the real one, and latency was 308 to 475 ms on 51 of 52 requests, with one at 845 ms.
 The vendor's published Choice confidence, `(p_max - 1/n) / (1 - 1/n)` over `n` options, is the formula the tool applies when it recounts.
-That run predates three changes to the selection, and it has not been repeated since.
-The tool then selected an approval-gated rule outright once its whole `match` was met; it no longer does, so the real scaffolded brief's approval stop in the last column is not what the tool returns now, and what it returns for that brief is unmeasured.
-The tool then narrowed every rule answer; it now narrows only a rule answer that is itself below the floor, and every other row keeps the rule and confidence of the "Five questions, no `match`" column.
-The research, rename, and real-brief rows were below the floor there and are still narrowed; the table shows the selected confidence, which is never lower than the rule answer's own, so the study row at 0.61 may be narrowed too.
+That run predates the current selection, and it has not been repeated since, so the last column is not what the tool returns now.
+The tool then dropped rules and the neutral option by `match` and recomputed the confidence over what was left, and it selected an approval-gated rule outright once its whole `match` was met; it does neither now.
+A rule answer at or above the floor now stands, so each such row keeps the rule and confidence of the "Five questions, no `match`" column.
+A row below the floor there (research, rename, the real brief) is now decided by the rules without an approval gate whose whole `match` the small answers meet, with the lowest of those answers' confidences, and is `ambiguous` when they do not agree on one outcome; what each of those rows returns under that rule is unmeasured.
 The tool then asked all five questions of every rules file; a file with no `match` now gets the `rule` question alone, so the "Five questions, no `match`" column describes a request that is no longer sent, and the token figures apply only to a file that declares `match`.
+The vendor formula above is now applied only when rules that lead to one outcome are counted as one answer.
 The quota snapshot was unmeasured for every provider during both runs, so each selection above ended as `escalate` with `no rankable eligible candidate` in all three arrangements; calls made on the PRD, bug-fix, and locate briefs while quota was measured ended `clear`.
 
 ## Offline behavior

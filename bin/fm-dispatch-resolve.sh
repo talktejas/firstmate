@@ -21,20 +21,20 @@
 #   when some rule declares a `match`, the four small questions fixed in
 #   QUESTION_DEFS below (kind, damage, settled, security). A file with no
 #   `match` asks `rule` alone. Everything after that is jq:
-#   - a none pick at or above the confidence floor stands, with its own
-#     confidence;
 #   - rules whose `use`, `approval`, and `floor` are the same count as one
-#     answer, so their probabilities add up;
-#   - only when the rule answer is below the confidence floor, a small answer
-#     at or above it drops every rule whose declared `match` excludes it, and
-#     the none option once some rule's whole declared `match` is met; an
-#     approval-gated rule is never dropped, a rule Jev itself picked being
-#     dropped is `ambiguous` instead, and a missing or malformed small answer
-#     drops nothing;
-#   - a none pick set aside that way passes only to an ungated rule whose own
-#     whole `match` is met; when any other rule would win, the none pick
-#     stands with its own confidence, which is below the floor;
-#   - the confidence floor on what remains, the rule's declared `approval` and
+#     answer, so their probabilities add up; that counted-together answer is
+#     the rule answer below;
+#   - a rule answer at or above the confidence floor, a rule or the none
+#     option, stands, and the small answers are not consulted;
+#   - only when the rule answer is below the floor: take the rules without an
+#     approval gate whose whole declared `match` is met by small answers that
+#     are each at or above the floor. When those rules all lead to one outcome,
+#     that outcome is chosen, with the lowest confidence among the small
+#     answers that met it; otherwise the rule answer stays, below the floor;
+#   - an approval-gated rule is never chosen that way, so a small answer never
+#     adds or removes an approval stop, and a missing, malformed, or off-list
+#     small answer meets nothing;
+#   - the confidence floor on that choice, the rule's declared `approval` and
 #     `floor`, each profile's declared `provider` and `floor`, the quota rows
 #     from ONE quota-axi --json snapshot, and the spendPriority argmax over the
 #     eligible candidates.
@@ -49,13 +49,12 @@
 #     status: clear | ambiguous | escalate | error
 #     model/latency_ms/tokens, rule (when excerpt) and confidence, probabilities
 #     questions: <question>=<answer>(<confidence>) for each small question asked, or <question>=unusable
-#     selection: <what counting together or narrowing changed>   (only when it did)
+#     selection: <what counting together or the small answers changed>   (only when they did)
 #     reason: <why the status is not clear>
 #     candidate: <harness>:<model> provider=.. scope=.. remaining=..% spendPriority=.. runway=.. -> eligible | eligible, unranked: <reason> | not eligible: <reason>
 #     profile: --harness <h> [--model <m>] [--effort <e>]     (status clear only)
 #   clear     -> pass the profile line to fm-spawn.sh unless you state a reason to override
-#   ambiguous -> confidence below the floor, including when the small answers
-#                exclude Jev's own rule pick; decide as today from the probabilities
+#   ambiguous -> confidence below the floor; decide as today from the probabilities
 #   escalate  -> the rule requires captain approval, no candidate is rankable, or a genuine tie
 #   error     -> API, network, response, or quota-axi failure; decide as today
 #   Every outcome exits 0 so an intake is never blocked by this tool.
@@ -415,51 +414,39 @@ RESULT=$(jq -n --arg floor "$CONFIDENCE_FLOOR" --argjson lat "$LAT_MS" --arg non
   # ---- selection: which option the answers add up to -------------------------
   def round2: (. * 100 | round) / 100;
   def rule_at($k): if $k == "default" then null else $cfg.rules[($k | ltrimstr("rule_") | tonumber) - 1] end;
-  # The small answers that cleared the floor; a rule is judged only on these.
-  ([$defs | keys_unsorted[] | select($jev.answers[.] != null and $jev.answers[.].confidence >= $fl) | {key: ., value: $jev.answers[.].choice}] | from_entries) as $facts |
-  ($a.confidence >= $fl) as $sure |
-  def accepts($r): all(($r.match // {}) | to_entries[]; . as $m | ($facts | has($m.key) | not) or ($m.value | index($facts[$m.key])) != null);
-  def met($r): (($r.match // {}) | length) > 0 and all($r.match | to_entries[]; . as $m | ($facts | has($m.key)) and ($m.value | index($facts[$m.key])) != null);
+  # A small answer counts only when it is one of the options of its question
+  # and cleared the floor.
+  def usable($k): $jev.answers[$k] != null and ($defs[$k].criteria | has($jev.answers[$k].choice));
+  ([$defs | keys_unsorted[] | select(usable(.) and $jev.answers[.].confidence >= $fl) | {key: ., value: $jev.answers[.]}] | from_entries) as $facts |
+  def met($r): (($r.match // {}) | length) > 0 and all($r.match | to_entries[]; . as $m | ($facts | has($m.key)) and ($m.value | index($facts[$m.key].choice)) != null);
   ($a.probabilities | has($a.choice)) as $raw_valid |
   (if $raw_valid | not then [] else
     [$a.probabilities | to_entries[] | {k: .key, p: .value, r: rule_at(.key)}
-     | . + {gated: ((.r.approval // "") == "captain"), accepted: (.r != null and accepts(.r)), met: (.r != null and met(.r)),
-            outcome: (if .r == null then "default" else {use: (profiles(.r.use) | sort), approval: (.r.approval // null), floor: (.r.floor // null)} end)}]
+     | . + {outcome: (if .r == null then "default" else {use: (profiles(.r.use) | sort), approval: (.r.approval // null), floor: (.r.floor // null)} end)}]
    end) as $opts |
-  # Only an unsure rule answer is narrowed. A rule whose whole declared match is
-  # met claims the task, which outranks the generic none option; an
-  # approval-gated rule is never dropped.
-  (any($opts[]; .met and (.gated | not))) as $claimed |
-  ([$opts[] | select($sure or (if .r == null then ($claimed | not) else (.gated or .accepted) end))]) as $kept |
-  (($kept | length) < ($opts | length)) as $narrowing |
-  ($narrowing and $a.choice != "default" and (any($kept[]; .k == $a.choice) | not)) as $disagree |
-  (if $narrowing and ($disagree | not) and (($kept | map(.p) | add) > 0) then $kept else $opts end) as $set |
-  ($set | group_by(.outcome) | map({p: (map(.p) | add), top: max_by(.p), claim: (map(select(.met and (.gated | not))) | max_by(.p)), members: map(.k)})) as $groups |
+  ($opts | group_by(.outcome) | map({p: (map(.p) | add), top: max_by(.p), members: map(.k)})) as $groups |
   ($groups | max_by(.p)) as $best_group |
-  (($groups | length) < ($opts | length)) as $recount |
-  # A none pick set aside by a met match can pass only to a rule that met its own.
-  ($a.choice == "default" and ($set | length) > 0 and (any($set[]; .r == null) | not)) as $none_dropped |
-  (if $sure and $a.choice == "default" then {choice: $a.choice, confidence: $a.confidence}
-   elif $none_dropped and $best_group.claim == null then {choice: $a.choice, confidence: $a.confidence}
-   elif $disagree then
-     {choice: $a.choice, confidence: $a.confidence,
-      disagree: "small answers (\([$facts | to_entries[] | "\(.key)=\(.value)"] | join(", "))) exclude the rule pick \($a.choice)"}
-   elif $recount then
-     ($groups | length) as $n | ($best_group.p / ($set | map(.p) | add)) as $p |
+  # The rule answer, with rules that lead to one outcome counted as one answer.
+  (if ($groups | length) < ($opts | length) then
+     ($groups | length) as $n | ($best_group.p / ($opts | map(.p) | add)) as $p |
      (($best_group.members | index($a.choice)) != null) as $raw_in_best |
-     {choice: (if $raw_in_best then $a.choice elif $none_dropped then $best_group.claim.k else $best_group.top.k end),
+     {choice: (if $raw_in_best then $a.choice else $best_group.top.k end),
       # Fewer answers raise the even-split baseline, so the confidence of the
       # rule answer stands whenever recounting would only lower it.
       confidence: ([(if $n < 2 then $p else ($p - 1 / $n) / (1 - 1 / $n) end | round2),
                     (if $raw_in_best then $a.confidence else 0 end)] | max),
-      selection: ([
-        (if ($best_group.members | length) > 1 then "\($best_group.members | join("+")) counted as one answer" else empty end),
-        (if ($set | length) < ($opts | length) then
-           "small answers left \([$set[] | select(.r != null)] | length) of \(($opts | length) - 1) rules"
-           + (if any($set[]; .r == null) then "" else " and ruled out the none option" end)
-         else empty end),
-        "rule answer alone \($a.choice) \($a.confidence)"] | join("; "))}
-   else {choice: $a.choice, confidence: $a.confidence} end) as $pick |
+      selection: (if ($best_group.members | length) > 1
+                  then "\($best_group.members | join("+")) counted as one answer; rule answer alone \($a.choice) \($a.confidence)"
+                  else null end)}
+   else {choice: $a.choice, confidence: $a.confidence} end) as $counted |
+  # Only an unsure rule answer consults the small answers: the ungated rules
+  # whose whole declared match they meet decide, when they share one outcome.
+  ([$opts[] | select(.r != null and (.r.approval // "") != "captain" and met(.r))]) as $claim |
+  (if $counted.confidence >= $fl or ($claim | length) == 0 or ($claim | map(.outcome) | unique | length) != 1 then $counted
+   else ([$claim[].r.match | keys[]] | unique) as $used |
+     {choice: ($claim | max_by(.p) | .k), confidence: ([$used[] | $facts[.].confidence] | min),
+      selection: "small answers (\($used | map("\(.)=\($facts[.].choice)") | join(", "))) meet the declared match of \($claim | map(.k) | join("+")); rule answer \($counted.choice) \($counted.confidence)"}
+   end) as $pick |
   ($pick.choice) as $choice |
   (if ($choice | test("^rule_[1-9][0-9]*$"))
    then ($choice | ltrimstr("rule_") | tonumber)
@@ -485,12 +472,10 @@ RESULT=$(jq -n --arg floor "$CONFIDENCE_FLOOR" --argjson lat "$LAT_MS" --arg non
     rule_when: (if $rule == null then $none_criterion else $rule.when end | .[0:60]),
     confidence: $pick.confidence, probabilities: $a.probabilities,
     raw: ($a | {choice, confidence}),
-    questions: ($defs | with_entries(.key as $k | select($jev.answers | has($k)) | .value = ($jev.answers[$k] | if . == null then null else {choice, confidence} end)) | if length == 0 then null else . end),
+    questions: ($defs | with_entries(.key as $k | select($jev.answers | has($k)) | .value = (if usable($k) then ($jev.answers[$k] | {choice, confidence}) else null end)) | if length == 0 then null else . end),
     selection: ($pick.selection // null)
   } as $ev |
   if $sel.invalid then $ev + {status: "error", reason: $sel.invalid}
-  elif $pick.disagree then
-    $ev + {status: "ambiguous", reason: $pick.disagree, candidates: ($answer_use | map(evaluate(.)))}
   elif $pick.confidence < $fl then
     $ev + {status: "ambiguous", reason: "confidence \($pick.confidence) below floor \($floor)", candidates: ($answer_use | map(evaluate(.)))}
   elif $sel.escalate then
