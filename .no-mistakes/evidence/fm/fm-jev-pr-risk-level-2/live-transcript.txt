@@ -1,0 +1,378 @@
+##### A. Key absent: nothing changes
+
+=== 01. no TYPESAFE_API_KEY anywhere, project listed
+$ bin/fm-pr-check.sh task-a https://github.com/o/r/pull/8 
+armed: state/task-a.check.sh
+[exit 0] [pr recorded: 1] [merge poll armed: yes] [Jev requests: none]
+[description read from forge: 0]
+stderr: ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+stderr: ●  WATCHER DOWN - SUPERVISION IS OFF
+stderr: ●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 999999s).
+stderr: ●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+stderr: ●  This is a supervision warning only; the guarded operation WILL still run.
+stderr: ●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+stderr: ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+stderr: fm-contributions: data directory unavailable
+stderr: contributions: observation not armed; coverage is unconfirmed
+
+##### B. Key in the home .env, project listed in config/jev-code-projects
+
+=== 02. small code change, Jev answers no to all three -> low
+$ bin/fm-pr-check.sh task-a https://github.com/o/r/pull/8 
+armed: state/task-a.check.sh
+risk: low - no risk fact found and all three questions answered no
+[exit 0] [pr recorded: 1] [merge poll armed: yes] [Jev requests: untested->no:0.95 mismatch->no:0.95 irreversible->no:0.95]
+[description read from forge: 1]
+stderr: WARNING: watcher still down (same stale episode; last beat: never, grace 999999s) - full banner already printed this episode.
+stderr: fm-contributions: data directory unavailable
+stderr: contributions: observation not armed; coverage is unconfirmed
+--- what the Jev endpoint received for that registration:
+{"path":"/v1/systemone","question":"untested","reply":"no:0.95","auth_header":"Bearer fake-key-not-real-7f3a","options":["no","yes"],"title":"Rename helper","files":["src/util.js"],"facts":{"changed_lines":12,"files":1,"deleted_files":0,"test_files_changed":0,"code_files_changed":1,"touches_database_migration":false,"touches_login_or_permissions":false,"touches_payments":false},"diff_bytes":171}
+{"path":"/v1/systemone","question":"mismatch","reply":"no:0.95","auth_header":"Bearer fake-key-not-real-7f3a","options":["no","yes"],"title":"Rename helper","files":["src/util.js"],"facts":{"changed_lines":12,"files":1,"deleted_files":0,"test_files_changed":0,"code_files_changed":1,"touches_database_migration":false,"touches_login_or_permissions":false,"touches_payments":false},"diff_bytes":171}
+{"path":"/v1/systemone","question":"irreversible","reply":"no:0.95","auth_header":"Bearer fake-key-not-real-7f3a","options":["no","yes"],"title":"Rename helper","files":["src/util.js"],"facts":{"changed_lines":12,"files":1,"deleted_files":0,"test_files_changed":0,"code_files_changed":1,"touches_database_migration":false,"touches_login_or_permissions":false,"touches_payments":false},"diff_bytes":171}
+--- curl argv (key must not appear): 0 occurrence(s) of the key
+--- key in task record: 0 occurrence(s)
+
+=== 03. code + test file changed -> untested settled in code, not asked
+$ bin/fm-pr-check.sh task-a https://github.com/o/r/pull/8 
+armed: state/task-a.check.sh
+risk: low - no risk fact found and all three questions answered no
+[exit 0] [pr recorded: 1] [merge poll armed: yes] [Jev requests: mismatch->no:0.95 irreversible->no:0.95]
+[description read from forge: 1]
+stderr: WARNING: watcher still down (same stale episode; last beat: never, grace 999999s) - full banner already printed this episode.
+stderr: fm-contributions: data directory unavailable
+stderr: contributions: observation not armed; coverage is unconfirmed
+
+##### C. Facts collected by code set the level (Jev answers no to everything)
+
+=== 04. database migration path
+$ bin/fm-pr-check.sh task-a https://github.com/o/r/pull/8 
+armed: state/task-a.check.sh
+risk: high - database migration
+[exit 0] [pr recorded: 1] [merge poll armed: yes] [Jev requests: mismatch->no:0.95 irreversible->no:0.95]
+[description read from forge: 1]
+stderr: WARNING: watcher still down (same stale episode; last beat: never, grace 999999s) - full banner already printed this episode.
+stderr: fm-contributions: data directory unavailable
+stderr: contributions: observation not armed; coverage is unconfirmed
+
+=== 05. authorization path (review fix)
+$ bin/fm-pr-check.sh task-a https://github.com/o/r/pull/8 
+armed: state/task-a.check.sh
+risk: high - login and permissions
+[exit 0] [pr recorded: 1] [merge poll armed: yes] [Jev requests: mismatch->no:0.95 irreversible->no:0.95]
+[description read from forge: 1]
+stderr: WARNING: watcher still down (same stale episode; last beat: never, grace 999999s) - full banner already printed this episode.
+stderr: fm-contributions: data directory unavailable
+stderr: contributions: observation not armed; coverage is unconfirmed
+
+=== 06. authorize path (review fix)
+$ bin/fm-pr-check.sh task-a https://github.com/o/r/pull/8 
+armed: state/task-a.check.sh
+risk: high - login and permissions
+[exit 0] [pr recorded: 1] [merge poll armed: yes] [Jev requests: mismatch->no:0.95 irreversible->no:0.95]
+[description read from forge: 1]
+stderr: WARNING: watcher still down (same stale episode; last beat: never, grace 999999s) - full banner already printed this episode.
+stderr: fm-contributions: data directory unavailable
+stderr: contributions: observation not armed; coverage is unconfirmed
+
+=== 07. unauthorized path (review fix)
+$ bin/fm-pr-check.sh task-a https://github.com/o/r/pull/8 
+armed: state/task-a.check.sh
+risk: high - login and permissions
+[exit 0] [pr recorded: 1] [merge poll armed: yes] [Jev requests: mismatch->no:0.95 irreversible->no:0.95]
+[description read from forge: 1]
+stderr: WARNING: watcher still down (same stale episode; last beat: never, grace 999999s) - full banner already printed this episode.
+stderr: fm-contributions: data directory unavailable
+stderr: contributions: observation not armed; coverage is unconfirmed
+
+=== 08. login path
+$ bin/fm-pr-check.sh task-a https://github.com/o/r/pull/8 
+armed: state/task-a.check.sh
+risk: high - login and permissions
+[exit 0] [pr recorded: 1] [merge poll armed: yes] [Jev requests: mismatch->no:0.95 irreversible->no:0.95]
+[description read from forge: 1]
+stderr: WARNING: watcher still down (same stale episode; last beat: never, grace 999999s) - full banner already printed this episode.
+stderr: fm-contributions: data directory unavailable
+stderr: contributions: observation not armed; coverage is unconfirmed
+
+=== 09. ADVERSARIAL authors/ path must NOT read as login
+$ bin/fm-pr-check.sh task-a https://github.com/o/r/pull/8 
+armed: state/task-a.check.sh
+risk: low - no risk fact found and all three questions answered no
+[exit 0] [pr recorded: 1] [merge poll armed: yes] [Jev requests: mismatch->no:0.95 irreversible->no:0.95]
+[description read from forge: 1]
+stderr: WARNING: watcher still down (same stale episode; last beat: never, grace 999999s) - full banner already printed this episode.
+stderr: fm-contributions: data directory unavailable
+stderr: contributions: observation not armed; coverage is unconfirmed
+
+=== 10. payments path
+$ bin/fm-pr-check.sh task-a https://github.com/o/r/pull/8 
+armed: state/task-a.check.sh
+risk: high - payments
+[exit 0] [pr recorded: 1] [merge poll armed: yes] [Jev requests: mismatch->no:0.95 irreversible->no:0.95]
+[description read from forge: 1]
+stderr: WARNING: watcher still down (same stale episode; last beat: never, grace 999999s) - full banner already printed this episode.
+stderr: fm-contributions: data directory unavailable
+stderr: contributions: observation not armed; coverage is unconfirmed
+
+=== 11. a deleted file (beside an unrelated test file)
+$ bin/fm-pr-check.sh task-a https://github.com/o/r/pull/8 
+armed: state/task-a.check.sh
+risk: medium - 1 deleted file(s)
+[exit 0] [pr recorded: 1] [merge poll armed: yes] [Jev requests: mismatch->no:0.95 irreversible->no:0.95]
+[description read from forge: 1]
+stderr: WARNING: watcher still down (same stale episode; last beat: never, grace 999999s) - full banner already printed this episode.
+stderr: fm-contributions: data directory unavailable
+stderr: contributions: observation not armed; coverage is unconfirmed
+
+=== 12. a file moved and edited (git reports a rename, not a deletion)
+$ bin/fm-pr-check.sh task-a https://github.com/o/r/pull/8 
+armed: state/task-a.check.sh
+risk: low - no risk fact found and all three questions answered no
+[exit 0] [pr recorded: 1] [merge poll armed: yes] [Jev requests: mismatch->no:0.95 irreversible->no:0.95]
+[description read from forge: 1]
+stderr: WARNING: watcher still down (same stale episode; last beat: never, grace 999999s) - full banner already printed this episode.
+stderr: fm-contributions: data directory unavailable
+stderr: contributions: observation not armed; coverage is unconfirmed
+
+=== 13. size: 452 lines (>=400)
+$ bin/fm-pr-check.sh task-a https://github.com/o/r/pull/8 
+armed: state/task-a.check.sh
+risk: medium - size (452 lines in 2 files)
+[exit 0] [pr recorded: 1] [merge poll armed: yes] [Jev requests: mismatch->no:0.95 irreversible->no:0.95]
+[description read from forge: 1]
+stderr: WARNING: watcher still down (same stale episode; last beat: never, grace 999999s) - full banner already printed this episode.
+stderr: fm-contributions: data directory unavailable
+stderr: contributions: observation not armed; coverage is unconfirmed
+
+=== 14. size: 1602 lines (>=1500)
+$ bin/fm-pr-check.sh task-a https://github.com/o/r/pull/8 
+armed: state/task-a.check.sh
+risk: high - size (1602 lines in 2 files)
+[exit 0] [pr recorded: 1] [merge poll armed: yes] [Jev requests: mismatch->no:0.95 irreversible->no:0.95]
+[description read from forge: 1]
+stderr: WARNING: watcher still down (same stale episode; last beat: never, grace 999999s) - full banner already printed this episode.
+stderr: fm-contributions: data directory unavailable
+stderr: contributions: observation not armed; coverage is unconfirmed
+
+=== 15. docs only
+$ bin/fm-pr-check.sh task-a https://github.com/o/r/pull/8 
+armed: state/task-a.check.sh
+risk: low - no risk fact found and all three questions answered no
+[exit 0] [pr recorded: 1] [merge poll armed: yes] [Jev requests: mismatch->no:0.95 irreversible->no:0.95]
+[description read from forge: 1]
+stderr: WARNING: watcher still down (same stale episode; last beat: never, grace 999999s) - full banner already printed this episode.
+stderr: fm-contributions: data directory unavailable
+stderr: contributions: observation not armed; coverage is unconfirmed
+
+##### D. A counted yes from Jev only raises
+
+=== 16. Jev: behaviour changed with no test = yes
+$ bin/fm-pr-check.sh task-a https://github.com/o/r/pull/8 
+armed: state/task-a.check.sh
+risk: medium - behaviour changed with no test
+[exit 0] [pr recorded: 1] [merge poll armed: yes] [Jev requests: untested->yes:0.9 mismatch->no:0.95 irreversible->no:0.95]
+[description read from forge: 1]
+stderr: WARNING: watcher still down (same stale episode; last beat: never, grace 999999s) - full banner already printed this episode.
+stderr: fm-contributions: data directory unavailable
+stderr: contributions: observation not armed; coverage is unconfirmed
+
+=== 17. Jev: description does not match = yes
+$ bin/fm-pr-check.sh task-a https://github.com/o/r/pull/8 
+armed: state/task-a.check.sh
+risk: medium - description does not match the change
+[exit 0] [pr recorded: 1] [merge poll armed: yes] [Jev requests: untested->no:0.95 mismatch->yes:0.9 irreversible->no:0.95]
+[description read from forge: 1]
+stderr: WARNING: watcher still down (same stale episode; last beat: never, grace 999999s) - full banner already printed this episode.
+stderr: fm-contributions: data directory unavailable
+stderr: contributions: observation not armed; coverage is unconfirmed
+
+=== 18. Jev: hard to undo = yes
+$ bin/fm-pr-check.sh task-a https://github.com/o/r/pull/8 
+armed: state/task-a.check.sh
+risk: high - something hard to undo
+[exit 0] [pr recorded: 1] [merge poll armed: yes] [Jev requests: untested->no:0.95 mismatch->no:0.95 irreversible->yes:0.9]
+[description read from forge: 1]
+stderr: WARNING: watcher still down (same stale episode; last beat: never, grace 999999s) - full banner already printed this episode.
+stderr: fm-contributions: data directory unavailable
+stderr: contributions: observation not armed; coverage is unconfirmed
+
+=== 19. Jev: yes to all three
+$ bin/fm-pr-check.sh task-a https://github.com/o/r/pull/8 
+armed: state/task-a.check.sh
+risk: high - behaviour changed with no test, description does not match the change, something hard to undo
+[exit 0] [pr recorded: 1] [merge poll armed: yes] [Jev requests: untested->yes:0.9 mismatch->yes:0.9 irreversible->yes:0.9]
+[description read from forge: 1]
+stderr: WARNING: watcher still down (same stale episode; last beat: never, grace 999999s) - full banner already printed this episode.
+stderr: fm-contributions: data directory unavailable
+stderr: contributions: observation not armed; coverage is unconfirmed
+
+##### E. Jev unsure, off the fixed list, or down: 'not rated', never 'low', registration intact
+
+=== 20. ADVERSARIAL Jev answers no at confidence 0.4 (below the 0.6 floor)
+$ bin/fm-pr-check.sh task-a https://github.com/o/r/pull/8 
+armed: state/task-a.check.sh
+risk: not rated - no risk fact found; unanswered: untested (Jev unsure), mismatch (Jev unsure), irreversible (Jev unsure)
+[exit 0] [pr recorded: 1] [merge poll armed: yes] [Jev requests: untested->no:0.4 mismatch->no:0.4 irreversible->no:0.4]
+[description read from forge: 1]
+stderr: WARNING: watcher still down (same stale episode; last beat: never, grace 999999s) - full banner already printed this episode.
+stderr: fm-contributions: data directory unavailable
+stderr: contributions: observation not armed; coverage is unconfirmed
+
+=== 21. ADVERSARIAL Jev answers yes at confidence 0.4 (below the floor, not counted)
+$ bin/fm-pr-check.sh task-a https://github.com/o/r/pull/8 
+armed: state/task-a.check.sh
+risk: not rated - no risk fact found; unanswered: untested (Jev unsure), mismatch (Jev unsure), irreversible (Jev unsure)
+[exit 0] [pr recorded: 1] [merge poll armed: yes] [Jev requests: untested->yes:0.4 mismatch->yes:0.4 irreversible->yes:0.4]
+[description read from forge: 1]
+stderr: WARNING: watcher still down (same stale episode; last beat: never, grace 999999s) - full banner already printed this episode.
+stderr: fm-contributions: data directory unavailable
+stderr: contributions: observation not armed; coverage is unconfirmed
+
+=== 22. ADVERSARIAL Jev picks "maybe", which is not on the fixed list
+$ bin/fm-pr-check.sh task-a https://github.com/o/r/pull/8 
+armed: state/task-a.check.sh
+risk: not rated - no risk fact found; unanswered: untested (Jev error), mismatch (Jev error), irreversible (Jev error)
+[exit 0] [pr recorded: 1] [merge poll armed: yes] [Jev requests: untested->maybe]
+[description read from forge: 1]
+stderr: WARNING: watcher still down (same stale episode; last beat: never, grace 999999s) - full banner already printed this episode.
+stderr: fm-contributions: data directory unavailable
+stderr: contributions: observation not armed; coverage is unconfirmed
+
+=== 23. ADVERSARIAL Jev replies HTML instead of JSON
+$ bin/fm-pr-check.sh task-a https://github.com/o/r/pull/8 
+armed: state/task-a.check.sh
+risk: not rated - no risk fact found; unanswered: untested (Jev error), mismatch (Jev error), irreversible (Jev error)
+[exit 0] [pr recorded: 1] [merge poll armed: yes] [Jev requests: untested->garbage]
+[description read from forge: 1]
+stderr: WARNING: watcher still down (same stale episode; last beat: never, grace 999999s) - full banner already printed this episode.
+stderr: fm-contributions: data directory unavailable
+stderr: contributions: observation not armed; coverage is unconfirmed
+
+=== 24. ADVERSARIAL Jev returns HTTP 500
+$ bin/fm-pr-check.sh task-a https://github.com/o/r/pull/8 
+armed: state/task-a.check.sh
+risk: not rated - no risk fact found; unanswered: untested (Jev error), mismatch (Jev error), irreversible (Jev error)
+[exit 0] [pr recorded: 1] [merge poll armed: yes] [Jev requests: untested->500]
+[description read from forge: 1]
+stderr: WARNING: watcher still down (same stale episode; last beat: never, grace 999999s) - full banner already printed this episode.
+stderr: fm-contributions: data directory unavailable
+stderr: contributions: observation not armed; coverage is unconfirmed
+
+=== 25. ADVERSARIAL Jev hangs past the 5 s timeout
+$ bin/fm-pr-check.sh task-a https://github.com/o/r/pull/8 
+armed: state/task-a.check.sh
+risk: not rated - no risk fact found; unanswered: untested (Jev error), mismatch (Jev error), irreversible (Jev error)
+[exit 0] [pr recorded: 1] [merge poll armed: yes] [Jev requests: untested->sleep]
+[description read from forge: 1]
+stderr: WARNING: watcher still down (same stale episode; last beat: never, grace 999999s) - full banner already printed this episode.
+stderr: fm-contributions: data directory unavailable
+stderr: contributions: observation not armed; coverage is unconfirmed
+[wall time: 7 s]
+
+=== 26. ADVERSARIAL Jev endpoint is down (connection refused)
+$ bin/fm-pr-check.sh task-a https://github.com/o/r/pull/8 
+armed: state/task-a.check.sh
+risk: not rated - no risk fact found; unanswered: untested (Jev error), mismatch (Jev error), irreversible (Jev error)
+[exit 0] [pr recorded: 1] [merge poll armed: yes] [Jev requests: none]
+[description read from forge: 1]
+stderr: WARNING: watcher still down (same stale episode; last beat: never, grace 999999s) - full banner already printed this episode.
+stderr: fm-contributions: data directory unavailable
+stderr: contributions: observation not armed; coverage is unconfirmed
+
+=== 27. forge description unreadable (gh fails)
+$ bin/fm-pr-check.sh task-a https://github.com/o/r/pull/8 
+armed: state/task-a.check.sh
+risk: not rated - no risk fact found; unanswered: mismatch (description unreadable)
+[exit 0] [pr recorded: 1] [merge poll armed: yes] [Jev requests: untested->no:0.95 irreversible->no:0.95]
+[description read from forge: 1]
+stderr: WARNING: watcher still down (same stale episode; last beat: never, grace 999999s) - full banner already printed this episode.
+stderr: fm-contributions: data directory unavailable
+stderr: contributions: observation not armed; coverage is unconfirmed
+
+##### F. Never lowers a level the facts set
+
+=== 28. ADVERSARIAL migration + Jev confidently says no to everything -> still high
+$ bin/fm-pr-check.sh task-a https://github.com/o/r/pull/8 
+armed: state/task-a.check.sh
+risk: high - database migration
+[exit 0] [pr recorded: 1] [merge poll armed: yes] [Jev requests: untested->no:0.99 mismatch->no:0.99 irreversible->no:0.99]
+[description read from forge: 1]
+stderr: WARNING: watcher still down (same stale episode; last beat: never, grace 999999s) - full banner already printed this episode.
+stderr: fm-contributions: data directory unavailable
+stderr: contributions: observation not armed; coverage is unconfirmed
+
+=== 29. ADVERSARIAL migration + Jev HTTP 500 -> still high
+$ bin/fm-pr-check.sh task-a https://github.com/o/r/pull/8 
+armed: state/task-a.check.sh
+risk: high - database migration; unanswered: untested (Jev error), mismatch (Jev error), irreversible (Jev error)
+[exit 0] [pr recorded: 1] [merge poll armed: yes] [Jev requests: untested->500]
+[description read from forge: 1]
+stderr: WARNING: watcher still down (same stale episode; last beat: never, grace 999999s) - full banner already printed this episode.
+stderr: fm-contributions: data directory unavailable
+stderr: contributions: observation not armed; coverage is unconfirmed
+
+=== 30. ADVERSARIAL deletion + Jev unsure -> still medium
+$ bin/fm-pr-check.sh task-a https://github.com/o/r/pull/8 
+armed: state/task-a.check.sh
+risk: medium - 1 deleted file(s); unanswered: untested (Jev unsure), mismatch (Jev unsure), irreversible (Jev unsure)
+[exit 0] [pr recorded: 1] [merge poll armed: yes] [Jev requests: untested->no:0.4 mismatch->no:0.4 irreversible->no:0.4]
+[description read from forge: 1]
+stderr: WARNING: watcher still down (same stale episode; last beat: never, grace 999999s) - full banner already printed this episode.
+stderr: fm-contributions: data directory unavailable
+stderr: contributions: observation not armed; coverage is unconfirmed
+
+##### G. Project not listed: nothing about it leaves the machine
+
+=== 31. unlisted, no fact
+$ bin/fm-pr-check.sh task-a https://github.com/o/r/pull/8 
+armed: state/task-a.check.sh
+risk: not rated - no risk fact found; unanswered: untested (project not listed), mismatch (project not listed), irreversible (project not listed)
+[exit 0] [pr recorded: 1] [merge poll armed: yes] [Jev requests: none]
+[description read from forge: 0]
+stderr: WARNING: watcher still down (same stale episode; last beat: never, grace 999999s) - full banner already printed this episode.
+stderr: fm-contributions: data directory unavailable
+stderr: contributions: observation not armed; coverage is unconfirmed
+
+=== 32. unlisted, migration fact
+$ bin/fm-pr-check.sh task-a https://github.com/o/r/pull/8 
+armed: state/task-a.check.sh
+risk: high - database migration; unanswered: untested (project not listed), mismatch (project not listed), irreversible (project not listed)
+[exit 0] [pr recorded: 1] [merge poll armed: yes] [Jev requests: none]
+[description read from forge: 0]
+stderr: WARNING: watcher still down (same stale episode; last beat: never, grace 999999s) - full banner already printed this episode.
+stderr: fm-contributions: data directory unavailable
+stderr: contributions: observation not armed; coverage is unconfirmed
+
+=== 33. list file absent, migration fact
+$ bin/fm-pr-check.sh task-a https://github.com/o/r/pull/8 
+armed: state/task-a.check.sh
+risk: high - database migration; unanswered: untested (project not listed), mismatch (project not listed), irreversible (project not listed)
+[exit 0] [pr recorded: 1] [merge poll armed: yes] [Jev requests: none]
+[description read from forge: 0]
+stderr: WARNING: watcher still down (same stale episode; last beat: never, grace 999999s) - full banner already printed this episode.
+stderr: fm-contributions: data directory unavailable
+stderr: contributions: observation not armed; coverage is unconfirmed
+
+##### H. Merge-time re-registration (--no-risk) rates nothing
+
+=== 34. listed project, key present, --no-risk
+$ bin/fm-pr-check.sh task-a https://github.com/o/r/pull/8 --no-risk
+armed: state/task-a.check.sh
+[exit 0] [pr recorded: 1] [merge poll armed: yes] [Jev requests: none]
+[description read from forge: 0]
+stderr: WARNING: watcher still down (same stale episode; last beat: never, grace 999999s) - full banner already printed this episode.
+stderr: fm-contributions: data directory unavailable
+stderr: contributions: observation not armed; coverage is unconfirmed
+
+##### I. GitLab merge request (fake glab answers title/description)
+
+=== 35. gitlab MR, Jev: untested = yes
+$ bin/fm-pr-check.sh task-a https://gitlab.com/g/p/-/merge_requests/5 
+armed: state/task-a.check.sh
+risk: medium - behaviour changed with no test
+[exit 0] [pr recorded: 1] [merge poll armed: yes] [Jev requests: untested->yes:0.9 mismatch->no:0.95 irreversible->no:0.95]
+[description read from forge: 1]
+stderr: WARNING: watcher still down (same stale episode; last beat: never, grace 999999s) - full banner already printed this episode.
+stderr: fm-contributions: data directory unavailable
+stderr: contributions: observation not armed; coverage is unconfirmed

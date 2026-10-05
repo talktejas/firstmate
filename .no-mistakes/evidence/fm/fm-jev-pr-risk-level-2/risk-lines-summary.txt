@@ -1,0 +1,68 @@
+=== 01. no TYPESAFE_API_KEY anywhere, project listed
+=== 02. small code change, Jev answers no to all three -> low
+risk: low - no risk fact found and all three questions answered no
+=== 03. code + test file changed -> untested settled in code, not asked
+risk: low - no risk fact found and all three questions answered no
+=== 04. database migration path
+risk: high - database migration
+=== 05. authorization path (review fix)
+risk: high - login and permissions
+=== 06. authorize path (review fix)
+risk: high - login and permissions
+=== 07. unauthorized path (review fix)
+risk: high - login and permissions
+=== 08. login path
+risk: high - login and permissions
+=== 09. ADVERSARIAL authors/ path must NOT read as login
+risk: low - no risk fact found and all three questions answered no
+=== 10. payments path
+risk: high - payments
+=== 11. a deleted file (beside an unrelated test file)
+risk: medium - 1 deleted file(s)
+=== 12. a file moved and edited (git reports a rename, not a deletion)
+risk: low - no risk fact found and all three questions answered no
+=== 13. size: 452 lines (>=400)
+risk: medium - size (452 lines in 2 files)
+=== 14. size: 1602 lines (>=1500)
+risk: high - size (1602 lines in 2 files)
+=== 15. docs only
+risk: low - no risk fact found and all three questions answered no
+=== 16. Jev: behaviour changed with no test = yes
+risk: medium - behaviour changed with no test
+=== 17. Jev: description does not match = yes
+risk: medium - description does not match the change
+=== 18. Jev: hard to undo = yes
+risk: high - something hard to undo
+=== 19. Jev: yes to all three
+risk: high - behaviour changed with no test, description does not match the change, something hard to undo
+=== 20. ADVERSARIAL Jev answers no at confidence 0.4 (below the 0.6 floor)
+risk: not rated - no risk fact found; unanswered: untested (Jev unsure), mismatch (Jev unsure), irreversible (Jev unsure)
+=== 21. ADVERSARIAL Jev answers yes at confidence 0.4 (below the floor, not counted)
+risk: not rated - no risk fact found; unanswered: untested (Jev unsure), mismatch (Jev unsure), irreversible (Jev unsure)
+=== 22. ADVERSARIAL Jev picks "maybe", which is not on the fixed list
+risk: not rated - no risk fact found; unanswered: untested (Jev error), mismatch (Jev error), irreversible (Jev error)
+=== 23. ADVERSARIAL Jev replies HTML instead of JSON
+risk: not rated - no risk fact found; unanswered: untested (Jev error), mismatch (Jev error), irreversible (Jev error)
+=== 24. ADVERSARIAL Jev returns HTTP 500
+risk: not rated - no risk fact found; unanswered: untested (Jev error), mismatch (Jev error), irreversible (Jev error)
+=== 25. ADVERSARIAL Jev hangs past the 5 s timeout
+risk: not rated - no risk fact found; unanswered: untested (Jev error), mismatch (Jev error), irreversible (Jev error)
+=== 26. ADVERSARIAL Jev endpoint is down (connection refused)
+risk: not rated - no risk fact found; unanswered: untested (Jev error), mismatch (Jev error), irreversible (Jev error)
+=== 27. forge description unreadable (gh fails)
+risk: not rated - no risk fact found; unanswered: mismatch (description unreadable)
+=== 28. ADVERSARIAL migration + Jev confidently says no to everything -> still high
+risk: high - database migration
+=== 29. ADVERSARIAL migration + Jev HTTP 500 -> still high
+risk: high - database migration; unanswered: untested (Jev error), mismatch (Jev error), irreversible (Jev error)
+=== 30. ADVERSARIAL deletion + Jev unsure -> still medium
+risk: medium - 1 deleted file(s); unanswered: untested (Jev unsure), mismatch (Jev unsure), irreversible (Jev unsure)
+=== 31. unlisted, no fact
+risk: not rated - no risk fact found; unanswered: untested (project not listed), mismatch (project not listed), irreversible (project not listed)
+=== 32. unlisted, migration fact
+risk: high - database migration; unanswered: untested (project not listed), mismatch (project not listed), irreversible (project not listed)
+=== 33. list file absent, migration fact
+risk: high - database migration; unanswered: untested (project not listed), mismatch (project not listed), irreversible (project not listed)
+=== 34. listed project, key present, --no-risk
+=== 35. gitlab MR, Jev: untested = yes
+risk: medium - behaviour changed with no test
