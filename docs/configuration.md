@@ -454,6 +454,34 @@ The pipeline's own fix commits are made outside the worker's terminal and are no
 
 `bin/fm-commit-check.sh`'s header owns the exact gates and bounds, `bin/fm-jev-lib.sh` owns the credential patterns, the request, the answer validation, the key handling, and the project list, and [`verification/commit-check.md`](verification/commit-check.md) records the live evidence.
 
+## Intake routing (.env TYPESAFE_API_KEY)
+
+`bin/fm-intake-route.sh [<request-file>]` asks typesafe.ai's System One model (Jev) which registered project an incoming request or bug report is about and which second mate's scope covers it, so firstmate can hand a clear request to the right worker without first reading both registries against it.
+It is off unless `TYPESAFE_API_KEY` is available under the same environment-then-`.env` contract as [typed dispatch resolution](#typed-dispatch-resolution-env-typesafe_api_key); off means one `intake-route: off` line on stderr, nothing on stdout, exit 0, and no network call.
+It reads no project's code, so [`config/jev-code-projects`](#jev-code-projects-configjev-code-projects) is not consulted.
+
+The choices are read from the two maintained registries on every run and are never written into the script.
+The project choices are the entries of `data/projects.md` that `bin/fm-project-mode.sh --list` prints, which leaves out any entry whose bracket holds `finished`.
+Add an entry when a project is added, and add `finished` inside its bracket, as in `[direct-PR finished]`, when its work is complete: the entry keeps its registered posture and simply stops being offered.
+The second-mate choices are the records of [`data/secondmates.md`](#secondmate-routes-datasecondmatesmd).
+
+Code decides every fact before and after the call.
+An empty request, a request over 20000 bytes, and a registry with no unfinished project are left by hand without a request, and nothing is cut to fit.
+With no second mate registered the second-mate question is not asked and the answer is `main`.
+A project registered `local-only` stays in the main home, so when the advised project is one the second-mate line is `main` whatever the model answered.
+
+One request then carries the request text, each offered project's name and registry description, and each second mate's id and registered scope, and nothing else: no code, no diff, no backlog, no status lines, no home paths, and nothing a worker typed in its shell.
+Registry descriptions and scopes are local text, so keep out of them anything that must not leave the machine; a line that looks like a credential is withheld like in every other Jev request.
+
+The script prints one `project:` line and one `secondmate:` line.
+A line names a project, a second mate, or `main` only when that answer's confidence reaches the shared 0.6 floor, and says `by hand` for everything else: no single project fits, low confidence, a missing or malformed answer, a timeout, and a transport or API error.
+
+The routing is advice only.
+Firstmate runs it at intake and still resolves the project and the owner itself under `AGENTS.md` section 7, including asking one question when the match is not confident; a printed name never dispatches, steers, files, or records anything, and the script exits 0 on every outcome except a usage error (exit 2).
+
+The script is one shell command firstmate runs in its own home, so it behaves the same on every supported primary harness and runtime backend and for local or remote second mates; it needs `jq`, `curl`, and outbound network, and a home that lacks any of them resolves by hand.
+`bin/fm-intake-route.sh`'s header owns the exact bounds, questions, and output, `bin/fm-project-mode.sh`'s header owns the registry format, `bin/fm-jev-lib.sh` owns the request, the answer validation, and the key handling, and [`verification/intake-route.md`](verification/intake-route.md) records the live evidence.
+
 ## Gate defaults (.no-mistakes.yaml)
 
 The tracked `.no-mistakes.yaml` sets `test.evidence.store_in_repo: true` and pins `commands.lint` to `bin/fm-lint.sh`, the same owner CI invokes.
@@ -1350,7 +1378,7 @@ FMX_RELAY_URL=https://myfirstmate.io   # optional Relay endpoint override, mainl
 FMX_ENV_FILE=           # optional alternate .env file for direct Relay client invocations; bootstrap still checks $FM_HOME/.env
 FMX_DRY_RUN=            # truthy previews Relay replies and dismissals to state/x-outbox/ without posting or requiring a token
 FMX_X_REPLY_MAX_CHARS=280   # X reply per-message split budget; values below 50 clamp to 50
-TYPESAFE_API_KEY=       # typed dispatch resolution opt-in, from the environment or .env; absent means bin/fm-dispatch-resolve.sh is off (docs/configuration.md "Typed dispatch resolution"), and so are routine-wake triage, the finished check, the pull request risk level, the failed check sort, the house-rules check, the review finding sort, and the commit check, the last five sending a project's code or text only for a project listed in config/jev-code-projects
+TYPESAFE_API_KEY=       # typed dispatch resolution opt-in, from the environment or .env; absent means bin/fm-dispatch-resolve.sh is off (docs/configuration.md "Typed dispatch resolution"), and so are routine-wake triage, the finished check, the pull request risk level, the failed check sort, the house-rules check, the review finding sort, the commit check, and intake routing (bin/fm-intake-route.sh), the five before intake routing sending a project's code or text only for a project listed in config/jev-code-projects
 FMX_DISCORD_REPLY_MAX_CHARS=1900   # Discord reply per-message split budget; values below 50 clamp to 50, values above 2000 reset to 1900
 FMX_X_THREAD_MAX=25     # maximum messages in one auto-split reply thread
 FMX_FOLLOWUP_MAX_AGE_SECS=604800   # local window for posting Relay completion follow-ups (7 days)

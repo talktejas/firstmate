@@ -14,6 +14,7 @@
 # finding sort (bin/fm-finding-sort.sh), the pull request risk level
 # (bin/fm-pr-risk-lib.sh), the failed check sort (bin/fm-check-sort-lib.sh),
 # and the worker commit check (bin/fm-commit-check.sh) are the callers.
+# Intake routing (bin/fm-intake-route.sh) is a caller too.
 #
 # Key handling: sourcing this file copies an environment-provided
 # TYPESAFE_API_KEY into one non-exported shell variable and unsets the exported
