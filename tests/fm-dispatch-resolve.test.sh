@@ -24,7 +24,7 @@ RULES="$HOME_DIR/config/crew-dispatch.json"
 QUOTA="$TMP_ROOT/quota.json"
 BASE_PATH=$PATH
 mkdir -p "$HOME_DIR/config" "$LOG" "$NO_CURL_BIN"
-for command_name in bash chmod cp dirname jq mktemp rm; do
+for command_name in awk bash cat chmod cp date dirname jq mkdir mktemp rm tr wc; do
   ln -s "$(command -v "$command_name")" "$NO_CURL_BIN/$command_name"
 done
 
@@ -96,6 +96,26 @@ JSON
 }
 write_quota "$QUOTA" 0.7597
 
+# facet_answers [kind] [damage] [settled] [security] [confidence]: well-formed
+# answers to the four small questions asked beside `rule`.
+facet_answers() {
+  jq -n --arg kind "${1:-bugfix}" --arg damage "${2:-low}" --arg settled "${3:-settled}" \
+    --arg security "${4:-no}" --argjson c "${5:-0.9}" '
+    def ans($opts; $pick): {type: "choice", choice: $pick, confidence: $c,
+      probabilities: ($opts | map({key: ., value: (if . == $pick then 1 - ((($opts | length) - 1) * 0.001) else 0.001 end)}) | from_entries)};
+    {kind: ans(["investigate","lookup","design","product_document","review","refactor","feature","bugfix","tests","docs","mechanical","ops"]; $kind),
+     damage: ans(["low","medium","high"]; $damage),
+     settled: ans(["settled","partly","open"]; $settled),
+     security: ans(["yes","no"]; $security)}'
+}
+
+# add_facets <path> [facet_answers args...]: add the small answers to a response.
+add_facets() {
+  local path=$1
+  shift
+  jq --argjson f "$(facet_answers "$@")" '.answers += $f' "$path" > "$path.tmp" && mv "$path.tmp" "$path"
+}
+
 write_response() {  # <path> <choice> <confidence>
   cat > "$1" <<JSON
 { "model": "jev-1.13.0",
@@ -103,6 +123,7 @@ write_response() {  # <path> <choice> <confidence>
     "probabilities": { "rule_1": 0.01, "rule_2": 0.01, "rule_3": 0.01, "rule_4": 0.96, "default": 0.01 } } },
   "usage": { "input_tokens": 812, "output_tokens": 60 } }
 JSON
+  add_facets "$1"
 }
 
 cat > "$FAKEBIN/curl" <<'SH'
@@ -237,7 +258,9 @@ body=$(cat "$LOG/body")
 assert_equals 'jev-latest' "$(jq -r .model <<<"$body")" "default model is jev-latest"
 assert_equals 'pager' "$(jq -r .state.task.project <<<"$body")" "project rides in the state"
 assert_contains "$(jq -r .state.task.brief <<<"$body")" 'off-by-one in the pager' "the whole brief rides in the state"
-assert_equals '["rule"]' "$(jq -c '.questions | keys' <<<"$body")" "only the rule Choice is asked"
+assert_equals '["rule","kind","damage","settled","security"]' "$(jq -c '.questions | keys_unsorted' <<<"$body")" "the rule Choice and the four small questions ride in one request"
+assert_equals 'choice choice choice choice choice' "$(jq -r '[.questions[].type] | join(" ")' <<<"$body")" "every question is a fixed-choice question"
+assert_equals '1' "$(grep -c 'https://api.typesafe.ai/v1/systemone' "$LOG/argv")" "one request carries every question"
 assert_equals '["default","rule_1","rule_2","rule_3","rule_4"]' "$(jq -c '.questions.rule.criteria | keys' <<<"$body")" "one option per rule plus default"
 assert_equals 'No listed rule applies to this task.' "$(jq -r '.questions.rule.criteria.default' <<<"$body")" "the fixed generic none criterion is the default option"
 assert_equals 'A simple bug fix with a stated root cause.' "$(jq -r '.questions.rule.criteria.rule_4' <<<"$body")" "rule when text is the option verbatim"
@@ -305,6 +328,7 @@ cp "$AGY_RULE" "$RULES"
 cat > "$RESPONSE" <<'JSON'
 {"model":"jev-1.13.0","answers":{"rule":{"type":"choice","choice":"rule_1","confidence":0.99,"probabilities":{"rule_1":0.99,"default":0.01}}},"usage":{"input_tokens":100,"output_tokens":60}}
 JSON
+add_facets "$RESPONSE"
 reset_log
 TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
 assert_contains "$out" 'candidate: agy:-  provider=agy  scope=all_models  remaining=64%  spendPriority=0.4  runway=through_reset  -> eligible' "agy uses its resolver-only authoritative quota provider"
@@ -322,6 +346,7 @@ cp "$ROOT/docs/examples/crew-dispatch.json" "$RULES"
 cat > "$RESPONSE" <<'JSON'
 {"model":"jev-1.13.0","answers":{"rule":{"type":"choice","choice":"default","confidence":0.9,"probabilities":{"rule_1":0.02,"rule_2":0.02,"rule_3":0.02,"default":0.94}}},"usage":{"input_tokens":812,"output_tokens":60}}
 JSON
+add_facets "$RESPONSE"
 reset_log
 TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
 assert_contains "$out" '  status: clear' "the documented example passes opted-in resolution"
@@ -585,6 +610,234 @@ TYPESAFE_API_KEY=$KEY FAKE_CURL_HTTP=500 run code out err "$BRIEF"
 assert_contains "$out" '  status: error' "http 500 is a TOON error outcome"
 pass "API, transport, and response failures are error outcomes with exit 0"
 
+# --- only the task part of a scaffolded brief is sent ------------------------------
+SCAFFOLD_BRIEF="$TMP_ROOT/scaffold-brief.md"
+cat > "$SCAFFOLD_BRIEF" <<'MD'
+# Current worker role contract
+STANDING-ROLE-TEXT you are a crewmate.
+
+# Task
+## Captain's intent
+Write the PRD for the loyalty points feature.
+
+```sh
+# FENCED-COMMENT-LINE stays part of the task
+```
+
+## Firstmate spec
+Deliver it as one document.
+
+# Setup
+STANDING-SETUP-TEXT create your branch.
+MD
+reset_log
+write_response "$RESPONSE" rule_4 0.9
+TYPESAFE_API_KEY=$KEY run code out err "$SCAFFOLD_BRIEF" --project shop
+sent=$(jq -r .state.task.brief "$LOG/body")
+assert_contains "$sent" 'Write the PRD for the loyalty points feature.' "the task part is sent"
+assert_contains "$sent" 'Deliver it as one document.' "both task subsections are sent"
+assert_contains "$sent" '# FENCED-COMMENT-LINE stays part of the task' "a fenced heading-shaped line does not end the task part"
+assert_not_contains "$sent" 'STANDING-ROLE-TEXT' "standing text before the task is not sent"
+assert_not_contains "$sent" 'STANDING-SETUP-TEXT' "standing text after the task is not sent"
+NO_TASK_BRIEF="$TMP_ROOT/no-task-brief.md"
+printf '%s\n' '# Notes' 'HAND-WRITTEN-BRIEF fix the pager.' > "$NO_TASK_BRIEF"
+reset_log
+TYPESAFE_API_KEY=$KEY run code out err "$NO_TASK_BRIEF"
+assert_contains "$(jq -r .state.task.brief "$LOG/body")" 'HAND-WRITTEN-BRIEF fix the pager.' "a brief with no task section is sent whole"
+pass "request state carries the task part of a scaffolded brief and a section-less brief whole"
+
+# --- rules with one outcome count as one answer -----------------------------------
+SAME_OUTCOME="$TMP_ROOT/same-outcome.json"
+cat > "$SAME_OUTCOME" <<'JSON'
+{
+  "rules": [
+    { "when": "Hard design work.", "use": { "harness": "claude", "model": "opus", "effort": "high" } },
+    { "when": "Frontend work.", "use": [ { "harness": "claude", "model": "sonnet", "effort": "medium" }, { "harness": "cursor", "model": "cursor-grok-4.6-medium" } ] },
+    { "when": "Writing tests.", "use": [ { "model": "cursor-grok-4.6-medium", "harness": "cursor" }, { "effort": "medium", "harness": "claude", "model": "sonnet" } ] }
+  ],
+  "default": { "harness": "claude", "model": "opus" }
+}
+JSON
+split_response() {  # <path> <choice> <confidence> <p1> <p2> <p3> <pdefault> [facet args...]
+  local path=$1
+  jq -n --arg choice "$2" --argjson c "$3" --argjson p1 "$4" --argjson p2 "$5" --argjson p3 "$6" --argjson pd "$7" '
+    {model: "jev-1.13.0", usage: {input_tokens: 500, output_tokens: 80},
+     answers: {rule: {type: "choice", choice: $choice, confidence: $c,
+       probabilities: {rule_1: $p1, rule_2: $p2, rule_3: $p3, default: $pd}}}}' > "$path"
+  shift 7
+  add_facets "$path" "$@"
+}
+cp "$SAME_OUTCOME" "$RULES"
+reset_log
+split_response "$RESPONSE" rule_2 0.27 0.06 0.45 0.45 0.04
+TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
+assert_contains "$out" '  status: clear' "two rules that lead to one setting clear together"
+assert_contains "$out" '  rule: rule_2 (Frontend work.)   confidence: 0.85' "the counted-together confidence is recomputed over the distinct outcomes"
+assert_contains "$out" '  selection: rule_2+rule_3 counted as one answer; rule answer alone rule_2 0.27' "the selection line names what was counted together"
+assert_contains "$out" "  profile: --harness 'cursor' --model 'cursor-grok-4.6-medium'" "the shared setting resolves by argmax"
+split_response "$RESPONSE" rule_1 0.7 0.62 0.2 0.14 0.04
+TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
+assert_contains "$out" '  rule: rule_1 (Hard design work.)   confidence: 0.7' "counting together never lowers the rule answer's own confidence"
+assert_contains "$out" "  profile: --harness 'claude' --model 'opus' --effort 'high'" "a rule that clears alone still clears"
+split_response "$RESPONSE" rule_2 0.27 0.06 0.45 0.45 0.04
+jq '.rules[2].approval = "captain"' "$SAME_OUTCOME" > "$RULES"
+TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
+assert_contains "$out" '  status: ambiguous' "an approval-gated rule never counts together with an ungated one"
+assert_contains "$out" '  reason: confidence 0.27 below floor 0.6' "the unmerged split keeps the rule answer's own confidence"
+assert_not_contains "$out" '  profile:' "the unmerged split emits no profile"
+cp "$BASE_RULES" "$RULES"
+pass "same-outcome rules add up; an approval gate keeps a rule separate"
+
+# --- small answers narrow the rules through each rule's declared match ---------
+MATCH_RULES="$TMP_ROOT/match-rules.json"
+cat > "$MATCH_RULES" <<'JSON'
+{
+  "rules": [
+    { "when": "Ambiguous investigation, or writing a plan or spec from a vague request.",
+      "match": { "kind": ["investigate", "product_document"] },
+      "use": { "harness": "claude", "model": "opus", "effort": "high" } },
+    { "when": "Architecture or system design.",
+      "match": { "kind": ["design"] },
+      "use": { "harness": "claude", "model": "opus", "effort": "xhigh" } },
+    { "when": "A small bug fix or familiar feature work.",
+      "match": { "kind": ["bugfix", "feature"], "damage": ["low", "medium"] },
+      "use": { "harness": "claude", "model": "sonnet", "effort": "medium" } },
+    { "when": "The change is security-sensitive.",
+      "approval": "captain",
+      "match": { "security": ["yes"] },
+      "use": { "harness": "claude", "model": "opus", "effort": "medium" } }
+  ],
+  "default": { "harness": "claude", "model": "haiku" }
+}
+JSON
+match_response() {  # <path> <choice> <confidence> <p1> <p2> <p3> <p4> <pdefault> [facet args...]
+  local path=$1
+  jq -n --arg choice "$2" --argjson c "$3" --argjson p1 "$4" --argjson p2 "$5" --argjson p3 "$6" --argjson p4 "$7" --argjson pd "$8" '
+    {model: "jev-1.13.0", usage: {input_tokens: 500, output_tokens: 80},
+     answers: {rule: {type: "choice", choice: $choice, confidence: $c,
+       probabilities: {rule_1: $p1, rule_2: $p2, rule_3: $p3, rule_4: $p4, default: $pd}}}}' > "$path"
+  shift 8
+  add_facets "$path" "$@"
+}
+cp "$MATCH_RULES" "$RULES"
+write_doc_brief() {  # <path> <task sentence>
+  printf '%s\n' '# Task' "## Captain's intent" "$2" '' '# Setup' 'Create your branch.' > "$1"
+}
+doc_number=0
+for doc_task in \
+  'Write the PRD for the loyalty points feature.' \
+  'Write the specification for the returns flow from these notes.' \
+  'Research how competing point-of-sale products handle layaway and report it.' \
+  'Produce a study of why customers abandon the checkout.'; do
+  doc_number=$((doc_number + 1))
+  DOC_BRIEF="$TMP_ROOT/doc-brief-$doc_number.md"
+  write_doc_brief "$DOC_BRIEF" "$doc_task"
+  reset_log
+  match_response "$RESPONSE" rule_1 0.23 0.38 0.31 0.24 0.01 0.06 product_document low partly no 0.9
+  TYPESAFE_API_KEY=$KEY run code out err "$DOC_BRIEF" --project shop
+  assert_equals "## Captain's intent"$'\n'"$doc_task" "$(jq -r .state.task.brief "$LOG/body")" "the product-document task is what the questions see: $doc_task"
+  assert_contains "$out" '  status: clear' "product-document work clears instead of unsure: $doc_task"
+  assert_contains "$out" '  rule: rule_1 (Ambiguous investigation, or writing a plan or spec from a va)   confidence: 0.95' "product-document work lands on its existing rule: $doc_task"
+  assert_contains "$out" '  questions: kind=product_document(0.9) damage=low(0.9) settled=partly(0.9) security=no(0.9)' "the small answers are printed: $doc_task"
+  assert_contains "$out" '  selection: small answers left 2 of 4 rules and ruled out the none option; rule answer alone rule_1 0.23' "the selection line names the narrowing: $doc_task"
+  assert_contains "$out" "  profile: --harness 'claude' --model 'opus' --effort 'high'" "product-document work gets its rule's setting: $doc_task"
+done
+reset_log
+match_response "$RESPONSE" rule_3 0.3 0.25 0.2 0.44 0.01 0.1 bugfix medium settled no 0.9
+TYPESAFE_API_KEY=$KEY run code out err "$BRIEF" --project pager
+assert_contains "$out" '  status: clear' "code work clears through the same narrowing"
+assert_contains "$out" "  profile: --harness 'claude' --model 'sonnet' --effort 'medium'" "code work lands on its existing rule"
+reset_log
+match_response "$RESPONSE" default 0.4 0.3 0.1 0.07 0.01 0.52 product_document low partly no 0.9
+TYPESAFE_API_KEY=$KEY run code out err "$DOC_BRIEF" --project shop
+assert_contains "$out" '  status: clear' "a rule whose declared match is met outranks an unsure none pick"
+assert_contains "$out" '  rule: rule_1 (Ambiguous investigation, or writing a plan or spec from a va)   confidence: 0.94' "the met rule is selected over the none option"
+assert_contains "$out" '  selection: small answers left 2 of 4 rules and ruled out the none option; rule answer alone default 0.4' "the selection line names the overruled none pick"
+reset_log
+match_response "$RESPONSE" default 0.9 0.02 0.02 0.02 0.01 0.93 tests low settled no 0.9
+TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
+assert_contains "$out" '  rule: default (No listed rule applies to this task.)   confidence: 0.98' "work no rule declares keeps the none option"
+assert_contains "$out" "  profile: --harness 'claude' --model 'haiku'" "work no rule declares resolves among the default profiles"
+pass "small answers land product-document and code work on their existing rules"
+
+reset_log
+match_response "$RESPONSE" rule_1 0.23 0.38 0.31 0.24 0.01 0.06 product_document low partly no 0.4
+TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
+assert_contains "$out" '  status: ambiguous' "small answers below the floor narrow nothing"
+assert_contains "$out" '  reason: confidence 0.23 below floor 0.6' "the rule answer's own confidence decides when nothing narrowed"
+assert_not_contains "$out" '  selection:' "nothing is reported as narrowed or counted together"
+reset_log
+match_response "$RESPONSE" rule_1 0.7 0.76 0.1 0.1 0.01 0.03 design low partly no 0.9
+TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
+assert_contains "$out" '  status: ambiguous' "small answers that exclude the rule pick hand the decision back"
+assert_contains "$out" '  reason: small answers (kind=design, damage=low, settled=partly, security=no) exclude the rule pick rule_1' "the disagreement is named"
+assert_not_contains "$out" '  profile:' "a disagreement emits no profile"
+pass "low-confidence small answers change nothing, and a disagreement is ambiguous"
+
+reset_log
+match_response "$RESPONSE" rule_3 0.9 0.02 0.02 0.92 0.02 0.02 feature medium settled yes 0.9
+TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
+assert_contains "$out" '  status: escalate' "a met approval-gated match stops for approval"
+assert_contains "$out" "  reason: rule requires the captain's explicit approval before dispatch" "the stop names the approval gate"
+assert_contains "$out" '  rule: rule_4 (The change is security-sensitive.)' "the gated rule is the selected rule"
+assert_contains "$out" '  selection: small answers meet the declared match of approval-gated rule_4' "the selection line names why"
+assert_not_contains "$out" '  profile:' "a gated rule never yields a profile"
+reset_log
+match_response "$RESPONSE" rule_4 0.9 0.02 0.02 0.02 0.92 0.02 bugfix low settled no 0.9
+TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
+assert_contains "$out" '  status: escalate' "a gated rule Jev picks still stops when the small answers exclude its match"
+assert_contains "$out" "  reason: rule requires the captain's explicit approval before dispatch" "small answers never drop an approval-gated rule"
+assert_not_contains "$out" '  profile:' "small answers cannot turn a gated pick into a profile"
+cp "$BASE_RULES" "$RULES"
+pass "approval-gated rules stop for approval and are never narrowed away"
+
+# --- every decision is recorded, privately and size-capped -------------------------
+RECORD="$HOME_DIR/state/.dispatch-resolve.log"
+rm -rf "$HOME_DIR/state"
+reset_log
+write_response "$RESPONSE" rule_4 0.9
+run code out err "$BRIEF" --project pager
+assert_absent "$RECORD" "the off path records nothing"
+TYPESAFE_API_KEY=$KEY run code out err "$BRIEF" --project pager
+write_response "$RESPONSE" rule_4 0.41
+TYPESAFE_API_KEY=$KEY run code out err "$BRIEF" --project pager
+TYPESAFE_API_KEY=$KEY FAKE_CURL_HTTP=500 run code out err "$BRIEF" --project pager
+assert_equals 'clear ambiguous error' "$(jq -r .status "$RECORD" | tr '\n' ' ' | sed 's/ $//')" "one line per outcome, in order"
+assert_equals 'pager|rule_4|0.9|bugfix|0.9|cursor|cursor-grok-4.6-medium' \
+  "$(sed -n 1p "$RECORD" | jq -r '[.project, .rule, .confidence, .questions.kind.choice, .rule_answer.confidence, .profile.harness, .profile.model] | join("|")')" \
+  "a record line carries the answers, confidences, chosen rule, and profile"
+assert_equals '64' "$(sed -n 1p "$RECORD" | jq -r '.digest | length')" "a record line carries a digest of the state sent"
+assert_equals "$(sed -n 1p "$RECORD" | jq -r .digest)" "$(sed -n 2p "$RECORD" | jq -r .digest)" "the same input has the same digest"
+assert_contains "$(sed -n 3p "$RECORD" | jq -r .reason)" 'http 500' "an error outcome records its reason"
+assert_not_contains "$(cat "$RECORD")" "$KEY" "the key never reaches the record"
+assert_not_contains "$(cat "$RECORD")" 'off-by-one' "the brief text never reaches the record"
+assert_equals '600' "$(stat -c %a "$RECORD" 2>/dev/null || stat -f %Lp "$RECORD")" "the record is private"
+i=0
+while [ "$i" -lt 3000 ]; do
+  printf '{"status":"filler","pad":"%0100d"}\n' "$i"
+  i=$((i + 1))
+done >> "$RECORD"
+write_response "$RESPONSE" rule_4 0.9
+TYPESAFE_API_KEY=$KEY run code out err "$BRIEF" --project pager
+assert_equals '1000' "$(wc -l < "$RECORD" | tr -d '[:space:]')" "an oversized record is cut back to its newest lines"
+assert_equals 'clear' "$(tail -n 1 "$RECORD" | jq -r .status)" "the newest decision survives the cut"
+mkdir -p "$TMP_ROOT/blocked" && rm -rf "$HOME_DIR/state" && : > "$HOME_DIR/state"
+TYPESAFE_API_KEY=$KEY run code out err "$BRIEF" --project pager
+expect_code 0 "$code" "an unwritable record never fails the tool"
+assert_contains "$out" '  status: clear' "an unwritable record never changes the outcome"
+rm -f "$HOME_DIR/state"
+pass "every outcome after the gate is recorded to a private, size-capped log"
+
+# --- a malformed small answer is an error outcome ---------------------------------
+reset_log
+write_response "$RESPONSE" rule_4 0.9
+jq 'del(.answers.damage)' "$RESPONSE" > "$TMP_ROOT/missing-small.json" && mv "$TMP_ROOT/missing-small.json" "$RESPONSE"
+TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
+assert_contains "$out" '  status: error' "a missing small answer is an error outcome"
+assert_contains "$out" '  reason: response is not a damage Choice answer' "the malformed question is named"
+assert_not_contains "$out" '  profile:' "a malformed small answer emits no profile"
+pass "a malformed small answer returns the decision to firstmate"
+
 # --- configuration errors exit 2 and select nothing ----------------------------------
 reset_log
 TYPESAFE_API_KEY=$KEY run code out err
@@ -603,6 +856,9 @@ assert_contains "$err" 'not JSON' "non-JSON rules is named"
 for bad in \
   '{"rules":[{"when":"x","use":{"harness":"claude"},"approval":"firstmate"}]}|approval must be "captain" when present' \
   '{"rules":[{"when":"x","use":{"harness":"claude"},"select":"mystery"}]}|unknown select: mystery' \
+  '{"rules":[{"when":"x","use":{"harness":"claude"},"match":{"kind":["poetry"]}}]}|match must map kind, damage, settled, security to non-empty lists of that question'"'"'s own answers' \
+  '{"rules":[{"when":"x","use":{"harness":"claude"},"match":{"mood":["low"]}}]}|match must map kind, damage, settled, security to non-empty lists of that question'"'"'s own answers' \
+  '{"rules":[{"when":"x","use":{"harness":"claude"},"match":{"damage":"low"}}]}|match must map kind, damage, settled, security to non-empty lists of that question'"'"'s own answers' \
   '{"rules":[{"when":"x","use":{"harness":"claude"},"floor":{"scope":"model:fable","min_percent":20}}]}|rule floor needs scope, min_percent 0..100, and provider matching ^[a-z0-9]+(-[a-z0-9]+)*\z' \
   '{"rules":[{"when":"x","use":{"harness":"claude"},"floor":{"scope":"model:fable","min_percent":20,"provider":"CLAUDE"}}]}|rule floor needs scope, min_percent 0..100, and provider matching ^[a-z0-9]+(-[a-z0-9]+)*\z' \
   '{"rules":[{"when":"x","use":{"harness":"claude","provider":""}}]}|each use profile needs harness; model, effort, and floor must be well formed, and provider must match ^[a-z0-9]+(-[a-z0-9]+)*\z when present' \

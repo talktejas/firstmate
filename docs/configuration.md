@@ -484,6 +484,8 @@ Typed resolution additively recognizes `gemini` because AGENTS.md section 4 veri
 The opted-in resolver has authoritative single-provider mappings for `claude`, `codex`, `grok`, `kimi`, `cursor`, `agy`, and `muse`; every other verified harness must declare `provider` explicitly, including multi-provider `pi`, `pi-signed`, `omp`, and `opencode` and unmapped `gemini` and `rovo`.
 Its single-provider table is separate from the frozen legacy mapping used by `fm-quota-choose.sh`, so additions cannot alter no-key routing.
 The resolver returns an actionable configuration error before any request when such a profile omits it.
+A rule `match` optionally declares which answers to the resolver's four small questions the rule accepts, as an object whose keys are `kind`, `damage`, `settled`, or `security` and whose values are non-empty lists of that question's own answers; the resolver's `QUESTION_DEFS` owns the answer vocabulary, and a question the rule leaves out accepts every answer.
+The resolver validates `match` itself and reports a malformed one as its exit 2 configuration error; bootstrap does not read the field.
 A profile `floor` contains only `scope` and `min_percent`, always uses that profile's provider, and makes that one candidate ineligible below `min_percent` on the named scope.
 An absent or unknown named row also makes the candidate unrankable and is reported as an unverifiable floor, not as a known shortfall.
 `ultra` is native-only: the model-aware validation contract and launch mapping are owned by `bin/fm-harness.sh validate-native-effort` and `bin/fm-spawn.sh` respectively.
@@ -515,15 +517,25 @@ bin/fm-dispatch-resolve.sh data/<id>/brief.md --project <name>        # TOON blo
 ```
 
 Firstmate invokes the resolve path directly after writing the brief, without a preflight; the absent-key off line is handled exactly like every other non-clear outcome.
-When on and at least one rule exists, the tool sends the project name and the whole brief as state and asks one Choice question whose options are every rule's `when` plus the fixed neutral option for no matching rule; the model never sees quota, catalogs, `why`, `use`, or approvals.
+When on and at least one rule exists, the tool sends the project name and the brief's `# Task` section as state, or the whole brief when it has no such section, and asks five Choice questions in that one request; the model never sees quota, catalogs, `why`, `use`, `match`, or approvals.
+The `rule` question's options are every rule's `when` plus the fixed neutral option for no matching rule.
+The four small questions are fixed in the script: `kind` (the kind of work, with product documents such as a PRD, a specification, research, or a study as one answer beside the code kinds), `damage` (how much a wrong result would cost), `settled` (how settled the instructions are), and `security` (security-sensitive or not).
 An absent rules file, a default-only file, or `rules: []` returns the non-clear reason `no rules to match` without a model or quota request, leaving firstmate's existing routing in control; an existing but unreadable or malformed rules file, including a broken symlink, remains an actionable exit 2 configuration error.
-Everything after the answer runs in code: the confidence floor, the matched rule's `approval` and `floor`, each candidate's `provider` and `floor`, every applicable account-wide and model/product row from one `quota-axi --json` snapshot, and the numeric `spendPriority` argmax over candidates using each candidate's limiting row.
+Code then decides which rule the answers add up to.
+Rules whose `use`, `approval`, and `floor` are the same count as one answer, so their probabilities add up and the confidence is recomputed over the distinct outcomes with the vendor's own formula; the rule answer's own confidence stands whenever that recount would only lower it.
+A small answer at or above the confidence floor drops every rule whose declared `match` excludes it, and drops the neutral option once some rule's whole declared `match` is met; a small answer below the floor changes nothing, and a file with no `match` is never narrowed.
+An approval-gated rule is never dropped, and one whose whole declared `match` is met is selected outright, so the small answers can add a stop for approval and can never remove one.
+When the small answers would drop the rule the model itself picked, the two readings disagree and the result is `ambiguous`.
+Everything after that selection also runs in code: the confidence floor, the selected rule's `approval` and `floor`, each candidate's `provider` and `floor`, every applicable account-wide and model/product row from one `quota-axi --json` snapshot, and the numeric `spendPriority` argmax over candidates using each candidate's limiting row.
 Known applicable rows from a provider with partial quota semantics remain rankable; rows whose own status is not known remain unrankable.
 Any applicable `exhausted_now` row or known zero bound makes that candidate ineligible, and a known profile-floor shortfall does the same before unrelated quota uncertainty is considered.
 Missing or nonnumeric `spendPriority` evidence is never ranked, and every candidate is printed beside its evidence or the reason it was not rankable, including on ambiguous and approval-gated outcomes that emit no profile.
 On the opted-in path, duplicate concrete profiles with the same harness, model, and effort inside one rule or the default array are configuration errors rather than ties.
-The result is one of `clear` (a `profile:` line ready for `fm-spawn.sh`), `ambiguous` (confidence below the floor), `escalate` (an approval-gated rule, unverifiable rule floor, nothing rankable, or a genuine tie), or `error` (API, network, malformed response metadata, rendering, or quota-axi failure), and every one of them exits 0.
-Response probabilities must contain exactly every offered choice, use numeric values from 0 through 1, and sum to approximately 1 within 0.01.
+The result is one of `clear` (a `profile:` line ready for `fm-spawn.sh`), `ambiguous` (confidence below the floor, or the small answers exclude the model's own rule pick), `escalate` (an approval-gated rule, unverifiable rule floor, nothing rankable, or a genuine tie), or `error` (API, network, malformed response metadata, rendering, or quota-axi failure), and every one of them exits 0.
+Response probabilities must contain exactly every offered choice, use numeric values from 0 through 1, and sum to approximately 1 within 0.01, for every one of the five questions; one malformed answer makes the whole result `error`.
+Every outcome after the opt-in gate appends one JSON line to the private, mode-0600 `state/.dispatch-resolve.log`: the time, the project, a digest of the state sent, the status and reason, the selected rule and its confidence, each question's answer and confidence, and the profile.
+It holds no brief text and no key, is cut back to its newest 1000 lines past 256 KiB, and a failed write never changes the outcome.
+`jq -r .status state/.dispatch-resolve.log | sort | uniq -c` reads the hit rate from it.
 Only a usage or configuration error exits 2: an unreadable brief, an existing but unreadable or malformed canonical rules file, or missing `jq`, each reported and never selected around.
 Missing `curl` is a normal structured `error` outcome with exit 0 so firstmate uses today's routing.
 The tool never replaces firstmate's judgment, `quota-array-dispatch`, the captain-approval gate, or `fm-spawn.sh` validation; `AGENTS.md` section 4 owns what firstmate does with each outcome.
