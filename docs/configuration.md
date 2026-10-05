@@ -243,6 +243,26 @@ One task may receive six routine answers in a row before the next wake is delive
 Each call sends the wake's class and reason line, the task id, its last six status lines cut to 400 characters each, and its pull request read, or for a contributions check its diagnostic lines; it sends no brief, pane content, or quota.
 `bin/fm-jev-lib.sh` owns the request, the answer validation, and the key handling shared with typed dispatch resolution, `bin/fm-watch.sh`'s `jev_triage_routine` header owns the exact eligibility gates, and [`verification/jev-wake-triage.md`](verification/jev-wake-triage.md) records the live evidence.
 
+## Pull request risk level (.env TYPESAFE_API_KEY)
+
+`bin/fm-pr-check.sh` prints one advisory line beside a pull request it has just recorded: `risk: low`, `risk: medium`, `risk: high`, or `risk: not rated`, each followed by the reasons.
+It is off unless `TYPESAFE_API_KEY` is available under the same environment-then-`.env` contract as [typed dispatch resolution](#typed-dispatch-resolution-env-typesafe_api_key); with the key absent the script reads nothing extra, makes no call, and prints exactly what it prints without the feature.
+The line is advice for whoever reviews the merge request, on every delivery mode, and a second mate's ready line carries a rated level to its parent as `risk=<level>`.
+Nothing reads it to block, merge, approve, or discard anything, and the pull request is recorded and its merge poll armed before the rating starts, so no failure of the rating changes the registration or its exit status.
+
+Code sets the level first, from the change `bin/fm-review-diff.sh` reads for the task, which is the same read for GitHub and GitLab.
+A path that looks like a database migration, login or permissions, or payments, or 1500 or more changed lines, is high; a deleted file, 400 or more changed lines, or 20 or more files is medium.
+The model is then asked only the judgement that remains, as up to three separate yes/no questions: behaviour changed with no test, the description does not match the change, and something hard to undo.
+Code answers the first one itself when a test file changed or no code file did, and never asks the second when the forge returned no title or description.
+An answer counts only when its confidence and the chosen option's probability are both at or above the shared 0.6 floor.
+A counted yes can only raise the level, to high for something hard to undo and to medium for the other two, and no answer lowers the level the facts set.
+`risk: low` is printed only when all three questions were settled; when any is unanswered because of a timeout, an API error, a malformed answer, low confidence, or an unreadable description, and nothing else raised the level, the line is `risk: not rated`, and an unanswered question is always named on the line.
+A change that cannot be read at all is `risk: not rated`.
+
+Each call sends the pull request's title and description, its file list with line counts, the facts above, and the first 30000 bytes of its diff; that text is written by the pull request's author, so it can sway an answer, which is why an answer may raise the level and nothing more.
+The rating adds at most one change read (60 seconds), one forge read (20 seconds), and three model calls to a registration, and stops calling the model after the first call that fails outright.
+`bin/fm-pr-risk-lib.sh`'s header owns the exact facts, thresholds, and questions, `bin/fm-jev-lib.sh` owns the request and key handling, and [`verification/jev-pr-risk.md`](verification/jev-pr-risk.md) records the live evidence.
+
 ## Gate defaults (.no-mistakes.yaml)
 
 The tracked `.no-mistakes.yaml` sets `test.evidence.store_in_repo: true` and pins `commands.lint` to `bin/fm-lint.sh`, the same owner CI invokes.
@@ -530,8 +550,8 @@ The tool never replaces firstmate's judgment, `quota-array-dispatch`, the captai
 By accepted design, a `clear` result does not enforce catalog/authentication, reasoning-class, or completion-runway gates.
 Firstmate passes its profile line unless it states a reason to override, such as the brief's reasoning class or an eligible-unranked-candidate note; every non-clear result returns to the full existing intake.
 
-The resolver, the watcher, and bootstrap copy an environment-provided key into a non-exported private variable and unset `TYPESAFE_API_KEY` before launching child processes, so the secret is absent from child environments.
-`bin/fm-jev-lib.sh` is the single owner of the Jev request, the answer validation, and that key handling for the resolver and for [routine-wake triage](#routine-wake-triage-env-typesafe_api_key); it sends the key to `curl` only as a header read from a file descriptor, never on argv, and nothing prints, logs, or writes it.
+The resolver, the watcher, the pull request registration, and bootstrap copy an environment-provided key into a non-exported private variable and unset `TYPESAFE_API_KEY` before launching child processes, so the secret is absent from child environments.
+`bin/fm-jev-lib.sh` is the single owner of the Jev request, the answer validation, and that key handling for the resolver, for [routine-wake triage](#routine-wake-triage-env-typesafe_api_key), and for the [pull request risk level](#pull-request-risk-level-env-typesafe_api_key); it sends the key to `curl` only as a header read from a file descriptor, never on argv, and nothing prints, logs, or writes it.
 It fixes the endpoint at `https://api.typesafe.ai`, model at `jev-latest`, confidence floor at 0.6, and request timeout at 5 seconds; `TYPESAFE_API_KEY` is the resolver's only resolver-specific environment setting.
 The live rule-match evidence is recorded in [`verification/dispatch-resolve.md`](verification/dispatch-resolve.md).
 

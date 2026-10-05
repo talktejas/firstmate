@@ -5,6 +5,8 @@
 # live only in a private sidecar and are never interpolated into shell source.
 # A GitHub pull request URL and a GitLab merge request URL are both accepted,
 # including a merge request on a self-hosted GitLab instance.
+# A home that holds TYPESAFE_API_KEY also gets one advisory `risk:` line for the
+# recorded pull request (bin/fm-pr-risk-lib.sh); it never affects the arming.
 # Usage: fm-pr-check.sh <task-id> <pr-url>
 set -eu
 
@@ -19,6 +21,8 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 . "$SCRIPT_DIR/fm-wake-lib.sh"
 # shellcheck source=bin/fm-parent-channel-lib.sh
 . "$SCRIPT_DIR/fm-parent-channel-lib.sh"
+# shellcheck source=bin/fm-pr-risk-lib.sh
+. "$SCRIPT_DIR/fm-pr-risk-lib.sh"
 
 if [ "$#" -ne 2 ]; then
   echo "error: invalid PR check request" >&2
@@ -164,11 +168,17 @@ fi
 # silent no-op there. The poll is armed either way; a channel that cannot be
 # written is reported as actionable, and bin/fm-inactive-reconcile.sh still
 # delivers the child's own ready line on the next supervision poll.
+RISK_LINE=$(fm_pr_risk "$ID" "$PROVIDER" "$URL" "$HOST" "$PROJECT_PATH" "$NUMBER" 2>/dev/null) || RISK_LINE=
 READY_LINE="done [key=child-pr-$ID]: child $ID PR ready: $URL"
 PR_MODE=$(grep '^mode=' "$META" | tail -1 | cut -d= -f2- || true)
 PR_YOLO=$(grep '^yolo=' "$META" | tail -1 | cut -d= -f2- || true)
 [ -z "$PR_MODE" ] || READY_LINE="$READY_LINE mode=$(fm_parent_channel_clean_note "$PR_MODE")"
 [ -z "$PR_YOLO" ] || READY_LINE="$READY_LINE yolo=$(fm_parent_channel_clean_note "$PR_YOLO")"
+case "$RISK_LINE" in
+  'risk: low '*) READY_LINE="$READY_LINE risk=low" ;;
+  'risk: medium '*) READY_LINE="$READY_LINE risk=medium" ;;
+  'risk: high '*) READY_LINE="$READY_LINE risk=high" ;;
+esac
 READY_RC=0
 fm_parent_channel_report "$FM_HOME" "$STATE" "$READY_LINE" || READY_RC=$?
 case "$READY_RC" in
@@ -176,3 +186,4 @@ case "$READY_RC" in
   *) printf 'actionable: PR %s is registered but its ready line did not reach the parent channel (rc=%s)\n' "$URL" "$READY_RC" >&2 ;;
 esac
 printf 'armed: state/%s.check.sh\n' "$ID"
+[ -z "$RISK_LINE" ] || printf '%s\n' "$RISK_LINE"

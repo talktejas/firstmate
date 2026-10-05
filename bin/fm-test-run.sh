@@ -377,7 +377,7 @@ family_for_basename() {
       printf '%s\n' backend-dispatch
       ;;
     fm-check-unregister.test.sh|fm-pr-check-security.test.sh|fm-pr-merge.test.sh|\
-    fm-pr-reviewers.test.sh|fm-pr-state.test.sh|\
+    fm-pr-reviewers.test.sh|fm-pr-risk.test.sh|fm-pr-state.test.sh|\
     fm-review-diff.test.sh|fm-teardown.test.sh|fm-x-mode.test.sh)
       printf '%s\n' pr-forge
       ;;
@@ -1452,10 +1452,11 @@ families_for_changed_path() {
       printf '%s\n' "__script__:fm-dispatch-resolve.test.sh"
       ;;
     bin/fm-jev-lib.sh)
-      # The one Jev caller, sourced by bin/fm-dispatch-resolve.sh and by the
-      # watcher's routine-wake triage.
+      # The one Jev caller, sourced by bin/fm-dispatch-resolve.sh, the
+      # watcher's routine-wake triage, and the pull request risk level.
       printf '%s\n' "__script__:fm-dispatch-resolve.test.sh"
       printf '%s\n' "__script__:fm-jev-wake-triage.test.sh"
+      printf '%s\n' "__script__:fm-pr-risk.test.sh"
       ;;
     bin/fm-env-lib.sh)
       # The one .env accessor, sourced by bin/fm-x-lib.sh (Relay token) and
