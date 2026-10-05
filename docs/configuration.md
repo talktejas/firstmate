@@ -231,16 +231,18 @@ Only two enumerated wake classes are ever offered, each wired at its own point i
 
 No signal is ever offered, so every new status event and every bare turn-end surfaces as it does without the feature.
 A paused task is eligible only when a pull request is recorded for the task (`pr=` in its metadata) and is still open with no blocker reported; a paused task with no recorded pull request is never offered and surfaces exactly as it does without the feature.
-The question asks what the declared wait is for: a wait on an automatic external event may read as routine, while a worker waiting on a person or stopped after a failure is delivered.
+The question asks what the declared wait is for: an open pull request that only awaits its merge word, whoever gives it, or a wait on an automatic external event may read as routine, while a worker waiting on a person for anything else or stopped after a failure is delivered.
 
 Everything else is refused in code before any call and never depends on the model's answer.
 That covers captain notes, every new status event, every turn-end, merge and PR-ready outcomes, process-event and Relay wakes, every other check, any task with an open keyed decision, a secondmate, a declared clearing time that has passed, and every wake while the away-mode daemon or the away-posture record exists.
-An endpoint whose agent is not proven alive is never routine, so a dead, missing, ambiguous, unreadable, or unverified endpoint is always delivered.
+An endpoint whose agent state cannot be established is never routine, so a missing, ambiguous, unreadable, or unverified endpoint is always delivered.
+A worker whose agent is running, or has exited while its endpoint remains, is offered, and the model is told which; for an exited agent the question keeps only a pull request awaiting its merge routine, since that worker cannot resume any other wait by itself.
 The watcher first reads the recorded pull request through `bin/fm-pr-state.sh` and offers the wake only while that read reports the pull request open with no blocker, which is all the model is told about it; a merged, closed, blocked, or unreadable pull request delivers the wake without asking, so an absorbed pause recheck is still presented on its normal cadence once the wait has actually changed.
+A repository that reports no checks at all is not a blocker, while a draft, a conflict, a requested change, and a required check that is failing or pending each are.
 A routine answer advances the same recheck cadence a delivered wake would, so the wait is read again every `FM_PAUSE_RESURFACE_SECS` rather than silenced.
 One task may receive six routine answers in a row before the next wake is delivered unasked and the count restarts, so the model can never mute a wait indefinitely.
 
-Each call sends the wake's class and reason line, the task id, its last six status lines cut to 400 characters each, and its pull request read, or for a contributions check its diagnostic lines; it sends no brief, pane content, or quota.
+Each call sends the wake's class and reason line, the task id, its last six status lines cut to 400 characters each, its pull request read, and whether its agent is running or has exited, or for a contributions check its diagnostic lines; it sends no brief, pane content, or quota.
 `bin/fm-jev-lib.sh` owns the request, the answer validation, and the key handling shared with typed dispatch resolution, `bin/fm-watch.sh`'s `jev_triage_routine` header owns the exact eligibility gates, and [`verification/jev-wake-triage.md`](verification/jev-wake-triage.md) records the live evidence.
 
 ## House-rules check (.env TYPESAFE_API_KEY, config/house-rules.json)
