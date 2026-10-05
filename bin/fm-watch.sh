@@ -11,8 +11,8 @@
 # either a paused: external wait or a verified captain-held transfer, is the
 # separate idle absorb case and re-surfaces only on its long bounded cadence,
 # although its initial no-verb status signal still surfaces in normal mode.
-# A home that opts in with config/jev-wake-triage additionally offers four
-# enumerated routine wake classes around such a declared wait, and a transient
+# A home that holds TYPESAFE_API_KEY additionally offers later repeat checks of
+# such a declared wait, once its declaration has been delivered, and a transient
 # contributions-read timeout, to Jev as one fixed-choice question
 # (jev_triage_routine owns the gates); every failure there delivers the wake.
 # That cadence is hours long and condition-aware: a paused: line naming
@@ -131,7 +131,7 @@
 # no-op through the watcher singleton lock.
 set -u
 
-# The shared Jev caller behind the opt-in routine-wake triage below
+# The shared Jev caller behind the key-gated routine-wake triage below
 # (jev_triage_routine). Sourced before anything can start a child, with its path
 # derived by builtins alone, because sourcing it is what takes TYPESAFE_API_KEY
 # out of the exported environment every later child would inherit.
@@ -902,7 +902,7 @@ FM_WEDGE_DEMAND_INSPECT_COUNT=${FM_WEDGE_DEMAND_INSPECT_COUNT:-3}
 # <min-age> replaces the cadence as the absorb-age gate for one call (0 lets a
 # declared `until` time that has just passed re-surface at once), while the
 # throttle keeps the cadence between repeats. An optional <triage-task> offers a
-# due re-surface of that task's declared external wait to the opt-in routine-wake
+# due re-surface of that task's declared external wait to the key-gated routine-wake
 # triage (jev_triage_pause_routine); a routine answer advances the throttle
 # exactly as a delivered re-surface does, so the wait is read again on the same
 # cadence instead of being silenced.
@@ -1583,8 +1583,8 @@ surface_nonterminal_stale() {  # <window> <hash>
     else
       stale_wait_throttled "$key" "$STALE_WAIT_DECLARATION" && throttled=0
     fi
-    # A declared external wait about to alarm is the one sighting here the opt-in
-    # routine-wake triage may read. A routine answer records the throttle a
+    # A declared external wait about to alarm is the one sighting here the
+    # key-gated routine-wake triage may read. A routine answer records the throttle a
     # delivered alarm would have, so the same declaration is offered again only
     # on the bounded cadence rather than on every new pane hash.
     if [ "$throttled" -ne 0 ] && jev_triage_pause_routine "$task" "stale: $win"; then
@@ -1636,55 +1636,54 @@ surface_nonterminal_stale() {  # <window> <hash>
   wake "stale: $win"
 }
 
-# --- Opt-in routine-wake triage (config/jev-wake-triage) ---------------------
+# --- Routine-wake triage (off unless TYPESAFE_API_KEY is present) ------------
 #
 # A wake that changes nothing still costs a whole firstmate turn. For a home
-# that opts in, a wake in one of the enumerated classes below is offered to Jev
+# that holds the key, a wake in one of the enumerated classes below is offered to Jev
 # (bin/fm-jev-lib.sh) as ONE fixed-choice question - needs_firstmate or routine -
 # over that wake's own evidence, and is absorbed like any other benign wake only
 # on a routine answer at or above the shared confidence floor. Everything else
-# delivers the wake exactly as before: the flag or key absent, a timeout, a
-# malformed answer, low confidence, or any other choice.
+# delivers the wake exactly as before: the key absent, a timeout, a malformed
+# answer, low confidence, or any other choice.
 #
 # The eligible classes are an allowlist wired at their own call sites, so a wake
 # that is not one of them never reaches the model:
 #   declared-pause-recheck   a stale wake for a worker whose latest status event
 #                            is a `paused:` external wait (handle_paused_stale,
 #                            wedge_defer_wait, surface_nonterminal_stale)
-#   paused-status-signal     a signal whose only new status lines are `paused:`
 #   paused-turn-end          a bare turn-end from a worker already `paused:`
 #   contributions-observation-timeout
 #                            a contributions check that reports only forge reads
 #                            that timed out
-# What keeps the rest out is code, never the model. The signal classes are
-# reached only after signal_files_actionable found no needs-decision, blocked,
-# failed, done, or captain-held event in the new span; captain notes, merge and
-# PR-ready outcomes, process-event and Relay wakes, and every other check have
-# no call site here. jev_triage_enabled refuses while the away daemon or the
-# away-posture record exists, and jev_triage_task_evidence refuses a secondmate,
-# a task with any open keyed decision, a declared clearing time that has passed,
-# and an endpoint whose agent is not proven alive.
+# What keeps the rest out is code, never the model. A signal that names a status
+# log is never offered, so a new status event, a first `paused:` declaration
+# included, is always delivered; captain notes, merge and PR-ready outcomes,
+# process-event and Relay wakes, and every other check have no call site here.
+# jev_triage_enabled refuses while the away daemon or the away-posture record
+# exists, and jev_triage_task_evidence refuses a secondmate, a task with any
+# open keyed decision, a declared clearing time that has passed, an endpoint
+# whose agent is not proven alive, and a status log whose current state has not
+# been delivered to firstmate (the reported signature the delivery paths record
+# in .hb-surfaced-*), so only a repeat of a delivered declaration is ever asked.
 #
 # The deterministic read comes first and settles what it can: a task with a
 # recorded pull request is offered only while bin/fm-pr-state.sh reads that pull
-# request as open with nothing blocking it, so a merged, closed, conflicting, or
+# request as open with no blocker reported, so a merged, closed, conflicting, or
 # failing one is delivered without asking.
 #
 # ponytail: one consecutive-absorb counter per subject bounds the model the way
 # PAUSE_RESURFACE_SECS bounds the deterministic absorbs - after
-# FM_JEV_TRIAGE_MAX_STREAK routine answers in a row the next wake is delivered
+# JEV_TRIAGE_MAX_STREAK routine answers in a row the next wake is delivered
 # unasked and the count restarts, so no wait can be muted indefinitely.
-JEV_TRIAGE_MAX_STREAK=${FM_JEV_TRIAGE_MAX_STREAK:-6}
-case "$JEV_TRIAGE_MAX_STREAK" in ''|*[!0-9]*) JEV_TRIAGE_MAX_STREAK=6 ;; esac
+JEV_TRIAGE_MAX_STREAK=6
 JEV_TRIAGE_PR_TIMEOUT=30
 FM_PR_STATE_BIN="${FM_PR_STATE_BIN:-$SCRIPT_DIR/fm-pr-state.sh}"
 # shellcheck disable=SC2016 # The backticks are literal markup in the question text.
-JEV_TRIAGE_INSTRUCTIONS='A monitoring event in `wake` is about to interrupt the supervisor of a fleet of software workers. Decide from the evidence in `wake` alone whether the supervisor has to look at it now. The supervisor has already read every status event except the newest, so judge the newest event and whether anything changed. A reminder to confirm that a declared wait still holds is not by itself a reason to interrupt. Choose `needs_firstmate` whenever you are unsure.'
+JEV_TRIAGE_INSTRUCTIONS='A monitoring event in `wake` is about to interrupt the supervisor of a fleet of software workers. Decide from the evidence in `wake` alone whether the supervisor has to look at it now. Every status event listed in `wake` has already been delivered to the supervisor, so judge only whether anything has changed since. A reminder to confirm that a declared wait still holds is not by itself a reason to interrupt. Choose `needs_firstmate` whenever you are unsure.'
 JEV_TRIAGE_CRITERIA='{"needs_firstmate":"A worker asks for a choice, an answer, a review, or help; reports a failure, an error, or newly finished work; or it is not clear that nothing changed.","routine":"An expected wait that was already declared and has not changed, such as an open pull request waiting to be merged, a rate limit, a scheduled window, or an upstream release; or one transient read timeout that the monitor retries on its own. Nothing new is reported or asked, and nothing the supervisor could do now would move it."}'
 JEV_TRIAGE_TASK_EVIDENCE=
 
 jev_triage_enabled() {
-  [ -e "$CONFIG/jev-wake-triage" ] || return 1
   afk_present && return 1
   afk_record_present && return 1
   fm_jev_key_load "$FM_HOME"
@@ -1706,6 +1705,8 @@ jev_triage_task_evidence() {  # <task>
     [ "$(date +%s)" -lt "$until" ] || return 1
   fi
   [ -z "$(status_open_decisions "$statusf")" ] || return 1
+  status_presentation_marker_reported_matches "$(_hb_surfaced_path "$task")" \
+    "$(fm_wake_signal_sig "$statusf")" || return 1
   w=$(fm_backend_target_of_meta "$meta")
   [ -n "$w" ] || return 1
   [ "$(fm_backend_agent_state "$(fm_backend_of_meta "$meta")" "$w" 2>/dev/null || true)" = alive ] || return 1
@@ -1715,7 +1716,7 @@ jev_triage_task_evidence() {  # <task>
     if [ -n "$pr_out" ] && printf '%s\n' "$pr_out" | grep -Eqv '^(CHECKS: |MERGEABILITY: unknown$)'; then
       return 1
     fi
-    pr_note='open, with no failing or pending required check, conflict, or requested change'
+    pr_note='open; no blocker reported'
   fi
   JEV_TRIAGE_TASK_EVIDENCE=$(tail -n 6 "$statusf" 2>/dev/null | cut -c 1-400 \
     | jq -Rsc --arg task "$task" --arg pr "$pr_note" \
@@ -1761,44 +1762,25 @@ jev_triage_pause_routine() {  # <task> <reason>
   jev_triage_routine declared-pause-recheck "$1" "$2" "[$JEV_TRIAGE_TASK_EVIDENCE]"
 }
 
-# A no-verb signal batch that concerns exactly ONE task, whose new status lines
-# (the bytes past the watcher's classified position) are all `paused:`
-# declarations or which is a bare turn-end alone.
+# A no-verb signal batch made only of bare turn-ends from exactly ONE task. A
+# batch that names a status log carries a new status event and is never offered.
 jev_triage_signal_routine() {  # <file> ...
-  local f base this task='' class=paused-turn-end files_named='' off new line saw
+  local f base this task='' files_named=''
   jev_triage_enabled || return 1
   [ "$#" -gt 0 ] || return 1
   for f in "$@"; do
     base=${f##*/}
     [ "$f" = "$STATE/$base" ] || return 1
     case "$base" in
-      *.status)     this=${base%.status} ;;
       *.turn-ended) this=${base%.turn-ended} ;;
       *)            return 1 ;;
     esac
     [ -z "$task" ] || [ "$task" = "$this" ] || return 1
     task=$this
     files_named="$files_named $base"
-    case "$base" in
-      *.status)
-        class=paused-status-signal
-        off=$(fm_wake_signal_seen_size "$STATE" "$f")
-        case "$off" in ''|*[!0-9]*) return 1 ;; esac
-        new=$(tail -c "+$((off + 1))" "$f" 2>/dev/null) || return 1
-        saw=1
-        while IFS= read -r line || [ -n "$line" ]; do
-          case "$line" in *[![:space:]]*) ;; *) continue ;; esac
-          status_is_paused "$line" || return 1
-          saw=0
-        done <<EOF
-$new
-EOF
-        [ "$saw" -eq 0 ] || return 1
-        ;;
-    esac
   done
   jev_triage_task_evidence "$task" || return 1
-  jev_triage_routine "$class" "$task" "signal:$files_named" "[$JEV_TRIAGE_TASK_EVIDENCE]"
+  jev_triage_routine paused-turn-end "$task" "signal:$files_named" "[$JEV_TRIAGE_TASK_EVIDENCE]"
 }
 
 jev_triage_contributions_routine() {  # <diagnostic-lines>
@@ -2565,7 +2547,7 @@ $out
 EOF
           if [ -n "$contribution_check_diagnostics" ]; then
             out=${contribution_check_diagnostics%$'\n'}
-            # A transient forge-read timeout is the one check result the opt-in
+            # A transient forge-read timeout is the one check result the key-gated
             # routine-wake triage may read; the poll retries it on its own.
             if jev_triage_contributions_routine "$out"; then
               continue
@@ -2663,9 +2645,9 @@ EOF
     # (signal_turnend_panes_churned) - the only proof available to a harness whose
     # busy state has no verified semantic source, bounded so it cannot defer that
     # task's turn-ends forever. Absorb stays evidence-driven: with neither proof the
-    # wake surfaces exactly as before, unless the home opted in to the routine-wake
-    # triage and it reads this one task's already-declared wait as routine
-    # (jev_triage_signal_routine).
+    # wake surfaces exactly as before, unless the home holds the routine-wake
+    # triage key and a bare turn-end from one task's already-delivered declared
+    # wait reads as routine (jev_triage_signal_routine).
     # Actionable -> enqueue, advance .seen-* markers, exit. Benign (a no-verb wake
     # whose crew is still executing) in always-on mode -> advance the markers so it
     # will not re-fire, log, and keep blocking without enqueuing. Both evidence

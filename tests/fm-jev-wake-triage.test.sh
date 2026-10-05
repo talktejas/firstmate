@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# tests/fm-jev-wake-triage.test.sh - the opt-in routine-wake triage in
-# bin/fm-watch.sh (config/jev-wake-triage) and the shared Jev caller it uses
+# tests/fm-jev-wake-triage.test.sh - the routine-wake triage in bin/fm-watch.sh
+# (off unless TYPESAFE_API_KEY is present) and the shared Jev caller it uses
 # (bin/fm-jev-lib.sh).
 #
 # Three layers, none of which touches the network:
@@ -171,20 +171,21 @@ reset() {
   rm -rf "$USTATE" "$UCONFIG"
   mkdir -p "$USTATE" "$UCONFIG"
   : > "$JEV_CALLS"; : > "$WAKES"; : > "$FAKE_PR_CALLS"
-  : > "$UCONFIG/jev-wake-triage"
   printf 'TYPESAFE_API_KEY=%s\n' "$KEY" > "$U/.env"
   TYPESAFE_API_KEY_PRIVATE=
   AGENT_STATE=alive
   JEV_STUB='routine 0.93'
   unset FAKE_PR_OUT FAKE_PR_RC
   PAUSE_RESURFACE_SECS=100
-  JEV_TRIAGE_MAX_STREAK=6
 }
+# A task whose status log, as written here, has already been delivered to
+# firstmate: the state the watcher's own delivery paths record.
 mk_task() {  # <id> <meta-extra-or-empty> <status-line>...
   local id=$1 extra=$2
   shift 2
   fm_write_meta "$USTATE/$id.meta" "window=test:fm-$id" "kind=ship" ${extra:+"$extra"}
   printf '%s\n' "$@" > "$USTATE/$id.status"
+  mark_surface_reported "$USTATE/$id.status" "$(fm_wake_signal_sig "$USTATE/$id.status")"
 }
 calls() { wc -l < "$JEV_CALLS" | tr -d '[:space:]'; }
 queued() { if [ -f "$USTATE/.wake-queue" ]; then wc -l < "$USTATE/.wake-queue" | tr -d '[:space:]'; else printf 0; fi; }
@@ -249,20 +250,43 @@ assert_equals 0 "$(calls)" "a captain-held stale never asks Jev"
 assert_equals 1 "$(queued)" "a captain-held stale is delivered"
 pass "eligible: a declared-wait deferral is absorbed; a captain-held wait is never offered"
 
-# -- eligible: the two signal classes ---------------------------------------
-reset
-mk_task park '' 'working: implementing'
-fm_wake_status_mark_current "$USTATE" "$USTATE/park.status"
-printf 'paused: rate limited until the hourly reset\n' >> "$USTATE/park.status"
-jev_triage_signal_routine "$USTATE/park.status" || fail "a signal whose only new line is paused: was not absorbed"
-assert_equals 'paused-status-signal' "$(jq -r '.wake.class' "$U/jev-state.json")" "a new paused: line is the paused-status-signal class"
-assert_equals 'signal: park.status' "$(jq -r '.wake.reason' "$U/jev-state.json")" "the signal reason names files, not home paths"
+# -- eligible: a bare turn-end from an already paused worker ------------------
 reset
 mk_task park '' 'paused: rate limited until the hourly reset'
 : > "$USTATE/park.turn-ended"
 jev_triage_signal_routine "$USTATE/park.turn-ended" || fail "a bare turn-end from a paused worker was not absorbed"
 assert_equals 'paused-turn-end' "$(jq -r '.wake.class' "$U/jev-state.json")" "a bare turn-end is the paused-turn-end class"
-pass "eligible: a paused: status signal and a bare turn-end from a paused worker are absorbed"
+assert_equals 'signal: park.turn-ended' "$(jq -r '.wake.reason' "$U/jev-state.json")" "the signal reason names files, not home paths"
+pass "eligible: a bare turn-end from a paused worker whose declaration was delivered is absorbed"
+
+# -- never eligible: a declaration firstmate has not been shown ---------------
+reset
+mk_task park '' 'working: implementing'
+printf 'paused: rate limited until the hourly reset\n' >> "$USTATE/park.status"
+rc=0
+jev_triage_signal_routine "$USTATE/park.status" || rc=$?
+expect_never_asked "$rc" "a signal carrying a new paused: declaration"
+: > "$USTATE/park.turn-ended"
+rc=0
+jev_triage_signal_routine "$USTATE/park.status" "$USTATE/park.turn-ended" || rc=$?
+expect_never_asked "$rc" "a turn-end batched with a new paused: declaration"
+rc=0
+jev_triage_signal_routine "$USTATE/park.turn-ended" || rc=$?
+expect_never_asked "$rc" "a turn-end after an undelivered paused: declaration"
+rc=0
+jev_triage_pause_routine park "stale: test:fm-park" || rc=$?
+expect_never_asked "$rc" "a stale wake after an undelivered paused: declaration"
+surface_nonterminal_stale test:fm-park h1
+assert_equals 0 "$(calls)" "the first stale sight of an undelivered declaration never asks Jev"
+assert_equals 1 "$(queued)" "the first stale sight of an undelivered declaration is delivered"
+mark_surface_reported "$USTATE/park.status" "$(fm_wake_signal_sig "$USTATE/park.status")"
+jev_triage_pause_routine park "stale: test:fm-park" || fail "a recheck of a delivered declaration was not offered"
+printf 'paused: now waiting on a different release\n' >> "$USTATE/park.status"
+rc=0
+jev_triage_pause_routine park "stale: test:fm-park" || rc=$?
+[ "$rc" -ne 0 ] || fail "a recheck after a newer undelivered declaration was absorbed"
+assert_equals 1 "$(calls)" "a newer undelivered declaration is not offered"
+pass "never eligible: a new paused: declaration, and any recheck before that declaration was delivered"
 
 # -- eligible: a contributions observation timeout --------------------------
 reset
@@ -286,7 +310,6 @@ for event in 'needs-decision [key=scope]: pick an option' 'blocked: cannot reach
   'captain-held [key=route]: tracked by task-decision-route'; do
   reset
   mk_task park '' 'paused: waiting on the upstream release'
-  fm_wake_status_mark_current "$USTATE" "$USTATE/park.status"
   printf '%s\n' "$event" >> "$USTATE/park.status"
   rc=0
   jev_triage_signal_routine "$USTATE/park.status" || rc=$?
@@ -357,7 +380,14 @@ reset
 mk_task park "pr=$PR_URL" 'paused: PR is open and green, awaiting the merge word'
 jev_triage_pause_routine park "stale: test:fm-park" || fail "an open pull request with nothing blocking was not offered"
 assert_equals "$PR_URL" "$(cat "$FAKE_PR_CALLS")" "the recorded pull request is read before Jev is asked"
-assert_contains "$(jq -r '.wake.evidence[0].pull_request' "$U/jev-state.json")" 'open' "the open pull request rides in the evidence"
+assert_equals 'open; no blocker reported' "$(jq -r '.wake.evidence[0].pull_request' "$U/jev-state.json")" "the evidence says no more than the pull-request read established"
+for pr_out in 'MERGEABILITY: unknown' 'CHECKS: none reported yet'; do
+  reset
+  mk_task park "pr=$PR_URL" 'paused: PR is open and green, awaiting the merge word'
+  export FAKE_PR_OUT=$pr_out
+  jev_triage_pause_routine park "stale: test:fm-park" || fail "a pull request reading '$pr_out' was not offered"
+  assert_equals 'open; no blocker reported' "$(jq -r '.wake.evidence[0].pull_request' "$U/jev-state.json")" "a pull request reading '$pr_out' is not described as mergeable or passing"
+done
 for pr_out in 'STATE: merged at 2026-10-05T10:00:00Z' 'STATE: closed' 'REQUIRED CHECK: test (FAILURE)' \
   'MERGEABILITY: conflicting' 'REVIEW DECISION: CHANGES_REQUESTED'; do
   reset
@@ -386,12 +416,6 @@ pass "deterministic first: a pull request that is merged, closed, blocked, or un
 # -- off, and every fallback: delivered exactly as before --------------------
 reset
 mk_task park '' 'paused: waiting on the upstream release'
-rm -f "$UCONFIG/jev-wake-triage"
-rc=0
-jev_triage_pause_routine park "stale: test:fm-park" || rc=$?
-expect_never_asked "$rc" "the opt-in flag absent"
-reset
-mk_task park '' 'paused: waiting on the upstream release'
 rm -f "$U/.env"
 rc=0
 jev_triage_pause_routine park "stale: test:fm-park" || rc=$?
@@ -408,21 +432,21 @@ for stub in error off 'routine 0.59' 'needs_firstmate 0.95' 'routine 0.7 0.4' 'm
   assert_contains "$(tlog)" 'jev triage delivered declared-pause-recheck' "fallback '$stub': the delivery reason is logged"
   assert_absent "$USTATE/.jev-triage-streak-park" "fallback '$stub': a delivery leaves no absorb streak"
 done
-pass "fallback: flag or key absent, an error, low confidence, or any other choice delivers the wake as before"
+pass "fallback: the key absent, an error, low confidence, or any other choice delivers the wake as before"
 
 # -- the consecutive-absorb bound ----------------------------------------
 reset
-JEV_TRIAGE_MAX_STREAK=2
 mk_task park '' 'paused: waiting on the upstream release'
-jev_triage_pause_routine park "stale: test:fm-park" || fail "first absorb refused"
-jev_triage_pause_routine park "stale: test:fm-park" || fail "second absorb refused"
+for n in 1 2 3 4 5 6; do
+  jev_triage_pause_routine park "stale: test:fm-park" || fail "absorb $n refused"
+done
 rc=0
 jev_triage_pause_routine park "stale: test:fm-park" || rc=$?
 [ "$rc" -ne 0 ] || fail "the wake after the absorb bound was absorbed"
-assert_equals 2 "$(calls)" "the wake after the bound is delivered without asking"
+assert_equals 6 "$(calls)" "the wake after the bound is delivered without asking"
 assert_contains "$(tlog)" 'bound reached' "the bound delivery is logged"
 jev_triage_pause_routine park "stale: test:fm-park" || fail "the count did not restart after the bound delivery"
-pass "bound: after FM_JEV_TRIAGE_MAX_STREAK routine answers in a row the next wake is delivered unasked"
+pass "bound: after six routine answers in a row the next wake is delivered unasked"
 
 }
 
@@ -480,60 +504,72 @@ wait_for_log() {  # <dir> <pid> <needle>: 1 if the watcher exits first
   return 1
 }
 
+fail_parked() {  # <dir> <pid> <message>
+  reap "$2"
+  fail "$3: $(cat "$1/watch.out") $(cat "$1/state/.watch-triage.log" 2>/dev/null)"
+}
+
 dir=$(make_parked absorb)
-: > "$dir/config/jev-wake-triage"
 watch_parked "$dir" TYPESAFE_API_KEY="$KEY"
 pid=$!
-wait_for_log "$dir" "$pid" 'absorbed jev-routine paused-status-signal' \
-  || { reap "$pid"; fail "the paused: signal was not absorbed: $(cat "$dir/watch.out") $(cat "$dir/state/.watch-triage.log" 2>/dev/null)"; }
+wait_for_exit "$pid" 150 || fail_parked "$dir" "$pid" "a first paused: declaration was not delivered"
+assert_grep 'signal:' "$dir/watch.out" "a first paused: declaration is delivered as a signal wake"
+assert_grep 'park.status' "$dir/state/.wake-queue" "a first paused: declaration is queued"
+assert_absent "$dir/log/calls" "a first paused: declaration is delivered without asking Jev"
+cp "$dir/state/.wake-queue" "$dir/queue.delivered"
+watch_parked "$dir" TYPESAFE_API_KEY="$KEY" FM_WATCH_HANDLING_SUCCESSOR=1
+pid=$!
 wait_for_log "$dir" "$pid" 'absorbed jev-routine declared-pause-recheck' \
-  || { reap "$pid"; fail "the parked worker's stale sight was not absorbed: $(cat "$dir/watch.out") $(cat "$dir/state/.watch-triage.log" 2>/dev/null)"; }
-kill -0 "$pid" 2>/dev/null || fail "the watcher exited after absorbing routine wakes"
+  || fail_parked "$dir" "$pid" "the delivered declaration's stale sight was not absorbed"
+kill -0 "$pid" 2>/dev/null || fail "the watcher exited after absorbing a routine wake"
 reap "$pid"
 [ ! -s "$dir/watch.out" ] || fail "an absorbed wake printed a reason: $(cat "$dir/watch.out")"
-[ ! -s "$dir/state/.wake-queue" ] || fail "an absorbed wake was queued: $(cat "$dir/state/.wake-queue")"
+cmp -s "$dir/queue.delivered" "$dir/state/.wake-queue" || fail "an absorbed wake was queued: $(cat "$dir/state/.wake-queue")"
 assert_equals "Authorization: Bearer $KEY" "$(cat "$dir/log/header")" "the watcher's key reaches curl on the fd header"
 assert_not_contains "$(cat "$dir/log/argv")" "$KEY" "the watcher's key never appears on curl argv"
 assert_no_grep 'secret-present' "$dir/log/child-env" "the key reached a watcher child's environment"
 assert_grep 'pr-state:clean' "$dir/log/child-env" "the pull-request read ran as a watcher child"
 assert_no_grep "$KEY" "$dir/state/.watch-triage.log" "the key reached the triage log"
-assert_equals 'paused-status-signal' "$(jq -r '.state.wake.class' "$dir/log/body.1")" "the first question is the signal class"
+assert_equals 'declared-pause-recheck' "$(jq -r '.state.wake.class' "$dir/log/body.1")" "the first question is the recheck class"
 assert_equals '["wake"]' "$(jq -c '.questions | keys' "$dir/log/body.1")" "one fixed-choice question is asked"
 assert_equals '["needs_firstmate","routine"]' "$(jq -c '.questions.wake.criteria | keys' "$dir/log/body.1")" "the choices are the fixed list"
-pass "watcher: a routine paused: signal and its stale sight are absorbed, logged, and unqueued; the key stays on the fd header"
+pass "watcher: a first paused: declaration is delivered unasked; only its later recheck is absorbed, logged, and unqueued; the key stays on the fd header"
 
-dir=$(make_parked needs)
-: > "$dir/config/jev-wake-triage"
+# A parked worker whose declaration an earlier watcher run already delivered;
+# the later run is the successor that supervises while that wake is handled.
+make_delivered() {  # <name> -> dir
+  local dir pid
+  dir=$(make_parked "$1")
+  watch_parked "$dir"
+  pid=$!
+  wait_for_exit "$pid" 150 || fail_parked "$dir" "$pid" "$1: the first paused: declaration was not delivered"
+  printf '%s\n' "$dir"
+}
+
+dir=$(make_delivered needs)
 write_answer "$dir/response.json" needs_firstmate 0.9
-watch_parked "$dir" TYPESAFE_API_KEY="$KEY"
+watch_parked "$dir" TYPESAFE_API_KEY="$KEY" FM_WATCH_HANDLING_SUCCESSOR=1
 pid=$!
-wait_for_exit "$pid" 150 || fail "a needs_firstmate answer did not deliver the wake"
-assert_grep 'signal:' "$dir/watch.out" "a needs_firstmate answer delivers the signal wake"
-assert_grep 'park.status' "$dir/state/.wake-queue" "a needs_firstmate answer queues the signal wake"
+wait_for_exit "$pid" 150 || fail_parked "$dir" "$pid" "a needs_firstmate answer did not deliver the wake"
+assert_grep 'stale:' "$dir/watch.out" "a needs_firstmate answer delivers the stale wake"
+assert_grep 'stale: test:fm-park' "$dir/state/.wake-queue" "a needs_firstmate answer queues the stale wake"
+assert_present "$dir/log/calls" "a needs_firstmate answer came from one Jev call"
 pass "watcher: a needs_firstmate answer delivers the wake as before"
 
-dir=$(make_parked timeout)
-: > "$dir/config/jev-wake-triage"
-watch_parked "$dir" TYPESAFE_API_KEY="$KEY" FAKE_CURL_FAIL=28
+dir=$(make_delivered timeout)
+watch_parked "$dir" TYPESAFE_API_KEY="$KEY" FM_WATCH_HANDLING_SUCCESSOR=1 FAKE_CURL_FAIL=28
 pid=$!
-wait_for_exit "$pid" 150 || fail "a timed-out Jev call did not deliver the wake"
-assert_grep 'signal:' "$dir/watch.out" "a timed-out Jev call delivers the signal wake"
-assert_grep 'jev triage delivered paused-status-signal (error: http 000' "$dir/state/.watch-triage.log" "the timeout is logged as the delivery reason"
+wait_for_exit "$pid" 150 || fail_parked "$dir" "$pid" "a timed-out Jev call did not deliver the wake"
+assert_grep 'stale:' "$dir/watch.out" "a timed-out Jev call delivers the stale wake"
+assert_grep 'jev triage delivered declared-pause-recheck (error: http 000' "$dir/state/.watch-triage.log" "the timeout is logged as the delivery reason"
 pass "watcher: a timed-out Jev call delivers the wake as before"
 
-dir=$(make_parked no-flag)
-watch_parked "$dir" TYPESAFE_API_KEY="$KEY"
+dir=$(make_delivered no-key)
+watch_parked "$dir" FM_WATCH_HANDLING_SUCCESSOR=1
 pid=$!
-wait_for_exit "$pid" 150 || fail "the wake was not delivered with the opt-in flag absent"
-assert_grep 'signal:' "$dir/watch.out" "with the flag absent the signal wake is delivered"
-assert_absent "$dir/log/calls" "with the flag absent no Jev call is made"
-dir=$(make_parked no-key)
-: > "$dir/config/jev-wake-triage"
-watch_parked "$dir"
-pid=$!
-wait_for_exit "$pid" 150 || fail "the wake was not delivered with the key absent"
-assert_grep 'signal:' "$dir/watch.out" "with the key absent the signal wake is delivered"
+wait_for_exit "$pid" 150 || fail_parked "$dir" "$pid" "the wake was not delivered with the key absent"
+assert_grep 'stale:' "$dir/watch.out" "with the key absent the stale wake is delivered"
 assert_absent "$dir/log/calls" "with the key absent no Jev call is made"
-pass "watcher: off unless both the opt-in flag and the key are present"
+pass "watcher: off unless the key is present"
 
 printf '# all fm-jev-wake-triage tests passed\n'
