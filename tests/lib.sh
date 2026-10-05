@@ -53,6 +53,10 @@ export FM_GATE_REFUSE_BYPASS=1
 # under the marker. A case that verifies the refusal sets FM_TASK_ID itself.
 unset FM_TASK_ID
 unset TYPESAFE_API_KEY
+# Clear the hooks setting the key-gated commit check (bin/fm-commit-check.sh)
+# exports into the same panes, so no fixture commit runs under a worker's hooks.
+# A case that verifies the hooks sets GIT_CONFIG_PARAMETERS itself.
+unset GIT_CONFIG_PARAMETERS
 
 # Clear the tasks-axi env overrides. An operator shell exports TASKS_AXI_FILE
 # (and may export TASKS_AXI_BACKEND) at its real home's backlog, and tasks-axi

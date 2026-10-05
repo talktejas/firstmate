@@ -380,6 +380,7 @@ For a project that is not listed the model is asked nothing and the forge is not
 The rating adds at most one change read (60 seconds), one forge read (20 seconds), and three model calls to a registration made with `bin/fm-pr-check.sh <id> <PR url>`, and stops calling the model after the first call that fails outright.
 The level is rated only then: the re-registration `bin/fm-pr-merge.sh` performs passes `--no-risk`, so a merge reads no change, sends nothing, waits on nothing, and prints no `risk:` line.
 `bin/fm-pr-risk-lib.sh`'s header owns the exact facts, thresholds, and questions, `bin/fm-jev-lib.sh` owns the request, the key handling, and the `fm_jev_code_allowed` project list read, and [`verification/jev-pr-risk.md`](verification/jev-pr-risk.md) records the live evidence.
+
 ## Failed check sort (.env TYPESAFE_API_KEY, config/jev-code-projects)
 
 `bin/fm-pr-state.sh --sort-failed-checks <pr-url>` adds one advisory line under each failed required check it reports, labelling the failure a code bug, flaky, environment, or unknown, so a worker is not sent to fix a failure that is not in its code.
@@ -400,6 +401,44 @@ An unlisted repository still gets the two fixed rules, and its undecided failure
 
 The sort covers GitHub pull requests only, which is all `bin/fm-pr-state.sh` reads, and it is the same on every harness and runtime backend because the command reads the forge and no worker surface.
 `bin/fm-check-sort-lib.sh`'s header owns the exact rules, bounds, and output, `bin/fm-jev-lib.sh` owns the request, the answer validation, the key handling, and the `fm_jev_code_allowed` project list read, and [`verification/failed-check-sort.md`](verification/failed-check-sort.md) records the live evidence.
+
+## Commit check (.env TYPESAFE_API_KEY, config/jev-code-projects)
+
+Before each commit a worker makes, a git hook stops an added line that looks like a credential and asks typesafe.ai's System One model (Jev) whether the commit message matches the staged file names, printing each mismatch as one advisory line the worker sees in the commit's own output.
+It is off unless `TYPESAFE_API_KEY` is available under the same environment-then-`.env` contract as [typed dispatch resolution](#typed-dispatch-resolution-env-typesafe_api_key) and the worker's project is a line of the local, gitignored `config/jev-code-projects` (one project name per line, the name of its directory under `projects/`; blank lines and `#` lines are ignored; absent means no project; not inherited by second-mate homes).
+With the key absent, or for a project that is not listed, a worker is launched and commits exactly as it does without the feature: no hooks setting, no hook, no credential check, and nothing sent.
+
+With both, `bin/fm-spawn.sh` writes a hooks directory under that ship or scout task's own temporary directory and exports one git setting, `GIT_CONFIG_PARAMETERS`, into that worker's terminal before the worker starts.
+The hooks therefore exist only for that worker's own git commands: nothing is written into the project, its git directory, or its git configuration, no other copy of the repository sees them, and cleanup removes the directory with the task's other temporary files.
+The directory forwards every other hook to the repository's own, so a project's existing hooks keep running, and the repository's own commit-message hook runs first with its refusal standing.
+The check acts only on a commit to the task's own worktree, recorded at launch by its top-level and common git directory: a commit the worker's commands make in any other repository - a test fixture, a temporary repository, a clone, another worktree - is not stopped, is told nothing, and has nothing sent about it.
+Second mates are never given the hooks.
+
+That setting overrides `core.hooksPath` for every git command the worker runs, so a tool that installs git hooks sees the task's temporary hooks directory in place of the repository's own.
+`pre-commit install` refuses to install while `core.hooksPath` is set.
+`lefthook install` and `git lfs install` write their hook into the temporary directory, where it replaces the forwarder of that name or, for `commit-msg`, the check itself: the hook then runs only for that worker and is removed with the task, and the repository's own hooks directory is not updated.
+A listed project whose setup step installs hooks should have them installed in the repository before a worker is launched on it, or stay off the list.
+
+Code decides first, on the worker's machine:
+
+- An added line matching a recognised credential format - a private key block, or an AWS, GitHub, Slack, Google, or `sk-` style key - stops the commit, names the file, the line, and the kind, never the value, and tells the worker to remove the credential from the change.
+  This is the only thing that stops a commit, and Jev has no part in it.
+- An added line that assigns a quoted literal to a password, secret, token, or API-key name is often ordinary code, so it only prints one advisory line naming the file and the line, and the commit goes through.
+- Merges, rebases, cherry-picks, reverts, `fixup!`, `squash!`, and `amend!` commits, and commits with nothing staged are not checked at all.
+
+The hook then makes one request carrying up to three yes/no questions, each answerable from the message and the file names alone: is the message filler, does it contradict the staged file names (for example it says only tests changed while other files are staged), and is a staged file unaccounted for by the message.
+The last is left out when only one file is staged.
+That request carries the commit message (its last 4000 characters when longer) and the staged file names (the first 200), and nothing else: no diff and no line of any staged file's content ever leaves the machine.
+Debug leftovers are therefore not judged, because they cannot be told without the content.
+The credential patterns above are matched byte-wise, so a byte that is not valid in the worker's locale cannot hide a line from them.
+A project taken off the list after a worker was launched is no longer checked by that worker's hook.
+A `yes` whose confidence and `yes` probability are both at or above the shared 0.6 floor prints one advisory line; a `no`, a low-confidence answer, a timeout, a transport or API error, and a malformed answer print nothing, and in every one of those cases the commit goes through.
+
+The setting reaches the worker on the same channel as the task marker, on every runtime backend, and applies wherever a harness runs the worker's git commands with the terminal's environment, which is the same inheritance the task marker already relies on for every supported harness.
+A harness or sandbox that withholds that one variable from its shell leaves commits exactly as they are without the feature, and one that blocks network access leaves the credential stop and the secret-literal advisory working while the request fails and the commit goes through.
+The pipeline's own fix commits are made outside the worker's terminal and are not checked.
+
+`bin/fm-commit-check.sh`'s header owns the exact gates, patterns, and bounds, `bin/fm-jev-lib.sh` owns the request, the answer validation, the key handling, and the project list, and [`verification/commit-check.md`](verification/commit-check.md) records the live evidence.
 
 ## Gate defaults (.no-mistakes.yaml)
 
@@ -571,7 +610,7 @@ OPENAI_API_KEY
 SSH_AUTH_SOCK
 ```
 
-Firstmate retains basic home, executable search, terminal, locale, temporary-directory, and backend routing variables, plus its explicit launch assignments, its ship and scout task marker, and enabled task trace.
+Firstmate retains basic home, executable search, terminal, locale, temporary-directory, and backend routing variables, plus its explicit launch assignments, its ship and scout task marker, the [commit check](#commit-check-env-typesafe_api_key-configjev-code-projects)'s git setting for a worker it was exported to, and enabled task trace.
 [`fm-spawn.sh --help`](../bin/fm-spawn.sh) owns the exact retained names and parsing mechanics.
 Other ambient names must be listed explicitly, including custom credential-store locations, proxy settings, and certificate overrides when required by the selected tools.
 The command shell and worker may still create their own variables.
@@ -705,8 +744,8 @@ The tool never replaces firstmate's judgment, `quota-array-dispatch`, the captai
 By accepted design, a `clear` result does not enforce catalog/authentication, reasoning-class, or completion-runway gates.
 Firstmate passes its profile line unless it states a reason to override, such as the brief's reasoning class or an eligible-unranked-candidate note; every non-clear result returns to the full existing intake.
 
-The resolver, the watcher, the house-rules check, the finished check, the review finding sort, the pull request registration, the failed check sort, and bootstrap copy an environment-provided key into a non-exported private variable and unset `TYPESAFE_API_KEY` before launching child processes, so the secret is absent from child environments.
-`bin/fm-jev-lib.sh` is the single owner of the Jev request, the answer validation, and that key handling for the resolver, for [routine-wake triage](#routine-wake-triage-env-typesafe_api_key), for the [house-rules check](#house-rules-check-env-typesafe_api_key-confighouse-rulesjson), for the [finished check](#finished-check-env-typesafe_api_key), for the [review finding sort](#review-finding-sort-env-typesafe_api_key-configjev-code-projects), for the [pull request risk level](#pull-request-risk-level-env-typesafe_api_key), and for the [failed check sort](#failed-check-sort-env-typesafe_api_key-configjev-code-projects); it sends the key to `curl` only as a header read from a file descriptor, never on argv, and nothing prints, logs, or writes it.
+The resolver, the watcher, the house-rules check, the finished check, the review finding sort, the pull request registration, the failed check sort, the commit check, and bootstrap copy an environment-provided key into a non-exported private variable and unset `TYPESAFE_API_KEY` before launching child processes, so the secret is absent from child environments.
+`bin/fm-jev-lib.sh` is the single owner of the Jev request, the answer validation, and that key handling for the resolver, for [routine-wake triage](#routine-wake-triage-env-typesafe_api_key), for the [house-rules check](#house-rules-check-env-typesafe_api_key-confighouse-rulesjson), for the [finished check](#finished-check-env-typesafe_api_key), for the [review finding sort](#review-finding-sort-env-typesafe_api_key-configjev-code-projects), for the [pull request risk level](#pull-request-risk-level-env-typesafe_api_key), for the [failed check sort](#failed-check-sort-env-typesafe_api_key-configjev-code-projects), and for the [commit check](#commit-check-env-typesafe_api_key-configjev-code-projects); it sends the key to `curl` only as a header read from a file descriptor, never on argv, and nothing prints, logs, or writes it.
 It fixes the endpoint at `https://api.typesafe.ai`, model at `jev-latest`, confidence floor at 0.6, and request timeout at 5 seconds; `TYPESAFE_API_KEY` is the resolver's only resolver-specific environment setting.
 The live rule-match evidence is recorded in [`verification/dispatch-resolve.md`](verification/dispatch-resolve.md).
 
@@ -1297,7 +1336,7 @@ FMX_RELAY_URL=https://myfirstmate.io   # optional Relay endpoint override, mainl
 FMX_ENV_FILE=           # optional alternate .env file for direct Relay client invocations; bootstrap still checks $FM_HOME/.env
 FMX_DRY_RUN=            # truthy previews Relay replies and dismissals to state/x-outbox/ without posting or requiring a token
 FMX_X_REPLY_MAX_CHARS=280   # X reply per-message split budget; values below 50 clamp to 50
-TYPESAFE_API_KEY=       # typed dispatch resolution opt-in, from the environment or .env; absent means bin/fm-dispatch-resolve.sh is off (docs/configuration.md "Typed dispatch resolution"), and so are routine-wake triage, the finished check, the pull request risk level, the failed check sort, the house-rules check, which also needs a project opted in in config/house-rules.json, and the review finding sort, which also needs the project listed in config/jev-code-projects
+TYPESAFE_API_KEY=       # typed dispatch resolution opt-in, from the environment or .env; absent means bin/fm-dispatch-resolve.sh is off (docs/configuration.md "Typed dispatch resolution"), and so are routine-wake triage, the finished check, the pull request risk level, the failed check sort, the house-rules check, which also needs a project opted in in config/house-rules.json, and the review finding sort and the commit check, which also need the project listed in config/jev-code-projects
 FMX_DISCORD_REPLY_MAX_CHARS=1900   # Discord reply per-message split budget; values below 50 clamp to 50, values above 2000 reset to 1900
 FMX_X_THREAD_MAX=25     # maximum messages in one auto-split reply thread
 FMX_FOLLOWUP_MAX_AGE_SECS=604800   # local window for posting Relay completion follow-ups (7 days)

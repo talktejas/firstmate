@@ -12,8 +12,8 @@
 # routine-wake triage (bin/fm-watch.sh), bin/fm-house-rules-check.sh, the
 # worker stop hook's finished check (bin/fm-finished-check.sh), the review
 # finding sort (bin/fm-finding-sort.sh), the pull request risk level
-# (bin/fm-pr-risk-lib.sh), and the failed check sort
-# (bin/fm-check-sort-lib.sh) are the callers.
+# (bin/fm-pr-risk-lib.sh), the failed check sort (bin/fm-check-sort-lib.sh),
+# and the worker commit check (bin/fm-commit-check.sh) are the callers.
 #
 # Key handling: sourcing this file copies an environment-provided
 # TYPESAFE_API_KEY into one non-exported shell variable and unsets the exported
