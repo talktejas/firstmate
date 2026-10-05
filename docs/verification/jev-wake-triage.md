@@ -9,7 +9,7 @@ The API shape itself is recorded in [`dispatch-resolve.md`](dispatch-resolve.md)
 ## Live answers to the shipped question
 
 Run 2026-10-06 against `https://api.typesafe.ai`, model `jev-latest` answering as `jev-1.13.0`, timeout 5 s, floor 0.6.
-Each row is one real call made through the watcher's own `jev_triage_pause_routine` or `jev_triage_contributions_routine`, sourced from `bin/fm-watch.sh` at commit 1f534a99 with its question text and criteria unmodified, with the key read from a home `.env` by `fm_jev_key_load` and a synthetic wake as evidence.
+Each row is one real call made through the watcher's own `jev_triage_pause_routine` or `jev_triage_contributions_routine`, sourced from `bin/fm-watch.sh` at commit 3ac9b3d with its question text and criteria unmodified, with the key read from a home `.env` by `fm_jev_key_load` and a synthetic wake as evidence.
 Every `declared-pause-recheck` row carried the pull request note `open; no blocker reported`, as the class always does, from a pull-request read that printed `CHECKS: none reported yet`, and the reason `stale: fm:fm-sample (paused 14520s, awaiting external - declared pause, rechecked on a long cadence not a wedge; confirm the wait still holds)`.
 The agent column is the `worker_agent` value the row carried: `exited` for an endpoint whose agent state read `dead`, `running` for `alive`.
 
