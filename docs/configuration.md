@@ -247,8 +247,8 @@ Each call sends the wake's class and reason line, the task id, its last six stat
 
 `bin/fm-pr-check.sh` prints one advisory line beside a pull request it has just recorded: `risk: low`, `risk: medium`, `risk: high`, or `risk: not rated`, each followed by the reasons.
 It is off unless `TYPESAFE_API_KEY` is available under the same environment-then-`.env` contract as [typed dispatch resolution](#typed-dispatch-resolution-env-typesafe_api_key); with the key absent the script reads nothing extra, makes no call, and prints exactly what it prints without the feature.
-The line is advice for whoever reviews the merge request, on every delivery mode, and a second mate's ready line carries a rated level to its parent as `risk=<level>`.
-Nothing reads it to block, merge, approve, or discard anything, and the pull request is recorded and its merge poll armed before the rating starts, so no failure of the rating changes the registration or its exit status.
+The line is advice for whoever reviews the merge request, on every delivery mode.
+Nothing reads it to block, merge, approve, or discard anything, and the pull request is recorded, its merge poll armed, a second mate's ready line published, and `armed:` printed before the rating starts, so no failure of the rating changes the registration or its exit status.
 
 Code sets the level first, from the change `bin/fm-review-diff.sh` reads for the task, which is the same read for GitHub and GitLab.
 A path that looks like a database migration, login or permissions, or payments, or 1500 or more changed lines, is high; a deleted file, 400 or more changed lines, or 20 or more files is medium.
@@ -259,9 +259,13 @@ A counted yes can only raise the level, to high for something hard to undo and t
 `risk: low` is printed only when all three questions were settled; when any is unanswered because of a timeout, an API error, a malformed answer, low confidence, or an unreadable description, and nothing else raised the level, the line is `risk: not rated`, and an unanswered question is always named on the line.
 A change that cannot be read at all is `risk: not rated`.
 
-Each call sends the pull request's title and description, its file list with line counts, the facts above, and the first 30000 bytes of its diff; that text is written by the pull request's author, so it can sway an answer, which is why an answer may raise the level and nothing more.
+The key alone sends nothing about any project.
+The optional local, gitignored `config/jev-code-projects` lists the projects whose changes the model may see, one project name per line (the directory name of the task's `project=` metadata), with blank lines and lines starting with `#` ignored.
+An absent or empty file lists no project, which is how firstmate ships, and the file is not inherited by secondmate homes, so each home opts its own projects in.
+For a listed project each call sends the pull request's title and description, its file list with line counts, the facts above, and the first 30000 bytes of its diff to `https://api.typesafe.ai`; that text is written by the pull request's author, so it can sway an answer, which is why an answer may raise the level and nothing more.
+For a project that is not listed the model is asked nothing and the forge is not read for a description: the level comes from the facts alone, every question code could not settle is named as unanswered with `project not listed`, and the line is `risk: not rated` when no fact raised the level, never `risk: low`.
 The rating adds at most one change read (60 seconds), one forge read (20 seconds), and three model calls to a registration, and stops calling the model after the first call that fails outright.
-`bin/fm-pr-risk-lib.sh`'s header owns the exact facts, thresholds, and questions, `bin/fm-jev-lib.sh` owns the request and key handling, and [`verification/jev-pr-risk.md`](verification/jev-pr-risk.md) records the live evidence.
+`bin/fm-pr-risk-lib.sh`'s header owns the exact facts, thresholds, and questions, `bin/fm-jev-lib.sh` owns the request, the key handling, and the `fm_jev_code_allowed` project list read, and [`verification/jev-pr-risk.md`](verification/jev-pr-risk.md) records the live evidence.
 
 ## Gate defaults (.no-mistakes.yaml)
 

@@ -10,7 +10,9 @@ The API shape itself is recorded in [`dispatch-resolve.md`](dispatch-resolve.md)
 
 Run 2026-10-06 against `https://api.typesafe.ai`, model `jev-latest` answering as `jev-1.13.0`, timeout 5 s, floor 0.6.
 Each row is one real `fm_pr_risk` call from `bin/fm-pr-risk-lib.sh` with its questions and criteria unmodified and the key read from a home `.env` by `fm_jev_key_load`.
-The change and the title and description were synthetic, supplied through `FM_REVIEW_DIFF_BIN` and a stand-in `gh`, so the facts, the request, and the answers are the shipped path and only the pull request is invented.
+The change and the title and description were synthetic, supplied through a stand-in diff reader and a stand-in `gh`, so the facts, the request, and the answers are the shipped path and only the pull request is invented.
+The rows were run at the commit that still had an environment override for the diff reader and no per-project list; the override has since been removed, and the questions, criteria, and request are unchanged, so for a project listed in `config/jev-code-projects` the same request is sent.
+They have not been re-run since.
 
 The six changes:
 
@@ -40,8 +42,10 @@ Latency was 307 to 408 ms per call.
 ## Offline behavior
 
 `tests/fm-pr-risk.test.sh` proves the rest without the network.
-With `fm_jev_choice` stubbed at the library boundary it proves each path, deletion, and size fact sets its level in code, a changed test file or a documentation-only change settles `untested` without a call, a counted yes only raises, and an answer below the floor, a choice outside the fixed list, a failed call, an unreadable description, and an unreadable change each print `risk: not rated` or leave a level the facts set untouched.
-With the real library, a fake `curl`, and the real `bin/fm-pr-check.sh` it proves the output is exactly the registration with the key absent, the level is printed beside it with the key present, a timeout still records the pull request and arms its poll, a second mate's ready line carries a rated level, and the key reaches `curl` on a file descriptor and no child environment or argv.
+Both layers read the change through the real `bin/fm-review-diff.sh` from a fixture project and task worktree.
+With `fm_jev_choice` stubbed at the library boundary it proves each path, deletion, and size fact sets its level in code, a path git prints quoted is still classified, a changed test file or a documentation-only change settles `untested` without a call, a counted yes only raises, and an answer below the floor, a choice outside the fixed list, a failed call, an unreadable description, and an unreadable change each print `risk: not rated` or leave a level the facts set untouched.
+It proves the per-project list the same way: with `config/jev-code-projects` absent, empty, or naming the project only on a `#` line the model is asked nothing, the forge is not read for a description, a level the facts set is kept with the unanswered questions named, and nothing else is rated; a project listed beside comment lines is asked.
+With the real library, a fake `curl`, and the real `bin/fm-pr-check.sh` it proves the output is exactly the registration with the key absent, the level is printed beside it with the key present, a timeout still records the pull request and arms its poll, an unlisted project registers with no request made, and the key reaches `curl` on a file descriptor and no child environment or argv.
 
 ```console
 $ bash tests/fm-pr-risk.test.sh | tail -1
