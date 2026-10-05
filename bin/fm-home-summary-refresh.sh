@@ -67,6 +67,10 @@ case "${1:-}" in
   -h|--help) usage; exit 0 ;;
   *) usage >&2; exit 2 ;;
 esac
+# Both settings are read above and handed to the worker on its one command
+# line below; dropping them here keeps them out of everything else this refresh
+# starts, including a server a state read may launch.
+unset FM_HOME_SUMMARY_IF_IDLE FM_HOME_SUMMARY_WORKER_BEST_EFFORT
 case "$ERROR_LOG_MAX_BYTES" in
   ''|*[!0-9]*|0) ERROR_LOG_MAX_BYTES=65536 ;;
 esac

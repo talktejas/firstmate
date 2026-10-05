@@ -440,6 +440,44 @@ test_relaunch_reuses_recorded_carrier() {
   pass "relaunch reuses the recorded carrier verbatim for both the meta record and the injected export"
 }
 
+# Replays everything the spawn typed into the pane, in order, exactly as the
+# pane shell would run it, in an environment polluted the way a server started
+# from another command's scope pollutes every pane, and reports what the harness
+# process actually inherits.
+launched_agent_environment() {  # <dir-for-fake-claude> <launch-log>
+  local fake=$1/agent-bin launch
+  mkdir -p "$fake"
+  printf '#!/bin/sh\nenv\n' > "$fake/claude"
+  chmod +x "$fake/claude"
+  grep -q 'claude' "$2" || fail "no launch command was sent to the pane"
+  launch=$(cat "$2")
+  FM_CREW_STATE_META_OVERRIDE=/tmp/fm-fleet-tasks.x/b2b.meta FM_CREW_STATE_STATUS_OVERRIDE=/tmp/fm-fleet-tasks.x/b2b.status \
+    FM_SESSION_START_STAGE_FILE=/tmp/fm-session-start-stage.x FM_HOME_SUMMARY_IF_IDLE=0 \
+    FM_HOME_SUMMARY_WORKER_BEST_EFFORT=1 CLAUDE_CODE_CHILD_SESSION=1 FM_SCRUB_SENTINEL=kept \
+    PATH="$fake:$PATH" bash -c "$launch"
+}
+
+test_launch_and_relaunch_drop_inherited_command_scoped_settings() {
+  local rec out status env_out name phase
+  rec=$(make_spawn_case tc-scrub)
+  read_case_record "$rec"
+
+  for phase in launch relaunch; do
+    out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$CASE_ID" "$PROJ_DIR")
+    status=$?
+    expect_code 0 "$status" "$phase spawn should succeed"
+    env_out=$(launched_agent_environment "$HOME_DIR" "$LAUNCH_LOG")
+    assert_contains "$env_out" "FM_SCRUB_SENTINEL=kept" "the $phase command did not reach the harness with its environment"
+    for name in FM_CREW_STATE_META_OVERRIDE FM_CREW_STATE_STATUS_OVERRIDE FM_SESSION_START_STAGE_FILE \
+      FM_HOME_SUMMARY_IF_IDLE FM_HOME_SUMMARY_WORKER_BEST_EFFORT CLAUDE_CODE_CHILD_SESSION; do
+      case "$env_out" in
+        *"$name="*) fail "the $phase command handed $name to the launched agent" ;;
+      esac
+    done
+  done
+  pass "launch and relaunch start the agent without inherited command-scoped settings or the nested-session marker"
+}
+
 test_session_start_freezes_env_override_and_ignores_later_edits() {
   local rec out status meta
   rec=$(make_spawn_case tc-envoff)
@@ -601,6 +639,7 @@ test_unsafe_delivery_refuses_to_append_launch
 test_failed_metadata_append_unsets_carrier_and_still_launches
 test_duplicate_secondmate_spawn_does_not_converge_trace_context
 test_relaunch_reuses_recorded_carrier
+test_launch_and_relaunch_drop_inherited_command_scoped_settings
 test_session_start_freezes_env_override_and_ignores_later_edits
 test_secondmate_env_on_file_absent_keeps_nested_worker_enabled
 test_secondmate_env_off_file_present_keeps_nested_worker_disabled

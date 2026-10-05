@@ -50,5 +50,5 @@ $
 
 ## Portable coverage
 
-`tests/fm-finished-check.test.sh` stubs `fm_jev_choice` at the library boundary against a fixture home and asserts every fact gate by which questions were asked, then runs the executable with a fake `curl` that records whether the key reached its argv or environment.
+`tests/fm-finished-check.test.sh` stubs `fm_jev_choice` at the library boundary against a fixture home and asserts every fact gate by which questions were asked and that a closing message longer than 4000 characters is sent as its last 4000, then runs the executable with a fake `curl` that records whether the key reached its argv or environment.
 `tests/fm-busy-adapter-wiring.test.sh` runs the Stop hook command that `bin/fm-spawn.sh` writes.

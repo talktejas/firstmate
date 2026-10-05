@@ -1424,6 +1424,8 @@ fi
 # bin/fm-lease-lib.sh; no-op in homes without a branch actor).
 # shellcheck source=bin/fm-lease-lib.sh
 . "$SCRIPT_DIR/fm-lease-lib.sh"
+# shellcheck source=bin/fm-launch-env-lib.sh
+. "$SCRIPT_DIR/fm-launch-env-lib.sh"
 if [ "$RELAUNCH" -ne 1 ]; then
   fm_lease_forbid_branch "new-task spawn (fm-spawn)"
 fi
@@ -4659,6 +4661,15 @@ spawn_record_traceparent() {
 # process (go build, go test, ...) inherit it. Sent before the launch command so
 # the env is set when the agent starts; the brief sleep lets the export land.
 spawn_send_text_line "$T" "export GOTMPDIR=$TASK_TMP/gotmp"
+# A pane inherits the environment of the server that created it, and that
+# server keeps whatever scope it was started from. Every launch - ship, scout,
+# secondmate, raw command, and relaunch, on every backend and harness - therefore
+# first drops the command-scoped settings FM_LAUNCH_SCRUB_ENV names
+# (bin/fm-launch-env-lib.sh) from the pane shell, so no agent starts with another
+# command's overrides or with Claude Code's nested-session marker, which turns
+# conversation saving off. It rides the GOTMPDIR channel so the launch command
+# itself stays unchanged; only a failed send moves it onto that command.
+spawn_send_text_line "$T" "unset $FM_LAUNCH_SCRUB_ENV" || LAUNCH="unset $FM_LAUNCH_SCRUB_ENV; $LAUNCH"
 # Mark the pane as a task worker so bin/fm-test-run.sh can refuse to run the
 # suite in the repository's primary checkout. Ship and scout workers are the
 # ones assigned an isolated worktree; a secondmate runs its own home instead.

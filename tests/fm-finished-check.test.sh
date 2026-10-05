@@ -165,6 +165,16 @@ out=$(STUB_CONF=0.5 STUB_YES='asks_question partial_or_blocked' check "$HOME_ON"
 assert_equals '' "$out" "a yes below the floor is not a mismatch"
 pass "Jev down or unsure: the turn ends"
 
+reset
+long="$(printf 'Summary line of the work so far. %.0s' $(seq 200))
+Which of the two options do you want?"
+out=$(STUB_YES='asks_question' check "$HOME_ON" "$(stop_json "$long")")
+sent=$(jq -rs '.[0].closing_message' "$SENT")
+assert_contains "$sent" 'Which of the two options do you want?' "the end of a long closing message must be sent"
+[ "${#sent}" -le 4000 ] || fail "the sent closing message must be 4000 characters or fewer, got ${#sent}"
+assert_contains "$out" 'needs-decision:' "a question in the last line of a long message must send the worker back"
+pass "long closing message: its end is what is sent"
+
 transcript="$TMP_ROOT/transcript.jsonl"
 write_transcript() {  # <command>...  (this turn's shell commands, in order)
   jq -cn '

@@ -469,6 +469,10 @@
       "audience": "maintainer-verification"
     },
     {
+      "path": "docs/verification/house-rules-check.md",
+      "audience": "maintainer-verification"
+    },
+    {
       "path": "docs/verification/jev-wake-triage.md",
       "audience": "maintainer-verification"
     },

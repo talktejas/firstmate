@@ -115,6 +115,10 @@ omp
 FM_OMP_HARNESS=omp omp
 ```
 
+Start the harness from an ordinary terminal shell.
+A firstmate started from inside another agent's command, or in a pane whose server was started that way, can inherit settings meant for one internal command, and Claude Code then stops saving that session's conversation.
+When that happens the session start prints one `INHERITED ENVIRONMENT:` line naming what was inherited and the exact `env -u ...` command to restart with.
+
 Start `omp` with this checkout as its working directory: it auto-discovers the tracked `.omp/extensions/*.ts` files with no trust dialog, and naming them with `-e` as well would load each twice.
 
 For Grok, `--trust` is needed once per clone so project hooks and the turn-end guard load; `/hooks-trust` inside Grok works too.

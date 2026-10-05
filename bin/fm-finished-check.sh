@@ -28,8 +28,8 @@
 # means no mismatch for that question.
 #
 # "This turn" is everything since the busy-state record opened the turn
-# (bin/fm-busy-lib.sh). Each call sends the closing message cut to 4000
-# characters and nothing else: no shell command, brief, file content, or diff.
+# (bin/fm-busy-lib.sh). Each call sends the closing message, its last 4000
+# characters when it is longer, and nothing else: no shell command, brief, file content, or diff.
 # The operator-facing contract is docs/configuration.md "Finished check".
 
 _FM_FC_DIR=${BASH_SOURCE[0]%/*}
@@ -76,7 +76,7 @@ fm_finished_check() {  # <home> <state-dir> <task-id> <worktree>
   input=$(cat)
   jq -e '.stop_hook_active != true and ((.background_tasks // []) | length) == 0' \
     >/dev/null 2>&1 <<<"$input" || return 0
-  msg=$(jq -r '(.last_assistant_message // "") | tostring | .[0:4000]' 2>/dev/null <<<"$input")
+  msg=$(jq -r '(.last_assistant_message // "") | tostring | .[-4000:]' 2>/dev/null <<<"$input")
   [ -n "$msg" ] || return 0
 
   rec=$(fm_busy_record_path "$state" "$id")
