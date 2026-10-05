@@ -751,7 +751,7 @@ test_static_poll_contract() {
 
   make_poll_fixture "$dir"
   set +e
-  out=$(FM_STATE_OVERRIDE="$dir/home/state" FM_CHECK_TIMEOUT=1 FM_TEST_GH_LOG="$dir/gh.log" \
+  out=$(FM_HOME="$dir/home" FM_STATE_OVERRIDE="$dir/home/state" FM_CHECK_TIMEOUT=1 FM_TEST_GH_LOG="$dir/gh.log" \
     FM_TEST_GH_SLEEP=3 PATH="$dir/fakebin:$BASE_PATH" \
     bash -c '. "$1"; run_check "$2"' bash "$WATCH" "$dir/home/state/task-a.check.sh")
   rc=$?

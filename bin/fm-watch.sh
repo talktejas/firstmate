@@ -11,6 +11,11 @@
 # either a paused: external wait or a verified captain-held transfer, is the
 # separate idle absorb case and re-surfaces only on its long bounded cadence,
 # although its initial no-verb status signal still surfaces in normal mode.
+# A home that holds TYPESAFE_API_KEY additionally offers a stale recheck of a
+# paused: wait whose task has a recorded pull request that is still open with no
+# blocker reported, and a transient contributions-read timeout, to Jev as one
+# fixed-choice question
+# (jev_triage_routine owns the gates); every failure there delivers the wake.
 # That cadence is hours long and condition-aware: a paused: line naming
 # `until <UTC ISO 8601>` is rechecked when that time passes, but a declared time
 # beyond FM_PAUSE_RESURFACE_SECS cannot extend the ordinary recheck cadence, and
@@ -126,6 +131,15 @@
 # after each printed reason. Direct duplicate invocations of this script still
 # no-op through the watcher singleton lock.
 set -u
+
+# The shared Jev caller behind the key-gated routine-wake triage below
+# (jev_triage_routine). Sourced before anything can start a child, with its path
+# derived by builtins alone, because sourcing it is what takes TYPESAFE_API_KEY
+# out of the exported environment every later child would inherit.
+_fm_watch_dir=${BASH_SOURCE[0]%/*}
+[ "$_fm_watch_dir" != "${BASH_SOURCE[0]}" ] || _fm_watch_dir=.
+# shellcheck source=bin/fm-jev-lib.sh
+. "$_fm_watch_dir/fm-jev-lib.sh"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
@@ -888,13 +902,21 @@ FM_WEDGE_DEMAND_INSPECT_COUNT=${FM_WEDGE_DEMAND_INSPECT_COUNT:-3}
 # window; wake() itself exits the cycle, exactly as it does inline. An optional
 # <min-age> replaces the cadence as the absorb-age gate for one call (0 lets a
 # declared `until` time that has just passed re-surface at once), while the
-# throttle keeps the cadence between repeats.
-resurface_absorbed() {  # <window> <throttle-marker> <age> <reason> [scope] [min-age]
-  local win=$1 throttle=$2 age=$3 reason=$4 scope=${5-} min_age=${6:-$PAUSE_RESURFACE_SECS}
+# throttle keeps the cadence between repeats. An optional <triage-task> offers a
+# due re-surface of that task's declared external wait to the key-gated routine-wake
+# triage (jev_triage_pause_routine); a routine answer advances the throttle
+# exactly as a delivered re-surface does, so the wait is read again on the same
+# cadence instead of being silenced.
+resurface_absorbed() {  # <window> <throttle-marker> <age> <reason> [scope] [min-age] [triage-task]
+  local win=$1 throttle=$2 age=$3 reason=$4 scope=${5-} min_age=${6:-$PAUSE_RESURFACE_SECS} triage_task=${7-}
   if [ -z "$scope" ] || [ ! -e "$throttle" ] \
     || [ "$(cat "$throttle" 2>/dev/null || true)" = "$scope" ]; then
     [ "$age" -ge "$min_age" ] || return 0
     [ "$(age_of "$throttle")" -ge "$PAUSE_RESURFACE_SECS" ] || return 0   # 999999 when no prior re-surface
+  fi
+  if [ -n "$triage_task" ] && jev_triage_pause_routine "$triage_task" "$reason"; then
+    if [ -n "$scope" ]; then printf '%s' "$scope" > "$throttle"; else date +%s > "$throttle"; fi
+    return 0
   fi
   fm_wake_append stale "$win" "$reason" || exit 1
   if [ -n "$scope" ]; then printf '%s' "$scope" > "$throttle"; else date +%s > "$throttle"; fi
@@ -991,7 +1013,7 @@ wedge_wait_evidence() {  # <task> -> `declared` or `held` on stdout
 # this is not an escalation, and a later genuine one must keep the
 # demand-inspection history it had already earned.
 wedge_defer_wait() {  # <window> <task> <since-file> <triage-label> <idle-age> <declared|held>
-  local win=$1 task=$2 since_file=$3 label=$4 age=$5 evidence=$6 key mtime wage min_age kind action waited
+  local win=$1 task=$2 since_file=$3 label=$4 age=$5 evidence=$6 key mtime wage min_age kind action waited triage_task=''
   if [ "$evidence" = held ]; then
     if afk_record_present; then
       triage_log "absorbed $label (captain-held, never rechecked while the away-posture record exists): $win"
@@ -1002,6 +1024,7 @@ wedge_defer_wait() {  # <window> <task> <since-file> <triage-label> <idle-age> <
   else
     kind='declared wait, awaiting external'
     action='confirm the wait still holds'
+    triage_task=$task
   fi
   key=$(window_key "$win")
   mtime=$(stat_mtime "$STATE/$task.status")
@@ -1023,7 +1046,7 @@ wedge_defer_wait() {  # <window> <task> <since-file> <triage-label> <idle-age> <
   date +%s > "$since_file"
   resurface_absorbed "$win" "$STATE/.waiting-resurfaced-$key" "$wage" \
     "stale: $win (idle ${age}s${waited} - $kind, rechecked on a long cadence not a wedge; $action)" \
-    '' "$min_age"
+    '' "$min_age" "$triage_task"
   triage_log "absorbed $label (the pane's own wait explains the quiet, idle ${age}s): $win"
 }
 
@@ -1189,8 +1212,9 @@ busy_turn_over_age() {  # <task>
 # wording; a caller that reached the bounded cadence off pause tracking alone, with
 # no declaring verb left on the log, keeps the external-wait wording it always had.
 handle_paused_stale() {  # <window> <task> <hash>
-  local win=$1 task=$2 h=$3 key statusf mtime age detail reason declaration last until now min_age
+  local win=$1 task=$2 h=$3 key statusf mtime age detail reason declaration last until now min_age triage_task
   key=$(window_key "$win")
+  triage_task=$task
   printf '%s' "$h" > "$STATE/.stale-$key"
   : > "$STATE/.paused-$key"
   rm -f "$STATE/.stale-since-$key" "$STATE/.wedge-escalations-$key"
@@ -1210,6 +1234,7 @@ handle_paused_stale() {  # <window> <task> <hash>
     fi
     detail="captain-held, awaiting the captain"
     reason="captain-held ${age}s, awaiting the captain - verified hold transfer, rechecked on a long cadence not a wedge; answer the held decision or release the hold"
+    triage_task=
   elif until=$(status_paused_until "$last"); then
     if [ "$now" -lt "$until" ] && [ "$age" -lt "$PAUSE_RESURFACE_SECS" ]; then
       triage_log "absorbed stale (paused until $(( until - now ))s from now, declared time not reached): $win"
@@ -1229,7 +1254,7 @@ handle_paused_stale() {  # <window> <task> <hash>
     detail="paused, awaiting external"
     reason="paused ${age}s, awaiting external - declared pause, rechecked on a long cadence not a wedge; confirm the wait still holds"
   fi
-  resurface_absorbed "$win" "$STATE/.paused-resurfaced-$key" "$age" "stale: $win ($reason)" "$declaration" "$min_age"
+  resurface_absorbed "$win" "$STATE/.paused-resurfaced-$key" "$age" "stale: $win ($reason)" "$declaration" "$min_age" "$triage_task"
   triage_log "absorbed stale ($detail, age ${age}s): $win"
 }
 
@@ -1539,7 +1564,7 @@ terminal_stale_bound() {  # <window-key> <task> <status-line>
 # above): the status line the worker declared, and the backlog hold firstmate
 # recorded once the captain took the work in hand.
 surface_nonterminal_stale() {  # <window> <hash>
-  local win=$1 h=$2 key task last declared=1 bounded=1 throttled=1 until now
+  local win=$1 h=$2 key task last declared=1 bounded=1 throttled=1 until now triaged=1
   key=$(window_key "$win")
   task=$(window_to_task "$win" "$STATE")
   last=$(last_status_line "$STATE/$task.status")
@@ -1559,6 +1584,14 @@ surface_nonterminal_stale() {  # <window> <hash>
     else
       stale_wait_throttled "$key" "$STALE_WAIT_DECLARATION" && throttled=0
     fi
+    # A declared external wait about to alarm is the one sighting here the
+    # key-gated routine-wake triage may read. A routine answer records the throttle a
+    # delivered alarm would have, so the same declaration is offered again only
+    # on the bounded cadence rather than on every new pane hash.
+    if [ "$throttled" -ne 0 ] && jev_triage_pause_routine "$task" "stale: $win"; then
+      throttled=0
+      triaged=0
+    fi
   elif status_is_captain_held "$last"; then
     declared=0
     bounded=0
@@ -1576,6 +1609,8 @@ surface_nonterminal_stale() {  # <window> <hash>
   fi
   if [ "$throttled" -ne 0 ]; then
     fm_wake_append stale "$win" "stale: $win" || exit 1
+    stale_wait_record "$key"
+  elif [ "$triaged" -eq 0 ]; then
     stale_wait_record "$key"
   fi
   printf '%s' "$h" > "$STATE/.stale-$key"
@@ -1600,6 +1635,145 @@ surface_nonterminal_stale() {  # <window> <hash>
     return 0
   fi
   wake "stale: $win"
+}
+
+# --- Routine-wake triage (off unless TYPESAFE_API_KEY is present) ------------
+#
+# A wake that changes nothing still costs a whole firstmate turn. For a home
+# that holds the key, a wake in one of the enumerated classes below is offered to Jev
+# (bin/fm-jev-lib.sh) as ONE fixed-choice question - needs_firstmate or routine -
+# over that wake's own evidence, and is absorbed like any other benign wake only
+# on a routine answer at or above the shared confidence floor. Everything else
+# delivers the wake exactly as before: the key absent, a timeout, a malformed
+# answer, low confidence, or any other choice.
+#
+# The eligible classes are an allowlist wired at their own call sites, so a wake
+# that is not one of them never reaches the model:
+#   declared-pause-recheck   a stale wake for a worker whose latest status event
+#                            is a `paused:` external wait and whose task has a
+#                            recorded pull request that is still open with no
+#                            blocker reported (handle_paused_stale,
+#                            wedge_defer_wait, surface_nonterminal_stale)
+#   contributions-observation-timeout
+#                            a contributions check that reports only forge reads
+#                            that timed out
+# What keeps the rest out is code, never the model. No signal is ever offered
+# to the model; captain notes, merge and PR-ready outcomes, process-event and
+# Relay wakes, and every other check have no call site here.
+# jev_triage_enabled refuses while the away daemon or the away-posture record
+# exists, and jev_triage_task_evidence refuses a secondmate, a task with any
+# open keyed decision, a declared clearing time that has passed, an endpoint
+# whose agent is not proven alive, and a task with no recorded pull request.
+#
+# The recorded pull request (pr= in the task's metadata, which only firstmate
+# records after reading the worker's ready report) is what shows firstmate
+# already knows the wait, so a paused task without one is never offered and
+# surfaces exactly as before. The deterministic read comes first and settles
+# what it can: the task is offered only while bin/fm-pr-state.sh reads that pull
+# request as open with no blocker reported, so a merged, closed, conflicting,
+# failing, or unreadable one is delivered without asking.
+#
+# ponytail: one consecutive-absorb counter per subject bounds the model the way
+# PAUSE_RESURFACE_SECS bounds the deterministic absorbs - after
+# JEV_TRIAGE_MAX_STREAK routine answers in a row the next wake is delivered
+# unasked and the count restarts, so no wait can be muted indefinitely.
+JEV_TRIAGE_MAX_STREAK=6
+JEV_TRIAGE_PR_TIMEOUT=30
+FM_PR_STATE_BIN="${FM_PR_STATE_BIN:-$SCRIPT_DIR/fm-pr-state.sh}"
+# shellcheck disable=SC2016 # The backticks are literal markup in the question text.
+JEV_TRIAGE_INSTRUCTIONS='A monitoring reminder in `wake` is about to interrupt the supervisor of a fleet of software workers. The supervisor has already seen every status event listed in `wake`, so nothing in it is news. Decide from the words of the evidence what is being waited on. Choose `routine` only when the wait will clear without any action from the supervisor or another person, apart from the already reported merge of an open pull request. When the worker is waiting on a person or on the supervisor to choose, answer, review, approve, or unblock something, or it stopped after a failure, the reminder is how the supervisor remembers that someone still owes the worker a reply, so choose `needs_firstmate`. Choose `needs_firstmate` whenever you are unsure.'
+JEV_TRIAGE_CRITERIA='{"needs_firstmate":"The newest status event shows the worker waiting on a person or on the supervisor: to choose between options, answer a question, review or accept finished work, supply or repair a credential or access, or unblock it; or the worker stopped after a failure or an error; or a diagnostic reports anything other than a read that timed out; or it is not clear what the wait is for.","routine":"The newest status event declares a wait on an automatic external event that clears without the supervisor: an open pull request with nothing failing that only awaits its already reported merge, a running CI job, a rate limit or quota reset, a scheduled window, or an upstream release; or one transient read timeout that the monitor retries on its own."}'
+JEV_TRIAGE_TASK_EVIDENCE=
+
+jev_triage_enabled() {
+  afk_present && return 1
+  afk_record_present && return 1
+  fm_jev_key_load "$FM_HOME"
+}
+
+# 0 when <task> may be offered to Jev, leaving its evidence object in
+# JEV_TRIAGE_TASK_EVIDENCE; 1 for every task the model must never decide.
+jev_triage_task_evidence() {  # <task>
+  local task=$1 meta statusf last until w pr pr_out
+  JEV_TRIAGE_TASK_EVIDENCE=
+  case "$task" in ''|*[!A-Za-z0-9._-]*) return 1 ;; esac
+  meta="$STATE/$task.meta"
+  statusf="$STATE/$task.status"
+  [ -f "$meta" ] && [ ! -L "$meta" ] && [ -f "$statusf" ] && [ ! -L "$statusf" ] || return 1
+  [ "$(fm_meta_get "$meta" kind)" != secondmate ] || return 1
+  last=$(last_status_line "$statusf")
+  status_is_paused "$last" || return 1
+  if until=$(status_paused_until "$last"); then
+    [ "$(date +%s)" -lt "$until" ] || return 1
+  fi
+  [ -z "$(status_open_decisions "$statusf")" ] || return 1
+  pr=$(fm_meta_get "$meta" pr)
+  [ -n "$pr" ] || return 1
+  w=$(fm_backend_target_of_meta "$meta")
+  [ -n "$w" ] || return 1
+  [ "$(fm_backend_agent_state "$(fm_backend_of_meta "$meta")" "$w" 2>/dev/null || true)" = alive ] || return 1
+  pr_out=$(fm_run_timed "$JEV_TRIAGE_PR_TIMEOUT" "$FM_PR_STATE_BIN" "$pr" 2>/dev/null) || return 1
+  if [ -n "$pr_out" ] && printf '%s\n' "$pr_out" | grep -Eqv '^(CHECKS: |MERGEABILITY: unknown$)'; then
+    return 1
+  fi
+  JEV_TRIAGE_TASK_EVIDENCE=$(tail -n 6 "$statusf" 2>/dev/null | cut -c 1-400 \
+    | jq -Rsc --arg task "$task" --arg pr 'open; no blocker reported' \
+      '{task: $task, pull_request: $pr, recent_status_events: (split("\n") | map(select(length > 0)))}' \
+      2>/dev/null) || return 1
+  [ -n "$JEV_TRIAGE_TASK_EVIDENCE" ]
+}
+
+# 0 to absorb one eligible wake as routine, 1 to deliver it exactly as before.
+# Every caller has already passed jev_triage_enabled and its class's own gates.
+jev_triage_routine() {  # <class> <subject> <reason> <evidence-json>
+  local class=$1 subject=$2 reason=$3 evidence=$4 streak_file streak state
+  streak_file="$STATE/.jev-triage-streak-$subject"
+  streak=$(cat "$streak_file" 2>/dev/null || true)
+  case "$streak" in ''|*[!0-9]*) streak=0 ;; esac
+  if [ "$streak" -ge "$JEV_TRIAGE_MAX_STREAK" ]; then
+    rm -f "$streak_file"
+    triage_log "jev triage delivered $class ($streak absorbed in a row, bound reached): $reason"
+    return 1
+  fi
+  state=$(jq -nc --arg class "$class" --arg reason "$reason" --argjson evidence "$evidence" \
+    '{wake: {class: $class, reason: $reason, evidence: $evidence}}' 2>/dev/null) || return 1
+  if ! fm_jev_choice wake "$JEV_TRIAGE_INSTRUCTIONS" \
+    <(printf '%s' "$state") <(printf '%s' "$JEV_TRIAGE_CRITERIA"); then
+    triage_log "jev triage delivered $class ($FM_JEV_STATUS${FM_JEV_ERROR:+: $FM_JEV_ERROR}): $reason"
+    return 1
+  fi
+  if ! jq -e --argjson floor "$FM_JEV_CONFIDENCE_FLOOR" \
+    '.choice == "routine" and .confidence >= $floor and .probabilities.routine >= $floor' \
+    >/dev/null 2>&1 <<<"$FM_JEV_ANSWER"; then
+    rm -f "$streak_file"
+    triage_log "jev triage delivered $class (choice=$FM_JEV_CHOICE confidence=$FM_JEV_CONFIDENCE floor=$FM_JEV_CONFIDENCE_FLOOR): $reason"
+    return 1
+  fi
+  printf '%s' "$((streak + 1))" > "$streak_file" || return 1
+  triage_log "absorbed jev-routine $class (confidence=$FM_JEV_CONFIDENCE, $FM_JEV_PROBABILITIES, ${FM_JEV_LATENCY_MS} ms): $reason"
+  return 0
+}
+
+jev_triage_pause_routine() {  # <task> <reason>
+  jev_triage_enabled || return 1
+  jev_triage_task_evidence "$1" || return 1
+  jev_triage_routine declared-pause-recheck "$1" "$2" "[$JEV_TRIAGE_TASK_EVIDENCE]"
+}
+
+jev_triage_contributions_routine() {  # <diagnostic-lines>
+  local out=$1 line evidence
+  jev_triage_enabled || return 1
+  [ -n "$out" ] || return 1
+  while IFS= read -r line; do
+    [[ $line =~ ^contributions:\ observation\ unavailable\ for\ [^[:space:]]+:\ gh\ .*\ timed\ out\ after\ [0-9]+s$ ]] || return 1
+  done <<EOF
+$out
+EOF
+  evidence=$(printf '%s\n' "$out" | cut -c 1-400 \
+    | jq -Rsc '{diagnostics: (split("\n") | map(select(length > 0))),
+        retry: "the poll reads this address again on its next scheduled run"}' 2>/dev/null) || return 1
+  jev_triage_routine contributions-observation-timeout contributions \
+    "check: contributions observation timed out" "$evidence"
 }
 
 # Check and heartbeat cadence must survive actionable exits and restarts: the
@@ -2350,6 +2524,11 @@ $out
 EOF
           if [ -n "$contribution_check_diagnostics" ]; then
             out=${contribution_check_diagnostics%$'\n'}
+            # A transient forge-read timeout is the one check result the key-gated
+            # routine-wake triage may read; the poll retries it on its own.
+            if jev_triage_contributions_routine "$out"; then
+              continue
+            fi
           elif [ -n "$contribution_check_output" ]; then
             continue
           fi

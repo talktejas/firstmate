@@ -18,6 +18,7 @@ mkdir -p "$STATE_DIR"
 
 # Source the watcher with an isolated state/home. The guard returns before the
 # lock/loop, so only the functions load.
+export FM_HOME="$TMP/home"
 export FM_STATE_OVERRIDE="$STATE_DIR"
 export FM_ROOT_OVERRIDE="$ROOT"
 # Production modules are independently linted canonical roots. Keep this test's
