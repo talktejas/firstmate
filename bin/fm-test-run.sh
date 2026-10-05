@@ -401,7 +401,7 @@ family_for_basename() {
     fm-busy-state.test.sh|fm-classify-corr-token.test.sh|\
     fm-claude-stop-autoarm.test.sh|fm-cursor-harness.test.sh|\
     fm-dispatch-resolve.test.sh|fm-house-rules-check.test.sh|\
-    fm-finished-check.test.sh|\
+    fm-finished-check.test.sh|fm-commit-check.test.sh|\
     fm-extension-binding.test.sh|fm-gitignore-config.test.sh|\
     fm-no-mistakes-required.test.sh|fm-peek-remote.test.sh|\
     fm-pending-reply.test.sh|fm-pi-branch-extension.test.sh|\
@@ -1456,15 +1456,21 @@ families_for_changed_path() {
       ;;
     bin/fm-jev-lib.sh)
       # The one Jev caller, sourced by bin/fm-dispatch-resolve.sh, the watcher's
-      # routine-wake triage, bin/fm-house-rules-check.sh, and the worker stop
-      # hook's finished check.
+      # routine-wake triage, bin/fm-house-rules-check.sh, the worker stop
+      # hook's finished check, and the worker commit check.
       printf '%s\n' "__script__:fm-dispatch-resolve.test.sh"
       printf '%s\n' "__script__:fm-jev-wake-triage.test.sh"
       printf '%s\n' "__script__:fm-house-rules-check.test.sh"
       printf '%s\n' "__script__:fm-finished-check.test.sh"
+      printf '%s\n' "__script__:fm-commit-check.test.sh"
       ;;
     bin/fm-house-rules-check.sh)
+      # Also sourced by bin/fm-commit-check.sh for its skipped-path list.
       printf '%s\n' "__script__:fm-house-rules-check.test.sh"
+      printf '%s\n' "__script__:fm-commit-check.test.sh"
+      ;;
+    bin/fm-commit-check.sh)
+      printf '%s\n' "__script__:fm-commit-check.test.sh"
       ;;
     bin/fm-finished-check.sh)
       # The worker stop hook's finished check; the wiring suite runs the Stop

@@ -9,8 +9,9 @@
 # option, and a status; every decision
 # made from that answer (a confidence floor, an approval gate, an absorb) stays
 # in the caller's own code. bin/fm-dispatch-resolve.sh, the watcher's
-# routine-wake triage (bin/fm-watch.sh), bin/fm-house-rules-check.sh, and the
-# worker stop hook's finished check (bin/fm-finished-check.sh) are the callers.
+# routine-wake triage (bin/fm-watch.sh), bin/fm-house-rules-check.sh, the
+# worker stop hook's finished check (bin/fm-finished-check.sh), and the worker
+# commit check (bin/fm-commit-check.sh) are the callers.
 #
 # Key handling: sourcing this file copies an environment-provided
 # TYPESAFE_API_KEY into one non-exported shell variable and unsets the exported
@@ -21,6 +22,13 @@
 #
 # fm_jev_key_load <home>
 #   0 when a key is available, 1 when it is absent from both sources.
+#
+# fm_jev_code_allowed <project>
+#   0 only when <project> is a line of $FM_HOME/config/jev-code-projects (one
+#   project name per line; blank lines and lines starting with # are ignored).
+#   The key alone lets a caller send routing text and status lines; a caller
+#   that would send a project's code, file list, or pull request text asks this
+#   first. An absent or empty file allows no project.
 #
 # fm_jev_choice <question-key> <instructions> <state-json-file> <criteria-json-file>
 #   One POST to $FM_JEV_BASE/v1/systemone. <state-json-file> holds the JSON
@@ -80,6 +88,11 @@ fm_jev_key_load() {  # <home>
   [ -n "$TYPESAFE_API_KEY_PRIVATE" ] \
     || TYPESAFE_API_KEY_PRIVATE=$(fmx_env_get TYPESAFE_API_KEY "$1/.env")
   [ -n "$TYPESAFE_API_KEY_PRIVATE" ]
+}
+
+fm_jev_code_allowed() {  # <project>
+  [ -n "$1" ] && [ "${1#\#}" = "$1" ] \
+    && grep -qxF -- "$1" "${FM_HOME:-.}/config/jev-code-projects" 2>/dev/null
 }
 
 _fm_jev_fail() {  # <reason>

@@ -461,6 +461,10 @@
       "audience": "maintainer-verification"
     },
     {
+      "path": "docs/verification/commit-check.md",
+      "audience": "maintainer-verification"
+    },
+    {
       "path": "docs/verification/dispatch-resolve.md",
       "audience": "maintainer-verification"
     },
