@@ -791,8 +791,7 @@ pass "below the floor, ungated rules whose match is met decide when they share o
 for other in \
   '{}|default|0.5|0.35|0.6|a none pick beside a rule with no match' \
   '{"approval": "captain", "match": {"security": ["yes"]}}|default|0.5|0.4|0.55|a none pick beside an approval-gated rule' \
-  '{}|rule_2|0.45|0.5|0.45|a pick of a rule with no match' \
-  '{"approval": "captain"}|rule_2|0.45|0.5|0.45|a pick of an approval-gated rule'; do
+  '{}|rule_2|0.45|0.5|0.45|a pick of a rule with no match'; do
   IFS='|' read -r other_fields other_choice other_conf other_p none_p other_name <<<"$other"
   jq --argjson extra "$other_fields" '{rules: [(.rules[0] | .match = {kind: ["product_document"]}), ({when: "Some other work.", use: {harness: "claude", model: "sonnet"}} + $extra)], default}' "$MATCH_RULES" > "$RULES"
   reset_log
@@ -853,9 +852,19 @@ assert_not_contains "$out" '  profile:' "an unsure result emits no profile"
 reset_log
 match_response "$RESPONSE" rule_3 0.4 0.1 0.1 0.5 0.2 0.1 feature medium settled yes 0.9
 TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
-assert_contains "$out" '  status: clear' "a met approval-gated match does not stop a met ungated rule from deciding"
-assert_contains "$out" '  rule: rule_3 (A small bug fix or familiar feature work.)   confidence: 0.9' "the ungated met rule is chosen"
-assert_not_contains "$out" 'approval' "the gated rule adds no approval stop"
+assert_contains "$out" '  status: ambiguous' "a met approval-gated match keeps an unsure rule answer unsure though an ungated rule's match is met too"
+assert_contains "$out" '  rule: rule_3 (A small bug fix or familiar feature work.)   confidence: 0.4' "the unsure rule answer is reported unchanged beside a met gated match"
+assert_not_contains "$out" '  selection:' "the small answers choose nothing beside a met gated match"
+assert_not_contains "$out" 'approval' "the met gated match adds no approval stop"
+assert_not_contains "$out" '  profile:' "no profile is emitted beside a met gated match"
+reset_log
+match_response "$RESPONSE" rule_4 0.5 0.1 0.1 0.2 0.5 0.1 feature medium settled no 0.9
+TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
+assert_contains "$out" '  status: ambiguous' "an unsure pick of an approval-gated rule stays unsure though an ungated rule's match is met"
+assert_contains "$out" '  rule: rule_4 (The change is security-sensitive.)   confidence: 0.5' "the unsure gated pick is reported unchanged"
+assert_contains "$out" '  reason: confidence 0.5 below floor 0.6' "the unsure gated pick is below the floor, not an approval stop"
+assert_not_contains "$out" '  selection:' "the small answers choose nothing against an unsure gated pick"
+assert_not_contains "$out" '  profile:' "no profile is emitted for an unsure gated pick"
 reset_log
 match_response "$RESPONSE" rule_4 0.9 0.02 0.02 0.02 0.92 0.02 bugfix low settled no 0.9
 TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
