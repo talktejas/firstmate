@@ -234,7 +234,7 @@ A paused task is eligible only when a pull request is recorded for the task (`pr
 The question asks what the declared wait is for: a wait on an automatic external event may read as routine, while a worker waiting on a person or stopped after a failure is delivered.
 
 Everything else is refused in code before any call and never depends on the model's answer.
-That covers captain notes, every new status event, every turn-end, merge and PR-ready outcomes, process-event and Relay wakes, every other check, any task with an open keyed decision, a secondmate, a signal batch spanning more than one task, a declared clearing time that has passed, and every wake while the away-mode daemon or the away-posture record exists.
+That covers captain notes, every new status event, every turn-end, merge and PR-ready outcomes, process-event and Relay wakes, every other check, any task with an open keyed decision, a secondmate, a declared clearing time that has passed, and every wake while the away-mode daemon or the away-posture record exists.
 An endpoint whose agent is not proven alive is never routine, so a dead, missing, ambiguous, unreadable, or unverified endpoint is always delivered.
 The watcher first reads the recorded pull request through `bin/fm-pr-state.sh` and offers the wake only while that read reports the pull request open with no blocker, which is all the model is told about it; a merged, closed, blocked, or unreadable pull request delivers the wake without asking, so an absorbed pause recheck is still presented on its normal cadence once the wait has actually changed.
 A routine answer advances the same recheck cadence a delivered wake would, so the wait is read again every `FM_PAUSE_RESURFACE_SECS` rather than silenced.

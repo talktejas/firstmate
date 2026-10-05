@@ -15,10 +15,12 @@
 # at a fresh non-git dir to keep it inert across these suites - the same trick the
 # direct fm-guard.sh tests use. A per-call FM_ROOT_OVERRIDE still wins where a
 # suite sets its own (e.g. the watcher-lock guard-banner cases).
-if [ -z "${FM_ROOT_OVERRIDE:-}" ]; then
-  FM_ROOT_OVERRIDE="$(fm_test_tmproot fm-wake-tangle-root)"
-  export FM_ROOT_OVERRIDE
-fi
+# The same directory is the default FM_HOME of every watcher these suites start
+# without one, so it is pinned whatever the caller's environment exports: it
+# holds no .env, and no launch can resolve a key from a real home.
+FM_ROOT_OVERRIDE="$(fm_test_tmproot fm-wake-tangle-root)"
+export FM_ROOT_OVERRIDE
+unset FM_HOME
 
 # Wedge-alarm notifier recorder (safety seam). The away-mode wedge alarm fires a
 # real OS-level desktop notification by default. Point its FM_WEDGE_ALARM_EXEC

@@ -1657,10 +1657,9 @@ surface_nonterminal_stale() {  # <window> <hash>
 #   contributions-observation-timeout
 #                            a contributions check that reports only forge reads
 #                            that timed out
-# What keeps the rest out is code, never the model. No signal is ever offered,
-# so a new status event, a first `paused:` declaration included, and every bare
-# turn-end are always delivered; captain notes, merge and PR-ready outcomes,
-# process-event and Relay wakes, and every other check have no call site here.
+# What keeps the rest out is code, never the model. No signal is ever offered
+# to the model; captain notes, merge and PR-ready outcomes, process-event and
+# Relay wakes, and every other check have no call site here.
 # jev_triage_enabled refuses while the away daemon or the away-posture record
 # exists, and jev_triage_task_evidence refuses a secondmate, a task with any
 # open keyed decision, a declared clearing time that has passed, an endpoint
