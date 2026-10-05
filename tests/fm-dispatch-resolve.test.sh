@@ -756,6 +756,23 @@ TYPESAFE_API_KEY=$KEY run code out err "$DOC_BRIEF" --project shop
 assert_contains "$out" '  status: clear' "a rule whose declared match is met outranks an unsure none pick"
 assert_contains "$out" '  rule: rule_1 (Ambiguous investigation, or writing a plan or spec from a va)   confidence: 0.94' "the met rule is selected over the none option"
 assert_contains "$out" '  selection: small answers left 2 of 4 rules and ruled out the none option; rule answer alone default 0.4' "the selection line names the overruled none pick"
+for unmet in \
+  '{}|0.35|0.6|a rule with no match' \
+  '{"approval": "captain", "match": {"security": ["yes"]}}|0.4|0.55|an approval-gated rule whose match is not met'; do
+  IFS='|' read -r unmet_fields unmet_p none_p unmet_name <<<"$unmet"
+  jq --argjson extra "$unmet_fields" '{rules: [(.rules[0] | .match = {kind: ["product_document"]}), ({when: "Some other work.", use: {harness: "claude", model: "sonnet"}} + $extra)], default}' "$MATCH_RULES" > "$RULES"
+  reset_log
+  jq -n --argjson p2 "$unmet_p" --argjson pd "$none_p" '{model: "jev-1.13.0", usage: {input_tokens: 500, output_tokens: 80},
+    answers: {rule: {type: "choice", choice: "default", confidence: 0.5, probabilities: {rule_1: 0.05, rule_2: $p2, default: $pd}}}}' > "$RESPONSE"
+  add_facets "$RESPONSE" product_document low partly no 0.9
+  TYPESAFE_API_KEY=$KEY run code out err "$DOC_BRIEF" --project shop
+  assert_contains "$out" '  status: ambiguous' "an unsure none pick set aside by a met match never passes to $unmet_name"
+  assert_contains "$out" '  rule: default (No listed rule applies to this task.)   confidence: 0.5' "the none pick stands with its own confidence against $unmet_name"
+  assert_contains "$out" '  reason: confidence 0.5 below floor 0.6' "the result is unsure as it was, against $unmet_name"
+  assert_not_contains "$out" 'approval' "no approval stop is added by $unmet_name"
+  assert_not_contains "$out" '  profile:' "no profile is emitted for $unmet_name"
+done
+cp "$MATCH_RULES" "$RULES"
 reset_log
 match_response "$RESPONSE" default 0.9 0.02 0.02 0.02 0.01 0.93 tests low settled no 0.9
 TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"

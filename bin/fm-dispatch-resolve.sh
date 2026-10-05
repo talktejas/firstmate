@@ -31,6 +31,9 @@
 #     approval-gated rule is never dropped, a rule Jev itself picked being
 #     dropped is `ambiguous` instead, and a missing or malformed small answer
 #     drops nothing;
+#   - a none pick set aside that way passes only to an ungated rule whose own
+#     whole `match` is met; when any other rule would win, the none pick
+#     stands with its own confidence, which is below the floor;
 #   - the confidence floor on what remains, the rule's declared `approval` and
 #     `floor`, each profile's declared `provider` and `floor`, the quota rows
 #     from ONE quota-axi --json snapshot, and the spendPriority argmax over the
@@ -431,17 +434,20 @@ RESULT=$(jq -n --arg floor "$CONFIDENCE_FLOOR" --argjson lat "$LAT_MS" --arg non
   (($kept | length) < ($opts | length)) as $narrowing |
   ($narrowing and $a.choice != "default" and (any($kept[]; .k == $a.choice) | not)) as $disagree |
   (if $narrowing and ($disagree | not) and (($kept | map(.p) | add) > 0) then $kept else $opts end) as $set |
-  ($set | group_by(.outcome) | map({p: (map(.p) | add), top: max_by(.p), members: map(.k)})) as $groups |
+  ($set | group_by(.outcome) | map({p: (map(.p) | add), top: max_by(.p), claim: (map(select(.met and (.gated | not))) | max_by(.p)), members: map(.k)})) as $groups |
   ($groups | max_by(.p)) as $best_group |
   (($groups | length) < ($opts | length)) as $recount |
+  # A none pick set aside by a met match can pass only to a rule that met its own.
+  ($a.choice == "default" and ($set | length) > 0 and (any($set[]; .r == null) | not)) as $none_dropped |
   (if $sure and $a.choice == "default" then {choice: $a.choice, confidence: $a.confidence}
+   elif $none_dropped and $best_group.claim == null then {choice: $a.choice, confidence: $a.confidence}
    elif $disagree then
      {choice: $a.choice, confidence: $a.confidence,
       disagree: "small answers (\([$facts | to_entries[] | "\(.key)=\(.value)"] | join(", "))) exclude the rule pick \($a.choice)"}
    elif $recount then
      ($groups | length) as $n | ($best_group.p / ($set | map(.p) | add)) as $p |
      (($best_group.members | index($a.choice)) != null) as $raw_in_best |
-     {choice: (if $raw_in_best then $a.choice else $best_group.top.k end),
+     {choice: (if $raw_in_best then $a.choice elif $none_dropped then $best_group.claim.k else $best_group.top.k end),
       # Fewer answers raise the even-split baseline, so the confidence of the
       # rule answer stands whenever recounting would only lower it.
       confidence: ([(if $n < 2 then $p else ($p - 1 / $n) / (1 - 1 / $n) end | round2),

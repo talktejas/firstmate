@@ -527,7 +527,8 @@ Rules whose `use`, `approval`, and `floor` are the same count as one answer, so 
 A rule answer at or above the confidence floor is never narrowed, and a pick of the neutral option at or above the floor stands as the default outcome with the model's own confidence.
 Only when the rule answer is below the floor does a small answer at or above it drop every rule whose declared `match` excludes it, and drop the neutral option once some rule's whole declared `match` is met; a small answer below the floor changes nothing.
 A missing or malformed small answer is printed as `unusable` and narrows nothing; it never makes the result `error`.
-An approval-gated rule is never dropped, and the small answers never select one, so they can neither add a stop for approval nor remove one.
+A neutral pick set aside that way passes only to a rule that is not approval-gated and whose own whole `match` is met; when a rule with no `match`, a partly met `match`, or an approval gate would win instead, the neutral pick stands with the model's own confidence and the result is `ambiguous`.
+An approval-gated rule is never dropped, and setting the neutral pick aside never selects one, so the small answers can neither turn a neutral pick into a stop for approval nor remove a stop.
 When the small answers would drop the unsure rule the model itself picked, the two readings disagree and the result is `ambiguous`.
 Everything after that selection also runs in code: the confidence floor, the selected rule's `approval` and `floor`, each candidate's `provider` and `floor`, every applicable account-wide and model/product row from one `quota-axi --json` snapshot, and the numeric `spendPriority` argmax over candidates using each candidate's limiting row.
 Known applicable rows from a provider with partial quota semantics remain rankable; rows whose own status is not known remain unrankable.
