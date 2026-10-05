@@ -101,7 +101,8 @@ rm -rf "$LIB_DIR/log"; mkdir -p "$LIB_DIR/log"
 PLANTED="ghp_$(printf 'a%.0s' $(seq 1 36))"
 jq -n --arg token "$PLANTED" '{subject: "a", notes: ["kept one\nGH_TOKEN=\($token)\nkept two",
   "db_password = \"hunter2-hunter2\"", "before\n-----BEGIN RSA PRIVATE KEY-----\nKEYBODYLINE\n-----END RSA PRIVATE KEY-----\nafter",
-  "cut\n-----BEGIN PRIVATE KEY-----\nOPENKEYLINE\nnever closed"]}' > "$LIB_DIR/state.json"
+  "cut\n-----BEGIN PRIVATE KEY-----\nOPENKEYLINE\nnever closed",
+  "TAILKEYLINE1\nTAILKEYLINE2\n-----END EC PRIVATE KEY-----\nafter the tail"]}' > "$LIB_DIR/state.json"
 out=$(lib_call TYPESAFE_API_KEY="$KEY")
 assert_equals '0|ok|yes|0.8|yes=0.8 no=0.2|' "$out" "a state holding credential lines is still asked"
 sent=$(cat "$LIB_DIR/log/body.1")
@@ -118,6 +119,9 @@ assert_equals "before
 after" "$(jq -r '.state.notes[2]' <<<"$sent")" "a private key block is replaced whole and the text after it is kept"
 assert_equals "cut
 [line withheld: looks like a credential]" "$(jq -r '.state.notes[3]' <<<"$sent")" "nothing after an unclosed private key block is sent"
+assert_not_contains "$sent" 'TAILKEYLINE' "the tail of a private key block cut off from its first line is not sent"
+assert_equals "[line withheld: looks like a credential]
+after the tail" "$(jq -r '.state.notes[4]' <<<"$sent")" "everything through an unopened block's END line is replaced whole and the text after it is kept"
 printf '%s' '{"subject":"a"}' > "$LIB_DIR/state.json"
 rm -rf "$LIB_DIR/log"; mkdir -p "$LIB_DIR/log"
 out=$(lib_call)

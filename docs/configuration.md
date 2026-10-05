@@ -258,6 +258,7 @@ This is the single opt-in list: naming a project here enables every code-sending
 A line that looks like a credential is never sent, by any Jev check, listed project or not.
 Before `bin/fm-jev-lib.sh` builds a request, every piece of text a check hands it as state - a brief, a status line, a closing message, a commit message, a diff, a findings file, a failure log - has each line that matches a recognised credential format (a private key block's first line, or an AWS, GitHub, Slack, Google, or `sk-` style key) or that assigns a quoted literal to a password, secret, token, or API-key name replaced by the fixed text `[line withheld: looks like a credential]`.
 A private key block is replaced whole by that one line, through its `END` line or, when the text was cut short, the end of the text.
+Text cut so that it holds a block's `END` line without its first line has everything up to and including that `END` line replaced the same way.
 The library holds the one copy of those patterns, which the [commit check](#commit-check-env-typesafe_api_key-configjev-code-projects) also uses for its commit-time stop; the list is fixed, so a credential shape it does not name is not caught.
 This file replaces the `projects` list of `config/house-rules.json`; a `projects` key in that file is ignored.
 

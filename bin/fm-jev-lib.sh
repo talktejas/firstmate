@@ -46,7 +46,9 @@
 #   format (FM_JEV_CREDENTIALS) or the generic secret literal
 #   (FM_JEV_SECRET_LITERAL) replaced by FM_JEV_WITHHELD, and a private key
 #   block replaced whole by one FM_JEV_WITHHELD, through its END line or the
-#   end of the string. A jq that cannot run the patterns builds no request.
+#   end of the string. A string cut so that it holds a block's END line
+#   without its BEGIN line has everything up to and including that END line
+#   replaced the same way. A jq that cannot run the patterns builds no request.
 #   bin/fm-commit-check.sh reads the same two lists for its commit-time stop.
 #
 # fm_jev_choice <question-key> <instructions> <state-json-file> <criteria-json-file>
@@ -164,6 +166,7 @@ _fm_jev_ask() {  # <questions-json> <state-json-file> <required-question-key>
       reduce split("\n")[] as $line ({out: [], key: false};
         if .key then .key = ($line | test($end) | not)
         elif ($line | test($begin)) then .out += [$withheld] | .key = ($line | test($end) | not)
+        elif ($line | test($end)) then .out = [$withheld]
         elif any($patterns[]; . as $p | $line | test($p)) then .out += [$withheld]
         else .out += [$line] end)
       | .out | join("\n");
