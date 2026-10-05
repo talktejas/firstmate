@@ -10,8 +10,8 @@
 #   accessor as FMX_PAIRING_TOKEN (bin/fm-env-lib.sh). The environment wins.
 #   Absent in both: one "dispatch-resolve: off" line on stderr, nothing on
 #   stdout, exit 0, no network call, so firstmate dispatches exactly as today.
-#   The key lives in one shell variable and reaches curl as a header read from
-#   a file descriptor, never on argv; nothing logs or writes it.
+#   bin/fm-jev-lib.sh owns the key handling, the request, and the answer
+#   validation; this tool owns everything decided from the answer.
 #
 # What it does when on with at least one rule: one POST to
 #   https://api.typesafe.ai/v1/systemone with the project name and the whole brief as
@@ -51,9 +51,12 @@
 #   inspectable answer plus every candidate's evidence, in code.
 set -u
 
-TYPESAFE_API_KEY_PRIVATE=${TYPESAFE_API_KEY:-}
-export -n TYPESAFE_API_KEY_PRIVATE 2>/dev/null || true
-unset TYPESAFE_API_KEY
+# Sourced before anything can start a child: it takes the key out of the
+# exported environment. The path is derived with builtins for the same reason.
+_fm_dispatch_dir=${BASH_SOURCE[0]%/*}
+[ "$_fm_dispatch_dir" != "${BASH_SOURCE[0]}" ] || _fm_dispatch_dir=.
+# shellcheck source=bin/fm-jev-lib.sh
+. "$_fm_dispatch_dir/fm-jev-lib.sh"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
@@ -64,15 +67,8 @@ CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 . "$SCRIPT_DIR/fm-quota-axi-lib.sh"
 # shellcheck source=bin/fm-control-lib.sh
 . "$SCRIPT_DIR/fm-control-lib.sh"
-# shellcheck source=bin/fm-env-lib.sh
-. "$SCRIPT_DIR/fm-env-lib.sh"
-# shellcheck source=bin/fm-timing-lib.sh
-. "$SCRIPT_DIR/fm-timing-lib.sh"
 
-CONFIDENCE_FLOOR=0.6
-TS_MODEL=jev-latest
-TS_BASE=https://api.typesafe.ai
-TS_TIMEOUT=5
+CONFIDENCE_FLOOR=$FM_JEV_CONFIDENCE_FLOOR
 DEFAULT_WHEN="No listed rule applies to this task."
 
 die() { printf 'error: %s\n' "$1" >&2; exit 2; }
@@ -99,10 +95,7 @@ while [ $# -gt 0 ]; do
 done
 
 # ---- opt-in gate ---------------------------------------------------------------
-if [ -z "$TYPESAFE_API_KEY_PRIVATE" ]; then
-  TYPESAFE_API_KEY_PRIVATE=$(fmx_env_get TYPESAFE_API_KEY "$FM_HOME/.env")
-fi
-if [ -z "$TYPESAFE_API_KEY_PRIVATE" ]; then
+if ! fm_jev_key_load "$FM_HOME"; then
   echo "dispatch-resolve: off (TYPESAFE_API_KEY absent from the environment and $FM_HOME/.env)" >&2
   exit 0
 fi
@@ -216,48 +209,19 @@ if [ "$RULE_COUNT" -eq 0 ]; then
   no_rules
 fi
 
-RESP_FILE=$(mktemp) || die "mktemp failed"
-QUOTA=$(mktemp) || { rm -f "$RESP_FILE"; die "mktemp failed"; }
-trap 'rm -f "$RULES" "$RESP_FILE" "$QUOTA"' EXIT
-LAT_MS=null
-command -v curl >/dev/null 2>&1 || emit_error "curl not installed"
-  REQUEST=$(jq -n --rawfile brief "$BRIEF" --arg project "$PROJECT" --arg model "$TS_MODEL" \
-    --arg none_criterion "$DEFAULT_WHEN" --slurpfile rules "$RULES" '
-    ($rules[0]) as $cfg |
-    ($cfg.rules | to_entries | map({key: ("rule_" + ((.key + 1) | tostring)), value: .value.when}) | from_entries) as $criteria |
-    {
-      model: $model,
-      state: {task: {project: $project, brief: $brief}},
-      questions: {
-        rule: {
-          type: "choice",
-          instructions: "Which ONE dispatch rule best fits `task` (read `task.brief` and `task.project`)? Each option is the rule'"'"'s own matching condition; pick `default` when no rule'"'"'s condition is met, including when a rule'"'"'s own exemption text excludes this task.",
-          criteria: ($criteria + {default: $none_criterion})
-        }
-      }
-    }')
-  T0=$(fm_timing_now_ms)
-  HTTP=$(printf '%s' "$REQUEST" | curl -sS --max-time "$TS_TIMEOUT" -o "$RESP_FILE" -w '%{http_code}' \
-    -X POST "$TS_BASE/v1/systemone" -H 'Content-Type: application/json' \
-    -H @/dev/fd/3 3< <(printf 'Authorization: Bearer %s\n' "$TYPESAFE_API_KEY_PRIVATE") \
-    --data-binary @- 2>/dev/null) || HTTP=000
-  T1=$(fm_timing_now_ms)
-  LAT_MS=$(( T1 - T0 ))
-  [ "$HTTP" = 200 ] || emit_error "http $HTTP after ${LAT_MS} ms: $(head -c 200 "$RESP_FILE" 2>/dev/null | tr '\n' ' ')"
-jq -e --slurpfile rules "$RULES" '
-    (($rules[0].rules | to_entries | map("rule_" + ((.key + 1) | tostring))) + ["default"] | sort) as $choices |
-    (.answers.rule.choice | type) == "string" and
-    (.answers.rule.confidence | type) == "number" and
-    .answers.rule.confidence >= 0 and .answers.rule.confidence <= 1 and
-    (.answers.rule.probabilities | type) == "object" and
-    ((.answers.rule.probabilities | keys | sort) == $choices) and
-    all(.answers.rule.probabilities[]; type == "number" and . >= 0 and . <= 1) and
-    ((.answers.rule.probabilities | [.[]] | add) as $total | $total >= 0.99 and $total <= 1.01) and
-    ((has("usage") | not) or
-      ((.usage | type) == "object" and
-       (.usage.input_tokens | type) == "number" and
-       (.usage.output_tokens | type) == "number"))' \
-  "$RESP_FILE" >/dev/null 2>&1 || emit_error "response is not a rule Choice answer"
+JEV_STATE=$(mktemp) || die "mktemp failed"
+JEV_CRITERIA=$(mktemp) || { rm -f "$JEV_STATE"; die "mktemp failed"; }
+QUOTA=$(mktemp) || { rm -f "$JEV_STATE" "$JEV_CRITERIA"; die "mktemp failed"; }
+trap 'rm -f "$RULES" "$JEV_STATE" "$JEV_CRITERIA" "$QUOTA"' EXIT
+jq -n --rawfile brief "$BRIEF" --arg project "$PROJECT" \
+  '{task: {project: $project, brief: $brief}}' > "$JEV_STATE" || emit_error "request could not be built"
+jq --arg none_criterion "$DEFAULT_WHEN" '
+  (.rules | to_entries | map({key: ("rule_" + ((.key + 1) | tostring)), value: .value.when}) | from_entries)
+  + {default: $none_criterion}' "$RULES" > "$JEV_CRITERIA" || emit_error "request could not be built"
+fm_jev_choice rule \
+  "Which ONE dispatch rule best fits \`task\` (read \`task.brief\` and \`task.project\`)? Each option is the rule's own matching condition; pick \`default\` when no rule's condition is met, including when a rule's own exemption text excludes this task." \
+  "$JEV_STATE" "$JEV_CRITERIA" || emit_error "$FM_JEV_ERROR"
+LAT_MS=$FM_JEV_LATENCY_MS
 
 # ---- quota evidence: one quota-axi --json snapshot -----------------------------
 command -v quota-axi >/dev/null 2>&1 || emit_error "quota-axi not installed"
@@ -266,8 +230,8 @@ fm_quota_json_valid < "$QUOTA" || emit_error "quota-axi --json returned an inval
 
 # ---- resolution: declared gates + quota evidence + argmax, all in jq ------------
 RESULT=$(jq -n --arg floor "$CONFIDENCE_FLOOR" --argjson lat "$LAT_MS" --arg none_criterion "$DEFAULT_WHEN" --argjson pmap "$PMAP" \
-  --slurpfile resp "$RESP_FILE" --slurpfile rules "$RULES" --slurpfile quota "$QUOTA" '
-  ($resp[0]) as $r | ($rules[0]) as $cfg | ($quota[0]) as $q | ($r.answers.rule) as $a |
+  --argjson jev "$FM_JEV_ANSWER" --slurpfile rules "$RULES" --slurpfile quota "$QUOTA" '
+  $jev as $r | ($rules[0]) as $cfg | ($quota[0]) as $q | $jev as $a |
   def profiles($v): if ($v | type) == "array" then $v elif ($v | type) == "object" then [$v] else [] end;
   def prov($p): ([$q.providers[] | select(.provider == $p)] | first) // null;
   def rows($p): (prov($p) | .quotaSemantics.effectiveAvailability // []);

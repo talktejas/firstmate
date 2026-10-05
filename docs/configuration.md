@@ -217,6 +217,31 @@ The bound is required rather than cosmetic because churn and pane staleness read
 The flag is a home-local supervision-noise preference and is not inherited by secondmate homes, which run their own crew mix.
 [`architecture.md`](architecture.md) owns the triage contract and `bin/fm-watch.sh`'s `signal_turnend_panes_churned` owns the exact evidence and fail-closed boundaries.
 
+## Routine-wake triage (config/jev-wake-triage)
+
+The optional local, gitignored `config/jev-wake-triage` presence flag opts this home into asking typesafe.ai's System One model (Jev) whether a routine monitoring wake needs firstmate at all.
+It is off unless that flag exists and `TYPESAFE_API_KEY` is available under the same environment-then-`.env` contract as [typed dispatch resolution](#typed-dispatch-resolution-env-typesafe_api_key); with either absent the watcher makes no call and delivers every wake exactly as it does without the feature.
+The flag is a home-local supervision-noise preference and is not inherited by secondmate homes.
+
+The watcher asks one fixed-choice question, `needs_firstmate` or `routine`, over the wake's own evidence, and absorbs the wake the way it absorbs any other benign wake, with one line in `state/.watch-triage.log`, only when the answer is `routine` with both its confidence and its `routine` probability at or above the shared 0.6 floor.
+A timeout, a transport or API error, a malformed answer, low confidence, and any other choice all deliver the wake unchanged, and the log line names which.
+Only four enumerated wake classes are ever offered, each wired at its own point in the watcher:
+
+- a stale recheck or first stale sight of a worker whose latest status event is a `paused:` external wait;
+- a signal whose only new status lines are `paused:` lines;
+- a bare turn-end from a worker whose status is already `paused:`;
+- a contributions check that reports nothing but forge reads that timed out.
+
+Everything else is refused in code before any call and never depends on the model's answer.
+That covers captain notes, every `needs-decision`, `blocked`, `failed`, `done`, or `captain-held` status event, merge and PR-ready outcomes, process-event and Relay wakes, every other check, any task with an open keyed decision, a secondmate, a signal batch spanning more than one task, a declared clearing time that has passed, and every wake while the away-mode daemon or the away-posture record exists.
+An endpoint whose agent is not proven alive is never routine, so a dead, missing, ambiguous, unreadable, or unverified endpoint is always delivered.
+For a task with a recorded `pr=`, the watcher first reads that pull request through `bin/fm-pr-state.sh` and offers the wake only while it is open with no failing or pending required check, conflict, or requested change; a merged, closed, blocked, or unreadable pull request delivers the wake without asking, so an absorbed pause recheck is still presented on its normal cadence once the wait has actually changed.
+A routine answer advances the same recheck cadence a delivered wake would, so the wait is read again every `FM_PAUSE_RESURFACE_SECS` rather than silenced.
+`FM_JEV_TRIAGE_MAX_STREAK` defaults to `6` and bounds how many routine answers in a row one task may receive before the next wake is delivered unasked and the count restarts, so the model can never mute a wait indefinitely.
+
+Each call sends the wake's class and reason line, the task id, its last six status lines cut to 400 characters each, and whether its pull request is open, or for a contributions check its diagnostic lines; it sends no brief, pane content, or quota.
+`bin/fm-jev-lib.sh` owns the request, the answer validation, and the key handling shared with typed dispatch resolution, `bin/fm-watch.sh`'s `jev_triage_routine` header owns the exact eligibility gates, and [`verification/jev-wake-triage.md`](verification/jev-wake-triage.md) records the live evidence.
+
 ## Gate defaults (.no-mistakes.yaml)
 
 The tracked `.no-mistakes.yaml` sets `test.evidence.store_in_repo: true` and pins `commands.lint` to `bin/fm-lint.sh`, the same owner CI invokes.
@@ -504,9 +529,9 @@ The tool never replaces firstmate's judgment, `quota-array-dispatch`, the captai
 By accepted design, a `clear` result does not enforce catalog/authentication, reasoning-class, or completion-runway gates.
 Firstmate passes its profile line unless it states a reason to override, such as the brief's reasoning class or an eligible-unranked-candidate note; every non-clear result returns to the full existing intake.
 
-The resolver and bootstrap copy an environment-provided key into a non-exported private variable and unset `TYPESAFE_API_KEY` before launching child processes, so the secret is absent from child environments.
-The resolver sends the key to `curl` only as a header read from a file descriptor, never on argv, and nothing prints, logs, or writes it.
-The resolver fixes the endpoint at `https://api.typesafe.ai`, model at `jev-latest`, confidence floor at 0.6, and request timeout at 5 seconds; `TYPESAFE_API_KEY` is its only resolver-specific environment setting.
+The resolver, the watcher, and bootstrap copy an environment-provided key into a non-exported private variable and unset `TYPESAFE_API_KEY` before launching child processes, so the secret is absent from child environments.
+`bin/fm-jev-lib.sh` is the single owner of the Jev request, the answer validation, and that key handling for the resolver and for [routine-wake triage](#routine-wake-triage-configjev-wake-triage); it sends the key to `curl` only as a header read from a file descriptor, never on argv, and nothing prints, logs, or writes it.
+It fixes the endpoint at `https://api.typesafe.ai`, model at `jev-latest`, confidence floor at 0.6, and request timeout at 5 seconds; `TYPESAFE_API_KEY` is the resolver's only resolver-specific environment setting.
 The live rule-match evidence is recorded in [`verification/dispatch-resolve.md`](verification/dispatch-resolve.md).
 
 ## Toolchain
@@ -1096,7 +1121,7 @@ FMX_RELAY_URL=https://myfirstmate.io   # optional Relay endpoint override, mainl
 FMX_ENV_FILE=           # optional alternate .env file for direct Relay client invocations; bootstrap still checks $FM_HOME/.env
 FMX_DRY_RUN=            # truthy previews Relay replies and dismissals to state/x-outbox/ without posting or requiring a token
 FMX_X_REPLY_MAX_CHARS=280   # X reply per-message split budget; values below 50 clamp to 50
-TYPESAFE_API_KEY=       # typed dispatch resolution opt-in, from the environment or .env; absent means bin/fm-dispatch-resolve.sh is off (docs/configuration.md "Typed dispatch resolution")
+TYPESAFE_API_KEY=       # typed dispatch resolution opt-in, from the environment or .env; absent means bin/fm-dispatch-resolve.sh is off (docs/configuration.md "Typed dispatch resolution"), and routine-wake triage also needs it beside config/jev-wake-triage
 FMX_DISCORD_REPLY_MAX_CHARS=1900   # Discord reply per-message split budget; values below 50 clamp to 50, values above 2000 reset to 1900
 FMX_X_THREAD_MAX=25     # maximum messages in one auto-split reply thread
 FMX_FOLLOWUP_MAX_AGE_SECS=604800   # local window for posting Relay completion follow-ups (7 days)
@@ -1121,6 +1146,7 @@ FM_WATCH_CYCLE_LOG_KEEP_LINES=1000   # newest complete lifecycle rows considered
 FM_WATCHER_STALE_GRACE=300   # defaults to FM_GUARD_GRACE if set, else the poll-derived grace (docs/turnend-guard.md "Guard grace and the poll cadence"); seconds a live watcher lock may have a stale beacon before re-arm errors
 FM_SIGNAL_GRACE=30      # seconds to coalesce nearby status and turn-end signals into one wake
 FM_TURNEND_CHURN_ABSORB_SECS=900   # longest one endpoint's bare turn-ends may be deferred on pane-churn evidence alone; only consulted when config/turnend-churn-absorb is present
+FM_JEV_TRIAGE_MAX_STREAK=6   # routine answers in a row one task may receive from routine-wake triage before the next wake is delivered unasked; only consulted when config/jev-wake-triage is present
 FM_CAPTAIN_RE='done:|needs-decision:|blocked:|failed:|PR ready|checks green|ready in branch|merged'   # captain-relevant status regex; nonterminal progress verbs remain excluded even when their prose matches
 FM_CLASSIFY_PAUSED_VERB=paused     # leading status verb for a declared external wait; excluded from FM_CAPTAIN_RE and distinct from blocked
 FM_STALE_ESCALATE_SECS=240         # idle seconds before a provably-working stale pane escalates, unless that pane's own worker declared a wait that has not elapsed, which takes the FM_PAUSE_RESURFACE_SECS recheck below instead; stale panes whose crew is not provably working surface immediately unless admitted directly to the declared-wait cadence, while a live idle declared wait still surfaces once before that cadence bounds repeats; at that same escalation moment a recovery-grade agent-state probe (docs/architecture.md owns that dead-record contract) reports a pane whose endpoint is proven `dead` or `missing` once and stops re-escalating it while it stays that way
