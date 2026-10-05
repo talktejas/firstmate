@@ -1,0 +1,142 @@
+
+### 1. no key, project opted in -> off
+bug: by hand (off, TYPESAFE_API_KEY absent from the environment and <tmp>/home/.env)
+style: by hand (off, TYPESAFE_API_KEY absent from the environment and <tmp>/home/.env)
+grow: by hand (off, TYPESAFE_API_KEY absent from the environment and <tmp>/home/.env)
+destroy: by hand (off, TYPESAFE_API_KEY absent from the environment and <tmp>/home/.env)
+low: by hand (off, TYPESAFE_API_KEY absent from the environment and <tmp>/home/.env)
+odd: by hand (off, TYPESAFE_API_KEY absent from the environment and <tmp>/home/.env)
+finding-sort: 0 of 6 finding(s) sorted as settle; off, TYPESAFE_API_KEY absent from the environment and <tmp>/home/.env
+[exit 0] [requests made: 0]
+
+### 2. key present, project NOT in config/jev-code-projects -> off
+bug: by hand (off, project "demo-proj" is not a line of <tmp>/home/config/jev-code-projects)
+style: by hand (off, project "demo-proj" is not a line of <tmp>/home/config/jev-code-projects)
+grow: by hand (off, project "demo-proj" is not a line of <tmp>/home/config/jev-code-projects)
+destroy: by hand (off, project "demo-proj" is not a line of <tmp>/home/config/jev-code-projects)
+low: by hand (off, project "demo-proj" is not a line of <tmp>/home/config/jev-code-projects)
+odd: by hand (off, project "demo-proj" is not a line of <tmp>/home/config/jev-code-projects)
+finding-sort: 0 of 6 finding(s) sorted as settle; off, project "demo-proj" is not a line of <tmp>/home/config/jev-code-projects
+[exit 0] [requests made: 0]
+
+### 3. opted in, stand-in Jev answers (six ids, one request)
+bug: settle (inside-task, confidence 0.93)
+style: settle (style-only, confidence 0.6)
+grow: by hand (grows-task, confidence 0.99)
+destroy: by hand (destructive, confidence 0.98)
+low: by hand (inside-task below the confidence floor, 0.59)
+odd: by hand (no usable answer)
+finding-sort: 2 of 6 finding(s) sorted as settle from 6 question(s) in one request; advice only
+[exit 0] [requests made: 1]
+--- request body sent (stand-in capture) ---
+{
+  "model": "jev-latest",
+  "state_keys": [
+    "findings",
+    "intent"
+  ],
+  "intent": "Add a button on the members page that exports the member list as a CSV file.",
+  "findings_bytes": 254,
+  "questions": [
+    "f0",
+    "f1",
+    "f2",
+    "f3",
+    "f4",
+    "f5"
+  ],
+  "q_choices": [
+    "destructive",
+    "grows-task",
+    "inside-task",
+    "style-only"
+  ],
+  "f3_instr": "`intent` is what was asked for. `findings` lists code review findings on the work done for it. Sort only the finding whose id is `destroy`, by what fixing it would mean. Do not judge whether the finding is correct. Choose `grows-task` whenever no other choice clearly fits or you are unsure."
+}
+spec text in body: 0   key in argv: 0   key in child env: 0
+home unchanged by the run (status/meta/brief/findings checksums equal)
+
+### 4a. stand-in Jev returns http 500
+bug: by hand (no answer: http 500 after 11 ms: {"error":"down"} )
+style: by hand (no answer: http 500 after 11 ms: {"error":"down"} )
+grow: by hand (no answer: http 500 after 11 ms: {"error":"down"} )
+destroy: by hand (no answer: http 500 after 11 ms: {"error":"down"} )
+low: by hand (no answer: http 500 after 11 ms: {"error":"down"} )
+odd: by hand (no answer: http 500 after 11 ms: {"error":"down"} )
+finding-sort: 0 of 6 finding(s) sorted as settle; no answer: http 500 after 11 ms: {"error":"down"} 
+[exit 0] [requests made: 1]
+
+### 4b. LIVE real curl, network unreachable (dead proxy)
+bug: by hand (no answer: http 000 after 8 ms: )
+style: by hand (no answer: http 000 after 8 ms: )
+grow: by hand (no answer: http 000 after 8 ms: )
+destroy: by hand (no answer: http 000 after 8 ms: )
+low: by hand (no answer: http 000 after 8 ms: )
+odd: by hand (no answer: http 000 after 8 ms: )
+finding-sort: 0 of 6 finding(s) sorted as settle; no answer: http 000 after 8 ms: 
+[exit 0] [requests made: 0]
+
+### 5a. findings file outside the task data dir
+bug: by hand (the findings file is not an nm-*-findings.txt in <tmp>/home/data/task-9)
+finding-sort: 0 of 1 finding(s) sorted as settle; the findings file is not an nm-*-findings.txt in <tmp>/home/data/task-9
+[exit 0] [requests made: 0]
+
+### 5b. findings file in a subdirectory
+bug: by hand (the findings file is not an nm-*-findings.txt in <tmp>/home/data/task-9)
+finding-sort: 0 of 1 finding(s) sorted as settle; the findings file is not an nm-*-findings.txt in <tmp>/home/data/task-9
+[exit 0] [requests made: 0]
+
+### 5c. path traversal in the file name
+bug: by hand (the findings file is not directly inside <tmp>/home/data/task-9)
+finding-sort: 0 of 1 finding(s) sorted as settle; the findings file is not directly inside <tmp>/home/data/task-9
+[exit 0] [requests made: 0]
+
+### 5d. symlink to /etc/passwd
+bug: by hand (the findings file is missing, empty, or not a regular file)
+finding-sort: 0 of 1 finding(s) sorted as settle; the findings file is missing, empty, or not a regular file
+[exit 0] [requests made: 0]
+
+### 5e. findings file of 20001 bytes
+bug: by hand (the findings file is over 20000 bytes)
+finding-sort: 0 of 1 finding(s) sorted as settle; the findings file is over 20000 bytes
+[exit 0] [requests made: 0]
+
+### 5f. brief without Captain's intent
+bug: by hand (no Captain's intent in <tmp>/home/data/task-9/brief.md)
+finding-sort: 0 of 1 finding(s) sorted as settle; no Captain's intent in <tmp>/home/data/task-9/brief.md
+[exit 0] [requests made: 0]
+
+### 6. 14 named ids (old cap was 12), none mentioned in the file -> all asked in one request
+n1: settle (style-only, confidence 0.9)
+n2: settle (style-only, confidence 0.9)
+n3: settle (style-only, confidence 0.9)
+n4: settle (style-only, confidence 0.9)
+n5: settle (style-only, confidence 0.9)
+n6: settle (style-only, confidence 0.9)
+n7: settle (style-only, confidence 0.9)
+n8: settle (style-only, confidence 0.9)
+n9: settle (style-only, confidence 0.9)
+n10: settle (style-only, confidence 0.9)
+n11: settle (style-only, confidence 0.9)
+n12: settle (style-only, confidence 0.9)
+n13: settle (style-only, confidence 0.9)
+n14: settle (style-only, confidence 0.9)
+finding-sort: 14 of 14 finding(s) sorted as settle from 14 question(s) in one request; advice only
+[exit 0] [requests made: 1]
+questions in body: 14
+
+### 7. no gate line in status
+finding-sort: nothing to sort (no ask-user findings line in <tmp>/home/state/task-9.status)
+[exit 0] [requests made: 0]
+
+### 8a. usage: no task id
+error: a task id is required (see --help)
+[exit 2] [requests made: 0]
+
+### 8b. usage: unknown flag
+error: unknown argument --apply (see --help)
+[exit 2] [requests made: 0]
+
+### 8c. usage: task id with path chars
+error: a task id is required (see --help)
+[exit 2] [requests made: 0]
