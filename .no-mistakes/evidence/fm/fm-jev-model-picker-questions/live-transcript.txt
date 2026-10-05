@@ -1,0 +1,441 @@
+
+=== L0 environment: TYPESAFE_API_KEY in this process environment? no; home .env is a symlink the tool reads itself ===
+
+=== L1 four-rule file WITH match, fifteen briefs, real Jev ===
+$ FM_HOME=<scratch home> fm-dispatch-resolve.sh market.md --project demo     # task: Write a market study of loyalty programmes in grocery retail.
+dispatch-resolve:
+  status: clear
+  model: jev-1.13.0   latency_ms: 357   tokens: 1245/269
+  rule: rule_1 (Ambiguous investigation, or writing a plan or spec from a va)   confidence: 1.0
+  probabilities: rule_2=0.0 default=0.51 rule_3=0.0 rule_4=0.0 rule_1=0.49
+  questions: kind=product_document(1.0) damage=low(0.98) settled=partly(0.95) security=no(1.0)
+  selection: small answers (kind=product_document) meet the declared match of rule_1; rule answer default 0.38
+  note: rule matched
+  candidate: claude:opus  provider=claude  scope=all_models  remaining=79%  spendPriority=0.4  runway=through_reset  -> eligible
+  profile: --harness 'claude' --model 'opus' --effort 'high'
+[exit 0]
+
+--- request captured for the market-study brief ---
+questions in the one request: ["rule","kind","damage","settled","security"]
+rule options: ["rule_1","rule_2","rule_3","rule_4","default"]
+top-level request keys: ["model","state","questions"]
+state sent: {"task":{"project":"demo","brief":"Write a market study of loyalty programmes in grocery retail."}}
+body mentions standing text / match / use / why / approval / model names: 0
+
+$ FM_HOME=<scratch home> fm-dispatch-resolve.sh compare.md --project demo     # task: Write a comparison report of three payment providers for the finance team.
+dispatch-resolve:
+  status: clear
+  model: jev-1.13.0   latency_ms: 322   tokens: 1247/269
+  rule: rule_1 (Ambiguous investigation, or writing a plan or spec from a va)   confidence: 1.0
+  probabilities: rule_3=0.0 rule_2=0.0 rule_1=0.46 default=0.54 rule_4=0.0
+  questions: kind=product_document(1.0) damage=low(0.8) settled=partly(0.92) security=no(0.98)
+  selection: small answers (kind=product_document) meet the declared match of rule_1; rule answer default 0.42
+  note: rule matched
+  candidate: claude:opus  provider=claude  scope=all_models  remaining=79%  spendPriority=0.4  runway=through_reset  -> eligible
+  profile: --harness 'claude' --model 'opus' --effort 'high'
+[exit 0]
+
+$ FM_HOME=<scratch home> fm-dispatch-resolve.sh survey.md --project demo     # task: Write a user survey report from the attached results.
+dispatch-resolve:
+  status: clear
+  model: jev-1.13.0   latency_ms: 323   tokens: 1244/269
+  rule: rule_1 (Ambiguous investigation, or writing a plan or spec from a va)   confidence: 1.0
+  probabilities: rule_3=0.0 rule_1=0.4 rule_2=0.0 rule_4=0.0 default=0.6
+  questions: kind=product_document(1.0) damage=low(0.99) settled=partly(0.87) security=no(1.0)
+  selection: small answers (kind=product_document) meet the declared match of rule_1; rule answer default 0.49
+  note: rule matched
+  candidate: claude:opus  provider=claude  scope=all_models  remaining=79%  spendPriority=0.4  runway=through_reset  -> eligible
+  profile: --harness 'claude' --model 'opus' --effort 'high'
+[exit 0]
+
+$ FM_HOME=<scratch home> fm-dispatch-resolve.sh widget.md --project demo     # task: Build the new onboarding checklist widget for the dashboard.
+dispatch-resolve:
+  status: clear
+  model: jev-1.13.0   latency_ms: 758   tokens: 1247/270
+  rule: rule_3 (A small bug fix or familiar feature work.)   confidence: 0.6
+  probabilities: rule_3=0.41000000000000003 rule_1=0.26 rule_4=0.0 rule_2=0.01 default=0.32
+  questions: kind=feature(1.0) damage=medium(0.6) settled=partly(0.59) security=no(0.99)
+  selection: small answers (damage=medium, kind=feature) meet the declared match of rule_3; rule answer rule_3 0.25
+  note: rule matched
+  candidate: claude:sonnet  provider=claude  scope=all_models  remaining=79%  spendPriority=0.4  runway=through_reset  -> eligible
+  profile: --harness 'claude' --model 'sonnet' --effort 'medium'
+[exit 0]
+
+$ FM_HOME=<scratch home> fm-dispatch-resolve.sh summary.md --project demo     # task: Summarise last quarter's support tickets into a report for the product team.
+dispatch-resolve:
+  status: clear
+  model: jev-1.13.0   latency_ms: 351   tokens: 1250/269
+  rule: default (No listed rule applies to this task.)   confidence: 0.79
+  probabilities: rule_2=0.0 rule_3=0.0 rule_4=0.0 default=0.83 rule_1=0.17
+  questions: kind=product_document(1.0) damage=low(0.94) settled=partly(0.94) security=no(1.0)
+  note: no rule matched
+  candidate: claude:haiku  provider=claude  scope=all_models  remaining=79%  spendPriority=0.4  runway=through_reset  -> eligible
+  profile: --harness 'claude' --model 'haiku'
+[exit 0]
+
+$ FM_HOME=<scratch home> fm-dispatch-resolve.sh study.md --project demo     # task: Produce a study of how customers use the export feature, as a written report.
+dispatch-resolve:
+  status: clear
+  model: jev-1.13.0   latency_ms: 321   tokens: 1251/271
+  rule: rule_1 (Ambiguous investigation, or writing a plan or spec from a va)   confidence: 0.68
+  probabilities: rule_2=0.0 default=0.26 rule_3=0.0 rule_4=0.0 rule_1=0.74
+  questions: kind=product_document(1.0) damage=low(0.99) settled=partly(0.94) security=no(1.0)
+  note: rule matched
+  candidate: claude:opus  provider=claude  scope=all_models  remaining=79%  spendPriority=0.4  runway=through_reset  -> eligible
+  profile: --harness 'claude' --model 'opus' --effort 'high'
+[exit 0]
+
+$ FM_HOME=<scratch home> fm-dispatch-resolve.sh prd.md --project demo     # task: Write the PRD for the loyalty points feature.
+dispatch-resolve:
+  status: clear
+  model: jev-1.13.0   latency_ms: 338   tokens: 1244/271
+  rule: rule_1 (Ambiguous investigation, or writing a plan or spec from a va)   confidence: 0.99
+  probabilities: rule_2=0.0 rule_3=0.0 rule_1=0.99 rule_4=0.0 default=0.01
+  questions: kind=product_document(1.0) damage=low(0.99) settled=partly(0.82) security=no(0.95)
+  note: rule matched
+  candidate: claude:opus  provider=claude  scope=all_models  remaining=79%  spendPriority=0.4  runway=through_reset  -> eligible
+  profile: --harness 'claude' --model 'opus' --effort 'high'
+[exit 0]
+
+$ FM_HOME=<scratch home> fm-dispatch-resolve.sh research.md --project demo     # task: Research competing products and write a report comparing them with ours.
+dispatch-resolve:
+  status: clear
+  model: jev-1.13.0   latency_ms: 376   tokens: 1246/271
+  rule: rule_1 (Ambiguous investigation, or writing a plan or spec from a va)   confidence: 0.69
+  probabilities: rule_3=0.0 rule_2=0.0 rule_1=0.75 default=0.25 rule_4=0.0
+  questions: kind=product_document(1.0) damage=low(0.94) settled=partly(0.91) security=no(1.0)
+  note: rule matched
+  candidate: claude:opus  provider=claude  scope=all_models  remaining=79%  spendPriority=0.4  runway=through_reset  -> eligible
+  profile: --harness 'claude' --model 'opus' --effort 'high'
+[exit 0]
+
+$ FM_HOME=<scratch home> fm-dispatch-resolve.sh design.md --project demo     # task: Design the architecture of a new service that stores and rotates customer API keys.
+dispatch-resolve:
+  status: clear
+  model: jev-1.13.0   latency_ms: 334   tokens: 1249/270
+  rule: rule_2 (Architecture or system design.)   confidence: 0.98
+  probabilities: default=0.0 rule_2=0.99 rule_1=0.0 rule_3=0.0 rule_4=0.01
+  questions: kind=design(1.0) damage=high(0.72) settled=partly(0.96) security=yes(1.0)
+  note: rule matched
+  candidate: claude:opus  provider=claude  scope=all_models  remaining=79%  spendPriority=0.4  runway=through_reset  -> eligible
+  profile: --harness 'claude' --model 'opus' --effort 'xhigh'
+[exit 0]
+
+$ FM_HOME=<scratch home> fm-dispatch-resolve.sh reset.md --project demo     # task: Change how password reset tokens are generated and validated.
+dispatch-resolve:
+  status: escalate
+  model: jev-1.13.0   latency_ms: 321   tokens: 1244/270
+  rule: rule_4 (The change is security-sensitive.)   confidence: 1.0
+  probabilities: rule_3=0.0 rule_1=0.0 rule_2=0.0 default=0.0 rule_4=1.0
+  questions: kind=feature(0.72) damage=high(0.97) settled=partly(0.38) security=yes(1.0)
+  reason: rule requires the captain's explicit approval before dispatch
+  candidate: claude:opus  provider=claude  scope=all_models  remaining=79%  spendPriority=0.4  runway=through_reset  -> eligible
+[exit 0]
+
+$ FM_HOME=<scratch home> fm-dispatch-resolve.sh tidy.md --project demo     # task: Tidy up the checkout code.
+dispatch-resolve:
+  status: ambiguous
+  model: jev-1.13.0   latency_ms: 310   tokens: 1241/270
+  rule: rule_3 (A small bug fix or familiar feature work.)   confidence: 0.36
+  probabilities: rule_2=0.0 rule_4=0.01 rule_1=0.42 rule_3=0.48 default=0.09
+  questions: kind=refactor(1.0) damage=medium(0.51) settled=open(0.8) security=yes(0.14)
+  reason: confidence 0.36 below floor 0.6
+  candidate: claude:sonnet  provider=claude  scope=all_models  remaining=79%  spendPriority=0.4  runway=through_reset  -> eligible
+[exit 0]
+
+$ FM_HOME=<scratch home> fm-dispatch-resolve.sh settings.md --project demo     # task: Update the settings page.
+dispatch-resolve:
+  status: ambiguous
+  model: jev-1.13.0   latency_ms: 318   tokens: 1239/269
+  rule: rule_1 (Ambiguous investigation, or writing a plan or spec from a va)   confidence: 0.44
+  probabilities: rule_3=0.38 rule_2=0.0 rule_1=0.56 rule_4=0.0 default=0.06
+  questions: kind=feature(0.99) damage=medium(0.38) settled=open(0.84) security=no(0.88)
+  reason: confidence 0.44 below floor 0.6
+  candidate: claude:opus  provider=claude  scope=all_models  remaining=79%  spendPriority=0.4  runway=through_reset  -> eligible
+[exit 0]
+
+$ FM_HOME=<scratch home> fm-dispatch-resolve.sh rounding.md --project demo     # task: Find where the invoice total is rounded. Change nothing.
+dispatch-resolve:
+  status: ambiguous
+  model: jev-1.13.0   latency_ms: 392   tokens: 1245/268
+  rule: default (No listed rule applies to this task.)   confidence: 0.28
+  probabilities: rule_3=0.17 rule_2=0.0 rule_1=0.4 rule_4=0.0 default=0.43
+  questions: kind=lookup(0.84) damage=low(0.95) settled=settled(0.59) security=no(0.99)
+  reason: confidence 0.28 below floor 0.6
+  candidate: claude:haiku  provider=claude  scope=all_models  remaining=79%  spendPriority=0.4  runway=through_reset  -> eligible
+[exit 0]
+
+$ FM_HOME=<scratch home> fm-dispatch-resolve.sh bugfix.md --project demo     # task: Fix the off-by-one error in the pagination helper: page 2 repeats the last row of page 1.
+dispatch-resolve:
+  status: clear
+  model: jev-1.13.0   latency_ms: 319   tokens: 1257/271
+  rule: rule_3 (A small bug fix or familiar feature work.)   confidence: 1.0
+  probabilities: rule_1=0.0 default=0.0 rule_2=0.0 rule_3=1.0 rule_4=0.0
+  questions: kind=bugfix(1.0) damage=medium(0.54) settled=partly(0.76) security=no(0.99)
+  note: rule matched
+  candidate: claude:sonnet  provider=claude  scope=all_models  remaining=79%  spendPriority=0.4  runway=through_reset  -> eligible
+  profile: --harness 'claude' --model 'sonnet' --effort 'medium'
+[exit 0]
+
+$ FM_HOME=<scratch home> fm-dispatch-resolve.sh rename.md --project demo     # task: Rename the function getUser to fetchUser everywhere in the repository.
+dispatch-resolve:
+  status: clear
+  model: jev-1.13.0   latency_ms: 399   tokens: 1248/271
+  rule: rule_3 (A small bug fix or familiar feature work.)   confidence: 0.92
+  probabilities: rule_4=0.0 default=0.06 rule_3=0.9299999999999999 rule_2=0.0 rule_1=0.01
+  questions: kind=refactor(0.67) damage=medium(0.64) settled=settled(0.63) security=no(1.0)
+  note: rule matched
+  candidate: claude:sonnet  provider=claude  scope=all_models  remaining=79%  spendPriority=0.4  runway=through_reset  -> eligible
+  profile: --harness 'claude' --model 'sonnet' --effort 'medium'
+[exit 0]
+
+requests made so far (one per call): 15
+
+=== L2 same briefs that were unsure above, second run (stability) ===
+$ FM_HOME=<scratch home> fm-dispatch-resolve.sh market.md --project demo     # task: Write a market study of loyalty programmes in grocery retail.
+dispatch-resolve:
+  status: clear
+  model: jev-1.13.0   latency_ms: 363   tokens: 1245/271
+  rule: rule_1 (Ambiguous investigation, or writing a plan or spec from a va)   confidence: 1.0
+  probabilities: rule_4=0.0 rule_1=0.57 rule_2=0.0 rule_3=0.0 default=0.43
+  questions: kind=product_document(1.0) damage=low(0.99) settled=partly(0.95) security=no(1.0)
+  selection: small answers (kind=product_document) meet the declared match of rule_1; rule answer rule_1 0.46
+  note: rule matched
+  candidate: claude:opus  provider=claude  scope=all_models  remaining=79%  spendPriority=0.4  runway=through_reset  -> eligible
+  profile: --harness 'claude' --model 'opus' --effort 'high'
+[exit 0]
+
+$ FM_HOME=<scratch home> fm-dispatch-resolve.sh compare.md --project demo     # task: Write a comparison report of three payment providers for the finance team.
+dispatch-resolve:
+  status: clear
+  model: jev-1.13.0   latency_ms: 349   tokens: 1247/269
+  rule: rule_1 (Ambiguous investigation, or writing a plan or spec from a va)   confidence: 1.0
+  probabilities: default=0.51 rule_3=0.0 rule_2=0.0 rule_4=0.0 rule_1=0.49
+  questions: kind=product_document(1.0) damage=low(0.8) settled=partly(0.9) security=no(0.98)
+  selection: small answers (kind=product_document) meet the declared match of rule_1; rule answer default 0.38
+  note: rule matched
+  candidate: claude:opus  provider=claude  scope=all_models  remaining=79%  spendPriority=0.4  runway=through_reset  -> eligible
+  profile: --harness 'claude' --model 'opus' --effort 'high'
+[exit 0]
+
+$ FM_HOME=<scratch home> fm-dispatch-resolve.sh survey.md --project demo     # task: Write a user survey report from the attached results.
+dispatch-resolve:
+  status: clear
+  model: jev-1.13.0   latency_ms: 338   tokens: 1244/269
+  rule: rule_1 (Ambiguous investigation, or writing a plan or spec from a va)   confidence: 1.0
+  probabilities: rule_3=0.0 default=0.54 rule_4=0.0 rule_1=0.46 rule_2=0.0
+  questions: kind=product_document(1.0) damage=low(0.99) settled=partly(0.87) security=no(1.0)
+  selection: small answers (kind=product_document) meet the declared match of rule_1; rule answer default 0.42
+  note: rule matched
+  candidate: claude:opus  provider=claude  scope=all_models  remaining=79%  spendPriority=0.4  runway=through_reset  -> eligible
+  profile: --harness 'claude' --model 'opus' --effort 'high'
+[exit 0]
+
+$ FM_HOME=<scratch home> fm-dispatch-resolve.sh widget.md --project demo     # task: Build the new onboarding checklist widget for the dashboard.
+dispatch-resolve:
+  status: clear
+  model: jev-1.13.0   latency_ms: 346   tokens: 1247/270
+  rule: rule_3 (A small bug fix or familiar feature work.)   confidence: 0.61
+  probabilities: rule_4=0.0 rule_2=0.02 default=0.23 rule_3=0.43 rule_1=0.32
+  questions: kind=feature(1.0) damage=medium(0.61) settled=partly(0.58) security=no(0.99)
+  selection: small answers (damage=medium, kind=feature) meet the declared match of rule_3; rule answer rule_3 0.28
+  note: rule matched
+  candidate: claude:sonnet  provider=claude  scope=all_models  remaining=79%  spendPriority=0.4  runway=through_reset  -> eligible
+  profile: --harness 'claude' --model 'sonnet' --effort 'medium'
+[exit 0]
+
+$ FM_HOME=<scratch home> fm-dispatch-resolve.sh tidy.md --project demo     # task: Tidy up the checkout code.
+dispatch-resolve:
+  status: ambiguous
+  model: jev-1.13.0   latency_ms: 351   tokens: 1241/270
+  rule: rule_1 (Ambiguous investigation, or writing a plan or spec from a va)   confidence: 0.35
+  probabilities: rule_3=0.45 rule_2=0.0 rule_4=0.01 default=0.07 rule_1=0.47
+  questions: kind=refactor(1.0) damage=medium(0.51) settled=open(0.81) security=no(0.01)
+  reason: confidence 0.35 below floor 0.6
+  candidate: claude:opus  provider=claude  scope=all_models  remaining=79%  spendPriority=0.4  runway=through_reset  -> eligible
+[exit 0]
+
+$ FM_HOME=<scratch home> fm-dispatch-resolve.sh settings.md --project demo     # task: Update the settings page.
+dispatch-resolve:
+  status: ambiguous
+  model: jev-1.13.0   latency_ms: 354   tokens: 1239/269
+  rule: rule_1 (Ambiguous investigation, or writing a plan or spec from a va)   confidence: 0.4
+  probabilities: rule_4=0.0 rule_3=0.41 default=0.07 rule_1=0.52 rule_2=0.0
+  questions: kind=feature(0.99) damage=medium(0.47) settled=open(0.87) security=no(0.86)
+  reason: confidence 0.4 below floor 0.6
+  candidate: claude:opus  provider=claude  scope=all_models  remaining=79%  spendPriority=0.4  runway=through_reset  -> eligible
+[exit 0]
+
+$ FM_HOME=<scratch home> fm-dispatch-resolve.sh rounding.md --project demo     # task: Find where the invoice total is rounded. Change nothing.
+dispatch-resolve:
+  status: ambiguous
+  model: jev-1.13.0   latency_ms: 356   tokens: 1245/270
+  rule: rule_1 (Ambiguous investigation, or writing a plan or spec from a va)   confidence: 0.28
+  probabilities: rule_2=0.0 rule_4=0.0 rule_3=0.18 default=0.39 rule_1=0.43
+  questions: kind=lookup(0.88) damage=low(0.94) settled=settled(0.61) security=no(0.99)
+  reason: confidence 0.28 below floor 0.6
+  candidate: claude:opus  provider=claude  scope=all_models  remaining=79%  spendPriority=0.4  runway=through_reset  -> eligible
+[exit 0]
+
+
+=== L3 rules file with NO match: only the rule question is asked ===
+$ FM_HOME=<scratch home> fm-dispatch-resolve.sh market.md --project demo     # task: Write a market study of loyalty programmes in grocery retail.
+dispatch-resolve:
+  status: ambiguous
+  model: jev-1.13.0   latency_ms: 347   tokens: 470/60
+  rule: default (No listed rule applies to this task.)   confidence: 0.38
+  probabilities: default=0.51 rule_3=0.0 rule_2=0.0 rule_4=0.0 rule_1=0.49
+  reason: confidence 0.38 below floor 0.6
+  candidate: claude:haiku  provider=claude  scope=all_models  remaining=79%  spendPriority=0.4  runway=through_reset  -> eligible
+[exit 0]
+
+questions in the one request: ["rule"]
+rule options: ["rule_1","rule_2","rule_3","rule_4","default"]
+top-level request keys: ["model","state","questions"]
+state sent: {"task":{"project":"demo","brief":"Write a market study of loyalty programmes in grocery retail."}}
+body mentions standing text / match / use / why / approval / model names: 0
+
+$ FM_HOME=<scratch home> fm-dispatch-resolve.sh compare.md --project demo     # task: Write a comparison report of three payment providers for the finance team.
+dispatch-resolve:
+  status: ambiguous
+  model: jev-1.13.0   latency_ms: 341   tokens: 472/60
+  rule: default (No listed rule applies to this task.)   confidence: 0.38
+  probabilities: rule_4=0.0 rule_3=0.0 default=0.51 rule_2=0.0 rule_1=0.49
+  reason: confidence 0.38 below floor 0.6
+  candidate: claude:haiku  provider=claude  scope=all_models  remaining=79%  spendPriority=0.4  runway=through_reset  -> eligible
+[exit 0]
+
+$ FM_HOME=<scratch home> fm-dispatch-resolve.sh survey.md --project demo     # task: Write a user survey report from the attached results.
+dispatch-resolve:
+  status: ambiguous
+  model: jev-1.13.0   latency_ms: 385   tokens: 469/60
+  rule: default (No listed rule applies to this task.)   confidence: 0.42
+  probabilities: rule_3=0.0 rule_2=0.0 default=0.54 rule_1=0.46 rule_4=0.0
+  reason: confidence 0.42 below floor 0.6
+  candidate: claude:haiku  provider=claude  scope=all_models  remaining=79%  spendPriority=0.4  runway=through_reset  -> eligible
+[exit 0]
+
+$ FM_HOME=<scratch home> fm-dispatch-resolve.sh widget.md --project demo     # task: Build the new onboarding checklist widget for the dashboard.
+dispatch-resolve:
+  status: ambiguous
+  model: jev-1.13.0   latency_ms: 456   tokens: 472/62
+  rule: rule_3 (A small bug fix or familiar feature work.)   confidence: 0.2
+  probabilities: rule_3=0.36 rule_2=0.02 rule_4=0.0 default=0.33 rule_1=0.29
+  reason: confidence 0.2 below floor 0.6
+  candidate: claude:sonnet  provider=claude  scope=all_models  remaining=79%  spendPriority=0.4  runway=through_reset  -> eligible
+[exit 0]
+
+$ FM_HOME=<scratch home> fm-dispatch-resolve.sh prd.md --project demo     # task: Write the PRD for the loyalty points feature.
+dispatch-resolve:
+  status: clear
+  model: jev-1.13.0   latency_ms: 334   tokens: 469/62
+  rule: rule_1 (Ambiguous investigation, or writing a plan or spec from a va)   confidence: 0.99
+  probabilities: default=0.0 rule_4=0.0 rule_1=1.0 rule_2=0.0 rule_3=0.0
+  note: rule matched
+  candidate: claude:opus  provider=claude  scope=all_models  remaining=79%  spendPriority=0.4  runway=through_reset  -> eligible
+  profile: --harness 'claude' --model 'opus' --effort 'high'
+[exit 0]
+
+
+=== L4 same-outcome rules count as one answer: rules 1 and 3 given one outcome, no match ===
+$ FM_HOME=<scratch home> fm-dispatch-resolve.sh settings.md --project demo     # task: Update the settings page.
+dispatch-resolve:
+  status: clear
+  model: jev-1.13.0   latency_ms: 342   tokens: 464/62
+  rule: rule_1 (Ambiguous investigation, or writing a plan or spec from a va)   confidence: 0.93
+  probabilities: default=0.05 rule_1=0.57 rule_2=0.0 rule_4=0.0 rule_3=0.38
+  selection: rule_1+rule_3 counted as one answer; rule answer alone rule_1 0.46
+  note: rule matched
+  candidate: claude:opus  provider=claude  scope=all_models  remaining=79%  spendPriority=0.4  runway=through_reset  -> eligible
+  profile: --harness 'claude' --model 'opus' --effort 'high'
+[exit 0]
+
+$ FM_HOME=<scratch home> fm-dispatch-resolve.sh tidy.md --project demo     # task: Tidy up the checkout code.
+dispatch-resolve:
+  status: clear
+  model: jev-1.13.0   latency_ms: 335   tokens: 466/62
+  rule: rule_1 (Ambiguous investigation, or writing a plan or spec from a va)   confidence: 0.89
+  probabilities: rule_4=0.0 rule_2=0.0 default=0.08 rule_1=0.47 rule_3=0.45
+  selection: rule_1+rule_3 counted as one answer; rule answer alone rule_1 0.33
+  note: rule matched
+  candidate: claude:opus  provider=claude  scope=all_models  remaining=79%  spendPriority=0.4  runway=through_reset  -> eligible
+  profile: --harness 'claude' --model 'opus' --effort 'high'
+[exit 0]
+
+
+=== L5 the record after the live calls ===
+mode: 600   lines: 29   requests made: 29
+$ jq -r .status state/.dispatch-resolve.log | sort | uniq -c
+     10 ambiguous
+     18 clear
+      1 escalate
+clear only through the small answers or counting (selection set):
+{"status":"clear","rule":"rule_1","confidence":1.0,"rule_answer":{"choice":"default","confidence":0.38},"selection":"small answers (kind=product_document) meet the declared match of rule_1; rule answer default 0.38","profile":{"harness":"claude","model":"opus","effort":"high"}}
+{"status":"clear","rule":"rule_1","confidence":1.0,"rule_answer":{"choice":"default","confidence":0.42},"selection":"small answers (kind=product_document) meet the declared match of rule_1; rule answer default 0.42","profile":{"harness":"claude","model":"opus","effort":"high"}}
+{"status":"clear","rule":"rule_1","confidence":1.0,"rule_answer":{"choice":"default","confidence":0.49},"selection":"small answers (kind=product_document) meet the declared match of rule_1; rule answer default 0.49","profile":{"harness":"claude","model":"opus","effort":"high"}}
+{"status":"clear","rule":"rule_3","confidence":0.6,"rule_answer":{"choice":"rule_3","confidence":0.25},"selection":"small answers (damage=medium, kind=feature) meet the declared match of rule_3; rule answer rule_3 0.25","profile":{"harness":"claude","model":"sonnet","effort":"medium"}}
+{"status":"clear","rule":"rule_1","confidence":1.0,"rule_answer":{"choice":"rule_1","confidence":0.46},"selection":"small answers (kind=product_document) meet the declared match of rule_1; rule answer rule_1 0.46","profile":{"harness":"claude","model":"opus","effort":"high"}}
+{"status":"clear","rule":"rule_1","confidence":1.0,"rule_answer":{"choice":"default","confidence":0.38},"selection":"small answers (kind=product_document) meet the declared match of rule_1; rule answer default 0.38","profile":{"harness":"claude","model":"opus","effort":"high"}}
+{"status":"clear","rule":"rule_1","confidence":1.0,"rule_answer":{"choice":"default","confidence":0.42},"selection":"small answers (kind=product_document) meet the declared match of rule_1; rule answer default 0.42","profile":{"harness":"claude","model":"opus","effort":"high"}}
+{"status":"clear","rule":"rule_3","confidence":0.61,"rule_answer":{"choice":"rule_3","confidence":0.28},"selection":"small answers (damage=medium, kind=feature) meet the declared match of rule_3; rule answer rule_3 0.28","profile":{"harness":"claude","model":"sonnet","effort":"medium"}}
+{"status":"clear","rule":"rule_1","confidence":0.93,"rule_answer":{"choice":"rule_1","confidence":0.46},"selection":"rule_1+rule_3 counted as one answer; rule answer alone rule_1 0.46","profile":{"harness":"claude","model":"opus","effort":"high"}}
+{"status":"clear","rule":"rule_1","confidence":0.89,"rule_answer":{"choice":"rule_1","confidence":0.33},"selection":"rule_1+rule_3 counted as one answer; rule answer alone rule_1 0.33","profile":{"harness":"claude","model":"opus","effort":"high"}}
+first record line:
+{
+  "ts": "2026-10-05T18:29:24Z",
+  "project": "demo",
+  "digest": "0a9cefd19c2a972d8ef8988f69bc2b1e242cb5db77db286114015a96e3ebc400",
+  "status": "clear",
+  "reason": null,
+  "rule": "rule_1",
+  "confidence": 1.0,
+  "rule_answer": {
+    "choice": "default",
+    "confidence": 0.38
+  },
+  "questions": {
+    "kind": {
+      "choice": "product_document",
+      "confidence": 1.0
+    },
+    "damage": {
+      "choice": "low",
+      "confidence": 0.98
+    },
+    "settled": {
+      "choice": "partly",
+      "confidence": 0.95
+    },
+    "security": {
+      "choice": "no",
+      "confidence": 1.0
+    }
+  },
+  "selection": "small answers (kind=product_document) meet the declared match of rule_1; rule answer default 0.38",
+  "latency_ms": 357,
+  "profile": {
+    "harness": "claude",
+    "model": "opus",
+    "effort": "high"
+  }
+}
+brief text in record: 0
+key value found in record: 0   in last captured request body: 0
+
+=== L6 Jev down or unsure: nothing changes for the operator ===
+$ TYPESAFE_API_KEY=<invalid> fm-dispatch-resolve.sh prd.md --project demo     (real API rejects the key)
+dispatch-resolve: error (http 401 after 274 ms: {"detail":{"error_type":"authentication_error","message":"Cannot authenticate with the server. Please check your API key and try again."}})
+dispatch-resolve:
+  status: error
+  reason: http 401 after 274 ms: {"detail":{"error_type":"authentication_error","message":"Cannot authenticate with the server. Please check your API key and try again."}}
+[exit 0]
+
+$ FM_HOME=<home with no .env> fm-dispatch-resolve.sh prd.md     (no key anywhere)
+dispatch-resolve: off (TYPESAFE_API_KEY absent from the environment and <scratch>/nokey/.env)
+[exit 0]
+request made: no   record written: no
+
+=== L7 a match naming an answer that is not on the question's list: refused before any request ===
+error: malformed rules file: <scratch>/home/config/crew-dispatch.json - match must map kind, damage, settled, security to non-empty lists of that question's own answers
+[exit 2]
+request made: no

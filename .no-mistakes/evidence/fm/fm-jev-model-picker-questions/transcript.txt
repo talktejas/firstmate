@@ -1,0 +1,224 @@
+
+=== S1 no key: off, nothing on stdout, no request, no record ===
+$ fm-dispatch-resolve.sh brief.md   (no TYPESAFE_API_KEY anywhere)
+dispatch-resolve: off (TYPESAFE_API_KEY absent from the environment and /tmp/tmp.6MIU4hGh03/home/.env)
+[exit 0]
+curl called: no
+record written: no
+
+=== S2 PRD brief, rule answer unsure (0.46 on 'no rule applies'), kind=product_document 1.0 -> usable answer ===
+$ fm-dispatch-resolve.sh brief.md --project demo
+dispatch-resolve:
+  status: clear
+  model: jev-1.13.0   latency_ms: 11   tokens: 500/80
+  rule: rule_1 (Ambiguous investigation, or writing a plan or spec from a va)   confidence: 1
+  probabilities: rule_1=0.4 rule_2=0.05 rule_3=0.03 rule_4=0.02 default=0.5
+  questions: kind=product_document(1) damage=low(1) settled=partly(1) security=no(1)
+  selection: small answers (kind=product_document) meet the declared match of rule_1; rule answer default 0.46
+  note: rule matched
+  candidate: claude:opus  provider=claude  scope=all_models  remaining=79%  spendPriority=0.4  runway=through_reset  -> eligible
+  profile: --harness 'claude' --model 'opus' --effort 'high'
+[exit 0]
+
+questions sent in the single request: ["rule","kind","damage","settled","security"]
+rule options sent: ["rule_1","rule_2","rule_3","rule_4","default"]
+state sent: {"task":{"project":"demo","brief":"Write the PRD for the loyalty points feature. MARKER-TASK-TEXT"}}
+request mentions match/use/why/approval/model names: 0
+
+=== S3 confident rule answer (rule_2 0.9) stands; contradicting small answers (kind=bugfix) are not consulted ===
+$ fm-dispatch-resolve.sh brief.md --project demo
+dispatch-resolve:
+  status: clear
+  model: jev-1.13.0   latency_ms: 12   tokens: 500/80
+  rule: rule_2 (Architecture or system design.)   confidence: 0.9
+  probabilities: rule_1=0.03 rule_2=0.92 rule_3=0.02 rule_4=0.01 default=0.02
+  questions: kind=bugfix(1) damage=low(1) settled=settled(1) security=no(1)
+  note: rule matched
+  candidate: claude:opus  provider=claude  scope=all_models  remaining=79%  spendPriority=0.4  runway=through_reset  -> eligible
+  profile: --harness 'claude' --model 'opus' --effort 'xhigh'
+[exit 0]
+
+
+=== S4 confident 'no rule applies' (0.9) stands even though kind=design meets rule_2's match ===
+$ fm-dispatch-resolve.sh brief.md --project demo
+dispatch-resolve:
+  status: clear
+  model: jev-1.13.0   latency_ms: 10   tokens: 500/80
+  rule: default (No listed rule applies to this task.)   confidence: 0.9
+  probabilities: rule_1=0.02 rule_2=0.04 rule_3=0.02 rule_4=0.01 default=0.91
+  questions: kind=design(1) damage=low(1) settled=settled(1) security=no(1)
+  note: no rule matched
+  candidate: claude:haiku  provider=claude  scope=all_models  remaining=79%  spendPriority=0.4  runway=through_reset  -> eligible
+  profile: --harness 'claude' --model 'haiku'
+[exit 0]
+
+
+=== S5 unsure rule answer and small answers also unsure (0.5) -> ambiguous, no profile, as before ===
+$ fm-dispatch-resolve.sh brief.md --project demo
+dispatch-resolve:
+  status: ambiguous
+  model: jev-1.13.0   latency_ms: 13   tokens: 500/80
+  rule: rule_1 (Ambiguous investigation, or writing a plan or spec from a va)   confidence: 0.4
+  probabilities: rule_1=0.45 rule_2=0.05 rule_3=0.3 rule_4=0.02 default=0.18
+  questions: kind=product_document(0.5) damage=low(0.5) settled=partly(0.5) security=no(0.5)
+  reason: confidence 0.4 below floor 0.6
+  candidate: claude:opus  provider=claude  scope=all_models  remaining=79%  spendPriority=0.4  runway=through_reset  -> eligible
+[exit 0]
+
+
+=== S6 unsure rule answer, small answers meet two rules with different outcomes? no: kind=lookup meets no rule -> ambiguous ===
+$ fm-dispatch-resolve.sh brief.md --project demo
+dispatch-resolve:
+  status: ambiguous
+  model: jev-1.13.0   latency_ms: 10   tokens: 500/80
+  rule: rule_1 (Ambiguous investigation, or writing a plan or spec from a va)   confidence: 0.4
+  probabilities: rule_1=0.45 rule_2=0.05 rule_3=0.3 rule_4=0.02 default=0.18
+  questions: kind=lookup(1) damage=low(1) settled=settled(1) security=no(1)
+  reason: confidence 0.4 below floor 0.6
+  candidate: claude:opus  provider=claude  scope=all_models  remaining=79%  spendPriority=0.4  runway=through_reset  -> eligible
+[exit 0]
+
+
+=== S7 GUARD unsure rule_3, feature+medium meets rule_3 BUT security=yes meets the approval-gated rule_4 -> ambiguous, no profile ===
+$ fm-dispatch-resolve.sh brief.md --project demo
+dispatch-resolve:
+  status: ambiguous
+  model: jev-1.13.0   latency_ms: 10   tokens: 500/80
+  rule: rule_3 (A small bug fix or familiar feature work.)   confidence: 0.4
+  probabilities: rule_1=0.1 rule_2=0.05 rule_3=0.45 rule_4=0.2 default=0.2
+  questions: kind=feature(0.9) damage=medium(0.9) settled=settled(0.9) security=yes(0.9)
+  reason: confidence 0.4 below floor 0.6
+  candidate: claude:sonnet  provider=claude  scope=all_models  remaining=79%  spendPriority=0.4  runway=through_reset  -> eligible
+[exit 0]
+
+
+=== S8 GUARD Jev's own unsure pick is the approval-gated rule_4, feature+medium meets rule_3 -> ambiguous, no profile ===
+$ fm-dispatch-resolve.sh brief.md --project demo
+dispatch-resolve:
+  status: ambiguous
+  model: jev-1.13.0   latency_ms: 11   tokens: 500/80
+  rule: rule_4 (The change is security-sensitive.)   confidence: 0.5
+  probabilities: rule_1=0.05 rule_2=0.05 rule_3=0.2 rule_4=0.55 default=0.15
+  questions: kind=feature(0.9) damage=medium(0.9) settled=settled(0.9) security=no(0.9)
+  reason: confidence 0.5 below floor 0.6
+  candidate: claude:opus  provider=claude  scope=all_models  remaining=79%  spendPriority=0.4  runway=through_reset  -> eligible
+[exit 0]
+
+
+=== S9 GUARD confident pick of the approval-gated rule_4 with security=no -> still stops for captain approval ===
+$ fm-dispatch-resolve.sh brief.md --project demo
+dispatch-resolve:
+  status: escalate
+  model: jev-1.13.0   latency_ms: 11   tokens: 500/80
+  rule: rule_4 (The change is security-sensitive.)   confidence: 0.9
+  probabilities: rule_1=0.02 rule_2=0.02 rule_3=0.02 rule_4=0.92 default=0.02
+  questions: kind=feature(0.9) damage=medium(0.9) settled=settled(0.9) security=no(0.9)
+  reason: rule requires the captain's explicit approval before dispatch
+  candidate: claude:opus  provider=claude  scope=all_models  remaining=79%  spendPriority=0.4  runway=through_reset  -> eligible
+[exit 0]
+
+
+=== S10 small answers malformed (kind is a string, damage off-list, settled missing) with confident rule -> not an error ===
+$ fm-dispatch-resolve.sh brief.md --project demo
+dispatch-resolve:
+  status: clear
+  model: jev-1.13.0   latency_ms: 9   tokens: 500/80
+  rule: rule_3 (A small bug fix or familiar feature work.)   confidence: 0.9
+  probabilities: rule_1=0.02 rule_2=0.02 rule_3=0.92 rule_4=0.02 default=0.02
+  questions: kind=unusable damage=unusable settled=unusable security=no(0.9)
+  note: rule matched
+  candidate: claude:sonnet  provider=claude  scope=all_models  remaining=79%  spendPriority=0.4  runway=through_reset  -> eligible
+  profile: --harness 'claude' --model 'sonnet' --effort 'medium'
+[exit 0]
+
+
+=== S10b same malformed small answers with an UNSURE rule answer -> ambiguous, never error, never a pick ===
+$ fm-dispatch-resolve.sh brief.md --project demo
+dispatch-resolve:
+  status: ambiguous
+  model: jev-1.13.0   latency_ms: 11   tokens: 500/80
+  rule: rule_3 (A small bug fix or familiar feature work.)   confidence: 0.4
+  probabilities: rule_1=0.1 rule_2=0.1 rule_3=0.5 rule_4=0.1 default=0.2
+  questions: kind=unusable damage=unusable settled=unusable security=no(0.9)
+  reason: confidence 0.4 below floor 0.6
+  candidate: claude:sonnet  provider=claude  scope=all_models  remaining=79%  spendPriority=0.4  runway=through_reset  -> eligible
+[exit 0]
+
+
+=== S11 same-outcome rules count as one answer: rule_1 and rule_2 given the same model, split 0.45/0.45 ===
+$ fm-dispatch-resolve.sh brief.md --project demo
+dispatch-resolve:
+  status: clear
+  model: jev-1.13.0   latency_ms: 11   tokens: 500/60
+  rule: rule_1 (Ambiguous investigation, or writing a plan or spec from a va)   confidence: 0.87
+  probabilities: rule_1=0.45 rule_2=0.45 rule_3=0.04 rule_4=0.03 default=0.03
+  selection: rule_1+rule_2 counted as one answer; rule answer alone rule_1 0.3
+  note: rule matched
+  candidate: claude:opus  provider=claude  scope=all_models  remaining=79%  spendPriority=0.4  runway=through_reset  -> eligible
+  profile: --harness 'claude' --model 'opus' --effort 'high'
+[exit 0]
+
+S12 (same run) rules file with no match -> questions sent: ["rule"]
+
+=== S13 Jev down: REAL curl to the REAL api.typesafe.ai with an invalid key -> error, exit 0, decide by hand ===
+$ TYPESAFE_API_KEY=<invalid> fm-dispatch-resolve.sh brief.md --project demo
+dispatch-resolve: error (http 401 after 279 ms: {"detail":{"error_type":"authentication_error","message":"Cannot authenticate with the server. Please check your API key and try again."}})
+dispatch-resolve:
+  status: error
+  reason: http 401 after 279 ms: {"detail":{"error_type":"authentication_error","message":"Cannot authenticate with the server. Please check your API key and try again."}}
+[exit 0]
+
+=== S14 malformed match in the rules file -> exit 2 before any request ===
+$ fm-dispatch-resolve.sh brief.md --project demo
+error: malformed rules file: /tmp/tmp.6MIU4hGh03/home/config/crew-dispatch.json - match must map kind, damage, settled, security to non-empty lists of that question's own answers
+[exit 2]
+
+curl called: no
+
+=== S15 the record: one line per outcome above (after the gate), private, no brief text, no key ===
+mode: 600   lines: 12
+$ jq -r .status state/.dispatch-resolve.log | sort | uniq -c
+      5 ambiguous
+      5 clear
+      1 error
+      1 escalate
+first line (the S2 PRD decision):
+{
+  "ts": "2026-10-05T18:29:47Z",
+  "project": "demo",
+  "digest": "3205ca844f6753e3bd9669a169cc37e7dc0466b3fabe4d66a34655867678c368",
+  "status": "clear",
+  "reason": null,
+  "rule": "rule_1",
+  "confidence": 1,
+  "rule_answer": {
+    "choice": "default",
+    "confidence": 0.46
+  },
+  "questions": {
+    "kind": {
+      "choice": "product_document",
+      "confidence": 1
+    },
+    "damage": {
+      "choice": "low",
+      "confidence": 1
+    },
+    "settled": {
+      "choice": "partly",
+      "confidence": 1
+    },
+    "security": {
+      "choice": "no",
+      "confidence": 1
+    }
+  },
+  "selection": "small answers (kind=product_document) meet the declared match of rule_1; rule answer default 0.46",
+  "latency_ms": 11,
+  "profile": {
+    "harness": "claude",
+    "model": "opus",
+    "effort": "high"
+  }
+}
+brief text in record: 0   key in record: 0
