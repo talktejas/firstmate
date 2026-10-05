@@ -262,13 +262,13 @@ The project name is the repository name `bin/fm-brief.sh` is given, or for `bin/
 For an opted-in project, the definition of done in every ship brief and in a promoted scout's ship instructions gains one step, in all three delivery modes: run `bin/fm-house-rules-check.sh <project>` once the work is committed, read each flagged line, fix a real break, and leave a wrong flag alone.
 The script checks the list again itself, so running it by hand for a project that is not opted in makes no call.
 The check is advice only.
-It exits 0 on every outcome, so a project that is not opted in, a missing key, an unknown base, an invalid rules file, a timeout, a transport or API error, a malformed answer, and low confidence all leave the change exactly where it was, with no flag.
+A run exits 0 on every outcome except a usage error (exit 2), so a project that is not opted in, a missing key, an unknown base, an invalid rules file, a timeout, a transport or API error, a malformed answer, and low confidence all leave the change exactly where it was, with no flag.
 It never blocks, approves, merges, or discards anything, and nothing reads its output except the worker that ran it.
 
 Code decides every fact before any call.
 The script diffs the worktree against its merge base with the default branch and keeps only added or modified text files.
 Of origin's copy of the default branch and the local one, it uses whichever has the merge base closest to the worktree's `HEAD`, so a copy that lags behind does not pull other tasks' merged work into the check.
-It drops prose (`.md`, `.txt`, `.rst`, `.adoc`), lockfiles, minified, mapped, snapshot and SVG files, anything under `vendor/`, `node_modules/` or `dist/`, files whose name says they hold secrets (`.env*`, `*.pem`, `*.key`, `*secret*`, `*credential*`, in any letter case), and files whose path git has to quote, then cuts each remaining hunk into blocks of at most 80 lines and drops a block that adds nothing.
+It drops prose (`.md`, `.markdown`, `.txt`, `.rst`, `.adoc`), lockfiles, minified, mapped, snapshot and SVG files, anything under `vendor/`, `node_modules/` or `dist/`, files whose name says they hold secrets (`.env*`, `*.pem`, `*.key`, `*.p12`, `*.pfx`, `*secret*`, `*credential*`, in any letter case), and files whose path git has to quote, then cuts each remaining hunk into blocks of at most 80 lines and drops a block that adds nothing.
 Each remaining block is asked each rule as its own yes-or-no question, and it is flagged only for a `yes` whose confidence and `yes` probability both reach the shared 0.6 floor.
 Asking stops after 60 questions, 120 seconds, or three failed calls, and the summary line on stderr says how many questions went unasked.
 
