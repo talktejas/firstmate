@@ -8,8 +8,9 @@
 #     at all, what was sent, and what the committer is told;
 #   - real `git commit` runs through the hooks --install writes, with the real
 #     library and a fake curl, proving the hooks fire only through the exported
-#     setting, the project's own hooks still run, only a credential stops a
-#     commit, and the key reaches no child environment or argv.
+#     setting and only in the worktree recorded at install, the project's own
+#     hooks still run, only a recognised credential format stops a commit, and
+#     the key reaches no child environment or argv.
 # Every case runs against a fixture home, so no real key can load.
 set -u
 
@@ -27,7 +28,6 @@ SENT="$TMP_ROOT/sent"
 ERR="$TMP_ROOT/err"
 MSG="$TMP_ROOT/msg"
 
-unset GIT_CONFIG_PARAMETERS
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.invalid GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.invalid
 mkdir -p "$HOME_ON/config" "$HOME_OFF"
 printf 'TYPESAFE_API_KEY=%s\n' "$KEY" > "$HOME_ON/.env"
@@ -124,12 +124,14 @@ pass "code facts decide which questions are asked"
 
 stage src/a.py 'x = 1\n' src/b.py 'y = 2\n'
 STUB_YES=filler check "$HOME_ON" listed 'WIP.'
-assert_equals 'contradicts leftovers unmentioned' "$(asked)" "code settles a filler word without asking"
-assert_grep 'the message "WIP." does not say what changed or why' "$ERR" "code-decided filler is said"
-check "$HOME_ON" unlisted 'update'
-assert_grep 'does not say what changed' "$ERR" "code-decided filler needs no project opt-in"
-assert_equals '' "$(asked)" "and still sends nothing"
-pass "filler by code: warned unasked, on any project"
+assert_equals 'filler contradicts leftovers unmentioned' "$(asked)" "filler is Jev's question, even for a bare filler word"
+assert_grep 'the message does not say what changed or why' "$ERR" "a filler yes is said"
+STUB_YES='' check "$HOME_ON" listed 'Добавить счётчик'
+assert_equals 'filler contradicts leftovers unmentioned' "$(asked)" "a subject with no ASCII letters is still asked about"
+assert_equals '' "$(cat "$ERR")" "and code calls no subject filler on its own"
+STUB_YES=filler check "$HOME_ON" unlisted 'update'
+assert_equals '' "$(asked)$(cat "$ERR")" "filler is not judged for a project that is not listed"
+pass "filler: asked of Jev for a listed project, never judged by code"
 
 stage src/a.py 'x = 1\n' .env.local 'VALUE=1\n' package-lock.json '{}\n'
 check "$HOME_ON" listed 'Add the counter and its settings'
@@ -166,10 +168,29 @@ stage src/a.py 'x = 1\n' src/conf.py "TOKEN = \"$ghtoken\"\\npass" src/db.py 'db
 STUB_YES='' check "$HOME_ON" unlisted 'Add the client'
 expect_code 1 $? "a credential must stop the commit"
 assert_grep 'src/conf.py:1: GitHub token' "$ERR" "the stop names file, line and kind"
-assert_grep 'src/db.py:1: password or secret literal' "$ERR" "a quoted password literal is caught"
 assert_no_grep "$ghtoken" "$ERR" "the value itself is never printed"
-assert_grep 'no-verify' "$ERR" "the way past a fixture is named"
+assert_grep 'Remove the credential from the change' "$ERR" "a stopped committer is told to remove the credential"
+assert_no_grep 'no-verify' "$ERR" "skipping the hooks is never suggested"
 assert_equals '' "$(asked)" "Jev has no part in the stop"
+stage src/key.pem '-----BEGIN RSA PRIVATE KEY-----\n'
+check "$HOME_ON" unlisted 'Add the signing key'
+expect_code 1 $? "a private-key header must stop the commit"
+stage src/db.py 'db_password = "hunter2-hunter2"\n'
+check "$HOME_ON" unlisted 'Add the database settings'
+expect_code 0 $? "a quoted password literal must not stop the commit"
+assert_grep 'advisory, the commit goes through: an added line may hold a password or secret literal (src/db.py:1)' "$ERR" \
+  "a quoted password literal is warned about, by file and line"
+assert_no_grep 'hunter2' "$ERR" "the literal itself is never printed"
+assert_no_grep 'no-verify' "$ERR" "the warning never suggests skipping the hooks"
+for line in 'token_type = "access_token"' '"tokenizer": "bert-base-uncased"' \
+  'TOKEN_URL = "https://example.com/oauth"' 'secret_name: "my-app-db-secret"'; do
+  printf '%s\n' "$line" > "$TMP_ROOT/line"
+  stage src/conf.py ''
+  cp "$TMP_ROOT/line" "$WT/src/conf.py"
+  git -C "$WT" add -- src/conf.py
+  check "$HOME_ON" unlisted 'Name the token settings'
+  expect_code 0 $? "ordinary code must not stop a commit: $line"
+done
 # shellcheck disable=SC2016 # A literal placeholder, as a source file would hold it.
 stage src/conf.py 'token = os.environ["API_TOKEN"]\npassword = "${DB_PASSWORD}"\n'
 check "$HOME_ON" unlisted 'Read the token from the environment'
@@ -204,20 +225,21 @@ chmod +x "$FAKEBIN/curl"
 export FAKE_CURL_LOG="$TMP_ROOT/curl.log"
 : > "$FAKE_CURL_LOG"
 
-out=$("$CHECK" --install "$TMP_ROOT/none" "$HOME_OFF" listed)
+out=$("$CHECK" --install "$TMP_ROOT/none" "$HOME_OFF" listed "$WT")
 expect_code 1 $? "install without a key must report off"
 assert_equals '' "$out" "install without a key prints no setting"
 assert_absent "$TMP_ROOT/none" "install without a key writes nothing"
-PARAMS=$(TYPESAFE_API_KEY=$KEY "$CHECK" --install "$HOOKS" "$HOME_OFF" listed)
+PARAMS=$(TYPESAFE_API_KEY=$KEY "$CHECK" --install "$HOOKS" "$HOME_OFF" listed "$WT")
 expect_code 0 $? "an environment key turns install on"
-PARAMS=$("$CHECK" --install "$HOOKS" "$HOME_ON" listed) || fail "install with a key must succeed"
+out=$("$CHECK" --install "$TMP_ROOT/none" "$HOME_ON" listed "$TMP_ROOT")
+expect_code 1 $? "install for a directory that is not a git work tree must report off"
+assert_absent "$TMP_ROOT/none" "install without a worktree writes nothing"
+PARAMS=$("$CHECK" --install "$HOOKS" "$HOME_ON" listed "$WT") || fail "install with a key must succeed"
 assert_equals "'core.hooksPath=$HOOKS'" "$PARAMS" "install prints the one git setting"
 pass "install: off without a key, one setting with one"
 
-commit() {  # <message> [git commit args...]
-  local message=$1
-  shift
-  PATH="$FAKEBIN:$PATH" GIT_CONFIG_PARAMETERS=$PARAMS git -C "$WT" commit -q "$@" -m "$message" 2> "$ERR"
+commit() {  # <message>
+  PATH="$FAKEBIN:$PATH" GIT_CONFIG_PARAMETERS=$PARAMS git -C "$WT" commit -q -m "$1" 2> "$ERR"
 }
 
 stage src/a.py 'x = 1\n' src/b.py 'y = 2\n'
@@ -240,8 +262,32 @@ stage src/conf.py "TOKEN = \"$ghtoken\"\\n"
 if commit 'Add the client token'; then fail "a credential must stop a real commit"; fi
 assert_grep 'src/conf.py:1: GitHub token' "$ERR" "the stop is shown to the committer"
 assert_equals 'Add two more counters' "$(git -C "$WT" log -1 --format=%s)" "no commit was made"
-commit 'Add the client token fixture' --no-verify || fail "--no-verify must be the way past"
-pass "real commit: a credential stops it, --no-verify passes it"
+pass "real commit: a credential stops it"
+
+# Any other repository the worker's process tree commits to is left alone.
+OTHER="$TMP_ROOT/other"
+git init -q "$OTHER"
+# shellcheck disable=SC2016 # Expanded by the generated hook.
+printf '#!/bin/sh\necho "other-commit-msg $(cat "$1")" >> "%s"\n' "$TMP_ROOT/other.log" > "$OTHER/.git/hooks/commit-msg"
+chmod +x "$OTHER/.git/hooks/commit-msg"
+printf 'TOKEN = "%s"\ndb_password = "hunter2-hunter2"\n' "$ghtoken" > "$OTHER/conf.py"
+printf 'x = 1\n' > "$OTHER/a.py"
+git -C "$OTHER" add -- conf.py a.py
+: > "$FAKE_CURL_LOG"
+PATH="$FAKEBIN:$PATH" GIT_CONFIG_PARAMETERS=$PARAMS git -C "$OTHER" commit -q -m 'wip' 2> "$ERR" \
+  || fail "a commit in an unrelated repository must not be stopped: $(cat "$ERR")"
+assert_equals 'wip' "$(git -C "$OTHER" log -1 --format=%s)" "the unrelated commit was made"
+assert_equals '' "$(cat "$ERR")" "an unrelated repository's committer is told nothing"
+assert_equals '' "$(cat "$FAKE_CURL_LOG")" "nothing about an unrelated repository is sent"
+assert_grep 'other-commit-msg wip' "$TMP_ROOT/other.log" "the unrelated repository's own hook still runs"
+git -C "$WT" worktree add -q "$TMP_ROOT/second" -b second
+printf 'TOKEN = "%s"\n' "$ghtoken" > "$TMP_ROOT/second/conf.py"
+git -C "$TMP_ROOT/second" add -- conf.py
+PATH="$FAKEBIN:$PATH" GIT_CONFIG_PARAMETERS=$PARAMS git -C "$TMP_ROOT/second" commit -q -m 'wip' 2> "$ERR" \
+  || fail "a commit in another worktree of the same repository must not be stopped"
+assert_equals '' "$(cat "$ERR")$(cat "$FAKE_CURL_LOG")" "another worktree of the same repository is left alone too"
+git -C "$WT" worktree remove --force "$TMP_ROOT/second"
+pass "a commit outside the recorded worktree: not stopped, nothing said, nothing sent"
 
 # The project's own hooks keep running, and its own refusal stands.
 mkdir -p "$WT/.git/hooks"
@@ -317,14 +363,23 @@ assert_absent "/tmp/fm-cc$$-off/git-hooks" "without a key no hooks are written"
 lines=$(spawn_lines on "$HOME_ON")
 export_line=$(printf '%s\n' "$lines" | grep '^export GIT_CONFIG_PARAMETERS=') \
   || fail "with a key the pane must be sent the git setting: $lines"
-# Run the sent line as the pane's shell would, then commit as the worker would.
+# Run the sent line as the pane's shell would, then commit as the worker would:
+# in the task's own worktree the check acts, in any other repository it does not.
+SPAWN_WT="$TMP_ROOT/spawn-on/wt"
+printf 'TOKEN = "%s"\n' "$ghtoken" > "$SPAWN_WT/conf.py"
+git -C "$SPAWN_WT" add -- conf.py
+if (
+  eval "$export_line"
+  PATH="$FAKEBIN:$PATH" git -C "$SPAWN_WT" commit -q -m 'Add the client token' 2> "$ERR"
+); then fail "the spawned hook must check a commit in the task's worktree"; fi
+assert_grep 'conf.py:1: GitHub token' "$ERR" "the spawned hook checks the worker's commit"
 rm -f "$WT/.git/hooks/pre-commit" "$WT/.git/hooks/commit-msg"
-stage src/g.py 't = 7\n'
+stage src/g.py "TOKEN = \"$ghtoken\"\\n"
 (
   eval "$export_line"
-  PATH="$FAKEBIN:$PATH" git -C "$WT" commit -q -m 'update' 2> "$ERR"
-) || fail "a commit under the spawned setting must succeed"
-assert_grep 'the message "update" does not say what changed or why' "$ERR" "the spawned hook checks the worker's commit"
+  PATH="$FAKEBIN:$PATH" git -C "$WT" commit -q -m 'wip' 2> "$ERR"
+) || fail "a commit outside the task's worktree must go through under the spawned setting"
+assert_equals '' "$(cat "$ERR")" "and is told nothing"
 rm -rf "/tmp/fm-cc$$-off" "/tmp/fm-cc$$-on"
 pass "spawn: the pane gets the git setting only with a key, and it works as sent"
 

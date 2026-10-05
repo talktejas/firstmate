@@ -11,7 +11,7 @@ The API shape itself is recorded in [`dispatch-resolve.md`](dispatch-resolve.md)
 Run 2026-10-06 against `https://api.typesafe.ai`, model `jev-latest`, timeout 5 s, floor 0.6, git 2.53.0.
 Each row is one real request made by `fm_commit_check`, sourced from `bin/fm-commit-check.sh` with its instructions and criteria unmodified, over a change staged in a throwaway repository of synthetic files, with the key taken from the environment by the library and the project named in a fixture `config/jev-code-projects`.
 Each cell is the choice and its confidence; a dash means code left the question out.
-The six requests took 314 to 364 ms.
+Each request took between 314 and 364 ms.
 
 | Staged change | Message | `filler` | `contradicts` | `leftovers` | `unmentioned` | Advisory lines |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -20,11 +20,12 @@ The six requests took 314 to 364 ms.
 | A price function with a debug print and a commented-out block, and a test marked skipped | Multiply each price by its quantity in total | no 0.98 | no 0.95 | yes 1.0 | no 0.94 | leftovers |
 | A date parser fix and an unrelated invoice late-fee function | Strip whitespace before parsing a date | no 0.98 | no 0.89 | no 0.99 | yes 0.9 | unmentioned |
 | The date parser fix alone | Finalize things | yes 0.98 | no 0.97 | no 0.99 | - | filler |
-| The date parser fix alone | wip | - | no 1.0 | no 0.99 | - | filler, from the word list |
 
 ## Live commits through the installed hooks
 
 Run the same day against the same endpoint: `--install` wrote the hooks directory, and `git commit` ran with the printed value exported as `GIT_CONFIG_PARAMETERS`.
+The run predates three later changes that were not rerun live and are covered only by the portable suite below: `--install` now also takes the task's worktree and the check acts only there, the stop's closing line now reads `Remove the credential from the change and commit again.`, and a quoted password or secret literal is an advisory line instead of a stop.
+The closing line the run printed is left out of the transcript.
 
 ```text
 $ bin/fm-commit-check.sh --install <tmp>/hooks <home> listed
@@ -36,7 +37,6 @@ $ echo $?
 $ git commit -q -m 'Add the client key'                  # staged: a line holding a GitHub-token-shaped literal
 commit-check: commit stopped, an added line looks like a credential:
   src/conf.py:1: GitHub token
-Remove it and commit again. If it is a fixture or placeholder and not a real credential, commit again with --no-verify.
 $ echo $?
 1
 ```
@@ -48,7 +48,7 @@ A Claude Code worker's shell was observed the same day to carry the task marker 
 ## Portable coverage
 
 `tests/fm-commit-check.test.sh` covers the rest with no network, against a fixture home.
-With `fm_jev_choices` stubbed at the library boundary it asserts: nothing asked or said without a key; nothing sent for a project that is not listed; which questions each code fact leaves out; silence for a low-confidence answer and for a failed call; the path filter; that a long diff and a long message are sent as their ends; the skipped commit kinds; and the credential stop, including that it never prints the value and does nothing without a key.
-With the real library and a fake `curl` it makes real commits through the installed hooks and asserts one request per commit, that the key reaches neither `curl`'s argv nor its environment, that a git without the exported setting is untouched, and that the project's own hooks still run and still decide.
-It then runs `bin/fm-spawn.sh` on a fake tmux and asserts the pane is sent the setting only when the home holds a key, and that a commit made under the sent line is checked.
+With `fm_jev_choices` stubbed at the library boundary it asserts: nothing asked or said without a key; nothing sent, and filler not judged, for a project that is not listed; which questions each code fact leaves out; that filler is always asked for a listed project, including for a subject with no ASCII letters; silence for a low-confidence answer and for a failed call; the path filter; that a long diff and a long message are sent as their ends; the skipped commit kinds; the credential stop for a token format and a private-key header, including that it never prints the value, never suggests skipping the hooks, and does nothing without a key; and that a quoted password literal and four ordinary lines naming a token or secret do not stop a commit.
+With the real library and a fake `curl` it makes real commits through the installed hooks and asserts one request per commit, that the key reaches neither `curl`'s argv nor its environment, that a git without the exported setting is untouched, that a commit in an unrelated repository or in another worktree of the same repository is not stopped, is told nothing, has nothing sent, and still runs that repository's own hook, and that the project's own hooks still run and still decide.
+It then runs `bin/fm-spawn.sh` on a fake tmux and asserts the pane is sent the setting only when the home holds a key, that a commit made under the sent line in the task's worktree is checked, and that one made under it in another repository is not.
 The timeout, transport-error, and malformed-answer paths were exercised only there and in the library's own callers' suites, not against the live endpoint.

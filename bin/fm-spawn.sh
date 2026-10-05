@@ -4683,8 +4683,9 @@ if [ "$KIND" = ship ] || [ "$KIND" = scout ]; then
   # hooks directory under the task temp root and prints the one setting that
   # points this pane's git at it; without one it prints nothing and the launch
   # is unchanged. It rides the same channel, so it reaches every backend and
-  # harness, and only this worker's process tree ever sees the hooks.
-  if COMMIT_CHECK_GIT=$("$FM_ROOT/bin/fm-commit-check.sh" --install "$TASK_TMP/git-hooks" "$FM_HOME" "${PROJ_ABS##*/}" 2>/dev/null); then
+  # harness, and only this worker's process tree ever sees the hooks. The check
+  # acts only on commits to this task's own worktree.
+  if COMMIT_CHECK_GIT=$("$FM_ROOT/bin/fm-commit-check.sh" --install "$TASK_TMP/git-hooks" "$FM_HOME" "${PROJ_ABS##*/}" "$WT" 2>/dev/null); then
     spawn_send_text_line "$T" "export GIT_CONFIG_PARAMETERS=$(shell_quote "$COMMIT_CHECK_GIT")" || true
   fi
 fi

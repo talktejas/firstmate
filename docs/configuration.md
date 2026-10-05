@@ -333,24 +333,26 @@ It is off unless `TYPESAFE_API_KEY` is available under the same environment-then
 
 With the key, `bin/fm-spawn.sh` writes a hooks directory under each ship and scout task's own temporary directory and exports one git setting, `GIT_CONFIG_PARAMETERS`, into that worker's terminal before the worker starts.
 The hooks therefore exist only for that worker's own git commands: nothing is written into the project, its git directory, or its git configuration, no other copy of the repository sees them, and cleanup removes the directory with the task's other temporary files.
-The directory forwards every other hook to the project's own, so a project's existing hooks keep running, and the project's own commit-message hook runs first with its refusal standing.
+The directory forwards every other hook to the repository's own, so a project's existing hooks keep running, and the repository's own commit-message hook runs first with its refusal standing.
+The check acts only on a commit to the task's own worktree, recorded at launch by its top-level and common git directory: a commit the worker's commands make in any other repository - a test fixture, a temporary repository, a clone, another worktree - is not stopped, is told nothing, and has nothing sent about it.
 Second mates are never given the hooks.
 
 Code decides first, on the worker's machine:
 
-- An added line matching a fixed credential pattern - a private key block, an AWS, GitHub, Slack, Google, or `sk-` style key, or a quoted literal assigned to a password, secret, token, or API-key name - stops the commit and names the file, the line, and the kind, never the value.
-  This is the only thing that stops a commit, Jev has no part in it, and `git commit --no-verify` is the way past a fixture.
-- A subject that is only a filler word such as `wip`, `fix`, or `update` is warned about without asking.
+- An added line matching a recognised credential format - a private key block, or an AWS, GitHub, Slack, Google, or `sk-` style key - stops the commit, names the file, the line, and the kind, never the value, and tells the worker to remove the credential from the change.
+  This is the only thing that stops a commit, and Jev has no part in it.
+- An added line that assigns a quoted literal to a password, secret, token, or API-key name is often ordinary code, so it only prints one advisory line naming the file and the line, and the commit goes through.
 - Merges, rebases, cherry-picks, reverts, `fixup!`, `squash!`, and `amend!` commits, and commits with nothing staged are not checked at all.
 
 The key alone sends nothing about a project.
 Only for a project whose name is a line of the local, gitignored `config/jev-code-projects` (one project name per line, the name of its directory under `projects/`; blank lines and `#` lines are ignored; absent means no project; not inherited by second-mate homes) does the hook then make one request carrying up to four yes/no questions: is the message filler, does it contradict the change, does the change carry debug leftovers, and is a staged file unaccounted for by the message.
-A question code can already answer is left out: filler when the word list settled it, leftovers when the change adds no line of code, and unaccounted files when only one file is staged.
+A question code can already answer is left out: leftovers when the change adds no line of code, and unaccounted files when only one file is staged.
+Filler is judged only by that request, so it is not judged at all for a project that is not listed.
 That request carries the commit message (its last 4000 characters when longer), the staged file names (the first 200), and the staged diff with prose, lockfiles, generated, vendored, and secret-shaped paths left out (its last 24000 characters when longer).
 A `yes` whose confidence and `yes` probability are both at or above the shared 0.6 floor prints one advisory line; a `no`, a low-confidence answer, a timeout, a transport or API error, and a malformed answer print nothing, and in every one of those cases the commit goes through.
 
 The setting reaches the worker on the same channel as the task marker, on every runtime backend, and applies wherever a harness runs the worker's git commands with the terminal's environment, which is the same inheritance the task marker already relies on for every supported harness.
-A harness or sandbox that withholds that one variable from its shell leaves commits exactly as they are without the feature, and one that blocks network access leaves the credential stop and the filler word list working while the request fails and the commit goes through.
+A harness or sandbox that withholds that one variable from its shell leaves commits exactly as they are without the feature, and one that blocks network access leaves the credential stop and the secret-literal advisory working while the request fails and the commit goes through.
 The pipeline's own fix commits are made outside the worker's terminal and are not checked.
 
 `bin/fm-commit-check.sh`'s header owns the exact gates, patterns, and bounds, `bin/fm-jev-lib.sh` owns the request, the answer validation, the key handling, and the project list, and [`verification/commit-check.md`](verification/commit-check.md) records the live evidence.
