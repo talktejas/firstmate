@@ -158,6 +158,7 @@ state/               runtime records and signals; gitignored
   .hash-* .count-* .stale-* .stale-since-* .churn-since-* .paused-* .wedge-escalations-* .dead-reported-* .writing-* .waiting-* .seen-* .hb-surfaced-* .jev-triage-streak-* .last-* .heartbeat-streak   watcher internals; never touch
   .watch-triage.log  watcher's absorbed-wake debug log (size-capped); never relied on, safe to delete
   .dispatch-resolve.log  private size-capped record of every typed dispatch resolution outcome; safe to delete (docs/configuration.md "Typed dispatch resolution")
+  .helper-model.log  private size-capped record of each Claude worker helper-agent hand-off the key-gated model pick was asked about; safe to delete (docs/configuration.md "Helper model pick")
   .last-watcher-beat watcher liveness beacon, touched every poll (including while absorbing benign wakes); guard scripts read it
   .subsuper-* .supervise-daemon.*   sub-supervisor internals; never touch
 .no-mistakes/        local validation state and evidence; gitignored

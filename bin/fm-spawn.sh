@@ -4034,8 +4034,18 @@ if [ "$KIND" != secondmate ]; then
     j_stop=$(json_escape "fm_block=\$($finished_cmd 2>/dev/null) || fm_block=; if [ -n \"\$fm_block\" ]; then printf '%s\\n' \"\$fm_block\"; else touch $(shell_quote "$TURNEND"); $busy_cmd_prefix idle $busy_suffix --event stop 2>/dev/null || true; fi")
     j_stopfail=$(json_escape "$busy_cmd_prefix idle $busy_suffix --event stop-failure 2>/dev/null || true")
     j_sessionend=$(json_escape "$busy_cmd_prefix idle $busy_suffix --event session-end 2>/dev/null || true")
+    # The helper model pick (bin/fm-helper-model.sh): only with a key, a project
+    # listed in config/jev-code-projects, and a worker not already on a cheaper
+    # model does a ship or scout get the PreToolUse entry; otherwise the file
+    # is written exactly as before.
+    j_pretool=
+    if { [ "$KIND" = ship ] || [ "$KIND" = scout ]; } \
+      && "$FM_ROOT/bin/fm-helper-model.sh" --enabled "$FM_HOME" "${PROJ_ABS##*/}" "$MODEL" 2>/dev/null; then
+      j_pretool=$(json_escape "$(shell_quote "$FM_ROOT/bin/fm-helper-model.sh") --hook $(shell_quote "$FM_HOME") $(shell_quote "$STATE_REAL") $(shell_quote "$ID") $(shell_quote "${PROJ_ABS##*/}") 2>/dev/null || true")
+      j_pretool="\"PreToolUse\":[{\"matcher\":\"Agent|Task\",\"hooks\":[{\"type\":\"command\",\"command\":\"$j_pretool\"}]}],"
+    fi
     cat >"$WT/.claude/settings.local.json" <<EOF
-{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"$j_submit"}]}],"Stop":[{"hooks":[{"type":"command","command":"$j_stop"}]}],"StopFailure":[{"hooks":[{"type":"command","command":"$j_stopfail"}]}],"SessionEnd":[{"hooks":[{"type":"command","command":"$j_sessionend"}]}]}}
+{"hooks":{${j_pretool}"UserPromptSubmit":[{"hooks":[{"type":"command","command":"$j_submit"}]}],"Stop":[{"hooks":[{"type":"command","command":"$j_stop"}]}],"StopFailure":[{"hooks":[{"type":"command","command":"$j_stopfail"}]}],"SessionEnd":[{"hooks":[{"type":"command","command":"$j_sessionend"}]}]}}
 EOF
     exclude_path '.claude/settings.local.json'
     ;;
