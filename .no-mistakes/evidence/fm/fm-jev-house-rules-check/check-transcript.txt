@@ -1,0 +1,148 @@
+fixture: task branch fm/task-1 changes these paths vs local main:
+  A	.ENV
+  A	AWS_Credentials.json
+  A	README.md
+  A	Server.PEM
+  A	package-lock.json
+  A	src/Secrets.yml
+  M	src/commission.php
+  D	src/gone.php
+  A	src/invoice.php
+  A	"src/q\"uote.php"
+  M	src/routes.php
+  A	vendor/lib.js
+fixture: origin/main lags local main by 1 commit (src/other_task.php, which also contains 0.12)
+
+===== S1 shipped default: a home with a key but no config/house-rules.json =====
+$ fake env FM_HOME=$T/home-keyonly bin/fm-house-rules-check.sh shop
+house-rules-check: off (project "shop" is not listed under "projects" in /tmp/hr-drive.KbaahY/home-keyonly/config/house-rules.json)
+[exit 0]
+$ fake env FM_HOME=$T/home-keyonly bin/fm-house-rules-check.sh --enabled shop
+[exit 1]
+requests sent: 0
+repo ships: ls: cannot access 'config': No such file or directory
+
+===== S2 by hand for a project that is not opted in (key present, another project listed) =====
+$ fake env FM_HOME=$T/home-on bin/fm-house-rules-check.sh not-shop
+house-rules-check: off (project "not-shop" is not listed under "projects" in /tmp/hr-drive.KbaahY/home-on/config/house-rules.json)
+[exit 0]
+$ fake env FM_HOME=$T/home-on TYPESAFE_API_KEY=drive-key-4411-not-real bin/fm-house-rules-check.sh sho
+house-rules-check: off (project "sho" is not listed under "projects" in /tmp/hr-drive.KbaahY/home-on/config/house-rules.json)
+[exit 0]
+$ fake env FM_HOME=$T/home-on bin/fm-house-rules-check.sh shop" or true or "
+house-rules-check: off (project "shop" or true or "" is not listed under "projects" in /tmp/hr-drive.KbaahY/home-on/config/house-rules.json)
+[exit 0]
+$ fake env FM_HOME=$T/home-on bin/fm-house-rules-check.sh SHOP
+house-rules-check: off (project "SHOP" is not listed under "projects" in /tmp/hr-drive.KbaahY/home-on/config/house-rules.json)
+[exit 0]
+config {} -> house-rules-check: off (project "shop" is not listed under "projects" in $T/home-x/config/house-rules.json) [exit 0] 
+config {"projects": []} -> house-rules-check: off (project "shop" is not listed under "projects" in $T/home-x/config/house-rules.json) [exit 0] 
+config {"projects": "shop"} -> house-rules-check: off (project "shop" is not listed under "projects" in $T/home-x/config/house-rules.json) [exit 0] 
+config {"projects": {"shop": true}} -> house-rules-check: off (project "shop" is not listed under "projects" in $T/home-x/config/house-rules.json) [exit 0] 
+config {"rules": []} -> house-rules-check: off (project "shop" is not listed under "projects" in $T/home-x/config/house-rules.json) [exit 0] 
+config not json -> house-rules-check: off (project "shop" is not listed under "projects" in $T/home-x/config/house-rules.json) [exit 0] 
+requests sent: 0
+
+===== S3 opted in but no key =====
+$ fake env FM_HOME=$T/home-opted-nokey bin/fm-house-rules-check.sh shop
+house-rules-check: off (TYPESAFE_API_KEY absent from the environment and /tmp/hr-drive.KbaahY/home-opted-nokey/.env)
+[exit 0]
+requests sent: 0
+
+===== S4 opted in + key: flags with file:line on the task's own change =====
+$ fake env FM_HOME=$T/home-on bin/fm-house-rules-check.sh shop
+src/commission.php:3: hardcoded-choice (confidence 0.96): Do the added lines hard-code a behaviour choice that should be a setting?
+src/routes.php:2: own-compat-layer (confidence 0.96): Do the added lines add a redirect or compatibility layer for one of this project's own old decisions?
+house-rules-check: 2 advisory flag(s) from 6 question(s) over 3 changed block(s) and 2 rule(s) since main
+[exit 0]
+requests sent: 6
+files offered to the model: src/commission.php src/invoice.php src/routes.php 
+--- first request body ---
+{
+  "model": "jev-latest",
+  "questions": {
+    "house_rule": {
+      "type": "choice",
+      "criteria": [
+        "no",
+        "yes"
+      ]
+    }
+  },
+  "state": {
+    "change": {
+      "file": "src/commission.php",
+      "block": " <?php\n function rate($sale) {\n-  return settings(\"commission.rate\");\n+  return $sale->isConsignment() ? 0.12 : 0.08;\n }\n"
+    }
+  }
+}
+key absent from every request body
+--- the flagged lines in the worktree ---
+src/commission.php:3 |  return $sale->isConsignment() ? 0.12 : 0.08;
+src/routes.php:3     |Route::get("/members", fn () => redirect("/people"));
+
+===== S5 Jev down / erroring / unsure: no flag, exit 0 =====
+-- FAKE_MODE=down
+$ fake env FAKE_MODE=down FM_HOME=$T/home-on bin/fm-house-rules-check.sh shop
+house-rules-check: 0 advisory flag(s) from 3 question(s) over 3 changed block(s) and 2 rule(s) since main; stopped because 3 calls failed, last: http 000 after 14 ms: , 3 question(s) not asked
+[exit 0]
+requests sent: 3
+-- FAKE_MODE=timeout
+$ fake env FAKE_MODE=timeout FM_HOME=$T/home-on bin/fm-house-rules-check.sh shop
+house-rules-check: 0 advisory flag(s) from 3 question(s) over 3 changed block(s) and 2 rule(s) since main; stopped because 3 calls failed, last: http 000 after 15 ms: , 3 question(s) not asked
+[exit 0]
+requests sent: 3
+-- FAKE_MODE=http500
+$ fake env FAKE_MODE=http500 FM_HOME=$T/home-on bin/fm-house-rules-check.sh shop
+house-rules-check: 0 advisory flag(s) from 3 question(s) over 3 changed block(s) and 2 rule(s) since main; stopped because 3 calls failed, last: http 500 after 17 ms: upstream exploded , 3 question(s) not asked
+[exit 0]
+requests sent: 3
+-- FAKE_MODE=garbage
+$ fake env FAKE_MODE=garbage FM_HOME=$T/home-on bin/fm-house-rules-check.sh shop
+house-rules-check: 0 advisory flag(s) from 3 question(s) over 3 changed block(s) and 2 rule(s) since main; stopped because 3 calls failed, last: response is not a house_rule Choice answer, 3 question(s) not asked
+[exit 0]
+requests sent: 3
+-- FAKE_MODE=unsure
+$ fake env FAKE_MODE=unsure FM_HOME=$T/home-on bin/fm-house-rules-check.sh shop
+house-rules-check: 0 advisory flag(s) from 6 question(s) over 3 changed block(s) and 2 rule(s) since main
+[exit 0]
+requests sent: 6
+
+===== S6 custom rules, empty rules, malformed rules =====
+$ fake env FM_HOME=$T/home-rules bin/fm-house-rules-check.sh shop
+src/routes.php:2: no-redirects (confidence 0.96): Do the added lines add a redirect matching \d+ or 100%?
+house-rules-check: 1 advisory flag(s) from 3 question(s) over 3 changed block(s) and 1 rule(s) since main
+[exit 0]
+$ fake env FM_HOME=$T/home-rules bin/fm-house-rules-check.sh shop
+src/commission.php:3: hardcoded-choice (confidence 0.96): Do the added lines hard-code a behaviour choice that should be a setting?
+src/routes.php:2: own-compat-layer (confidence 0.96): Do the added lines add a redirect or compatibility layer for one of this project's own old decisions?
+house-rules-check: 2 advisory flag(s) from 6 question(s) over 3 changed block(s) and 2 rule(s) since main
+[exit 0]
+$ fake env FM_HOME=$T/home-rules bin/fm-house-rules-check.sh shop
+house-rules-check: not run (/tmp/hr-drive.KbaahY/home-rules/config/house-rules.json has invalid rules; docs/configuration.md "House-rules check" owns the schema)
+[exit 0]
+requests sent: 0
+
+===== S7 usage errors, removed --base option, repo with no default branch, not a repo =====
+$ fake env FM_HOME=$T/home-on bin/fm-house-rules-check.sh
+error: a project name is required (see --help)
+[exit 2]
+$ fake env FM_HOME=$T/home-on bin/fm-house-rules-check.sh --base main shop
+error: unknown argument --base (see --help)
+[exit 2]
+$ fake env FM_HOME=$T/home-on bin/fm-house-rules-check.sh shop
+house-rules-check: not run (no merge base with a default branch)
+[exit 0]
+requests sent: 0
+$ fake env FM_HOME=$T/home-on bin/fm-house-rules-check.sh shop
+house-rules-check: not run (no merge base with a default branch)
+[exit 0]
+requests sent: 0
+
+===== S8 large change: bounded at 60 calls =====
+$ fake env FM_HOME=$T/home-on bin/fm-house-rules-check.sh shop
+house-rules-check: 0 advisory flag(s) from 60 question(s) over 40 changed block(s) and 2 rule(s) since main; stopped because the 60-call bound was reached, 20 question(s) not asked
+[exit 0]
+requests sent: 60
+
+scratch dir: /tmp/hr-drive.KbaahY

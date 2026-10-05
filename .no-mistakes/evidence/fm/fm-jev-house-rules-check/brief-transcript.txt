@@ -1,0 +1,93 @@
+
+===== B1 shipped default (no config/house-rules.json, key present): brief identical to the base commit's =====
+no-mistakes  HEAD fef4dcd44067f245  base fef4dcd44067f245  IDENTICAL  (house-rules mentions in HEAD brief: 0)
+direct-PR    HEAD a3690814b96331ae  base a3690814b96331ae  IDENTICAL  (house-rules mentions in HEAD brief: 0)
+local-only   HEAD 3849e68080a3efc8  base 3849e68080a3efc8  IDENTICAL  (house-rules mentions in HEAD brief: 0)
+
+===== B2 opted-in project with key: each ship mode's definition of done gains the step =====
+--- no-mistakes ---
+# Definition of done
+Delivery contract: mode=no-mistakes
+The task is complete only when committed on your branch.
+Once your work is committed, and before the next step below, run `FM_HOME=$T/home-on bin/fm-house-rules-check.sh shop` in the worktree.
+It prints advisory house-rule flags, one `file:line` per line, and never fails: read each flagged line, fix and commit a real rule break, and leave alone a flag you judge wrong.
+No flag, or a check that could not run, changes nothing: carry on.
+When you believe it is complete, append `done: {summary}` to the status file and stop.
+Firstmate will then instruct you to run /no-mistakes to validate and ship a PR.
+
+You drive no-mistakes by responding to its gates, not by implementing fixes.
+Follow the guidance no-mistakes itself provides for the mechanics: it loads when you invoke /no-mistakes, and `no-mistakes axi run --help` plus the `help` lines in each `axi` response are authoritative and version-matched to the installed binary.
+When starting no-mistakes, pass `--intent` as only this brief's `## Captain's intent` subsection body, not its heading, plus any later words the captain actually said.
+Preserve the actual words without adding speaker labels or direct address; the subsection heading supplies provenance outside the pipeline input.
+For a legacy brief with no such subsection, include only words on lines marked `[captain] `, excluding that metadata prefix; never copy its mixed `# Task` wholesale.
+If it has no provenance-marked captain words, stop and ask firstmate instead of starting no-mistakes.
+Do not include `## Firstmate spec`, later Firstmate build constraints, or your own decisions and tradeoffs.
+The `--intent` string you pass must be self-sufficient: that string plus the codebase must let a reader reconstruct roughly the same specification, without depending on a separate report, a PR, or context that lives only in this conversation.
+When the captain's intent refers to a report, decision, or PR ("do items 1, 2, 3, and 7 of the report"), write the substance of the referenced items into `--intent` in the captain's terms, not only the pointer; that substance is the captain's ask by reference, while Firstmate's build instructions and your own decisions still stay out.
+This replaces the no-mistakes skill's advice to enrich `--intent` with decisions and tradeoffs; that advice does not apply to Firstmate-dispatched work.
+Do not hand-edit, commit, or fix findings yourself while a run is active - the pipeline applies every fix.
+
+One drive call blocks until the next gate or outcome, which routinely outlives what your harness lets a single command run: Claude Code kills a command at ten minutes maximum, while one fix round is capped around thirty minutes and up to three rounds chain.
+So background the drive call and poll `no-mistakes axi status` from a separate call instead of sitting in one blocking hold your harness will kill.
+Where a harness's own command limit is not established, assume it bounds commands and use that same background-and-poll shape.
+A killed or timed-out call is never evidence the daemon died: the daemon accepts your response immediately and runs the round in the background, so the call was only ever waiting for a read while the run kept working.
+Reattach and keep going rather than reporting the pipeline blocked; rule 7 owns the checks that decide when a pipeline block is real.
+
+Two firstmate-specific rules layer on top of that guidance:
+- ask-user findings are never yours to answer: escalate to firstmate using rule 6's ask-user format and stop.
+  Firstmate applies `ask-user-authority` and obtains any required captain decision.
+  When the decision comes back, feed it to the gate with `no-mistakes axi respond` and let the pipeline apply it - do not route the question to "the user" or implement the fix yourself.
+- NEVER pass `--yes` (or `-y`) to `no-mistakes axi run` or `no-mistakes axi respond`. It is banned fleet-wide.
+  It auto-resolves every gate including ask-user findings with no escalation, and answering your own ask-user finding is a hard rule violation.
+
+--- direct-PR ---
+# Definition of done
+Delivery contract: mode=direct-PR
+This task ships **direct-PR**: you raise the PR yourself, without the no-mistakes pipeline.
+The task is complete only when committed on your branch.
+Once your work is committed, and before the next step below, run `FM_HOME=$T/home-on bin/fm-house-rules-check.sh shop` in the worktree.
+It prints advisory house-rule flags, one `file:line` per line, and never fails: read each flagged line, fix and commit a real rule break, and leave alone a flag you judge wrong.
+No flag, or a check that could not run, changes nothing: carry on.
+When it is implemented and committed, push your branch and open a PR with `gh-axi`, then append `done: PR {url}` to the status file and stop.
+--- local-only ---
+# Definition of done
+Delivery contract: mode=local-only
+This task ships **local-only**: no remote, no PR, no pipeline.
+The task is complete only when committed on your branch `fm/on-local-only`. Do NOT push, do NOT open a PR, do NOT merge.
+Once your work is committed, and before the next step below, run `FM_HOME=$T/home-on bin/fm-house-rules-check.sh shop` in the worktree.
+It prints advisory house-rule flags, one `file:line` per line, and never fails: read each flagged line, fix and commit a real rule break, and leave alone a flag you judge wrong.
+No flag, or a check that could not run, changes nothing: carry on.
+Keep your branch a clean fast-forward onto the current default branch - if `main` has advanced, rebase onto it so the eventual merge stays a fast-forward.
+When it is implemented and committed, append `done: ready in branch fm/on-local-only` to the status file and stop.
+
+===== B3 same home, other cases: no step =====
+project not in list:      0 mentions
+opted in, no key:         0 mentions
+scout brief (opted in):   0 mentions
+
+===== B4 a worker pastes the brief's command in the task worktree =====
+$ FM_HOME=$T/home-on bin/fm-house-rules-check.sh shop
+src/commission.php:3: hardcoded-choice (confidence 0.96): Do the added lines hard-code a behaviour choice that should be a setting?
+src/routes.php:2: own-compat-layer (confidence 0.96): Do the added lines add a redirect or compatibility layer for one of this project's own old decisions?
+house-rules-check: 2 advisory flag(s) from 6 question(s) over 3 changed block(s) and 2 rule(s) since main
+[exit 0]
+
+===== B5 adversarial: a home whose path has a space and a quote =====
+$ FM_HOME=$T/my\ home\'s\ dir bin/fm-house-rules-check.sh shop
+src/commission.php:3: hardcoded-choice (confidence 0.96): Do the added lines hard-code a behaviour choice that should be a setting?
+src/routes.php:2: own-compat-layer (confidence 0.96): Do the added lines add a redirect or compatibility layer for one of this project's own old decisions?
+house-rules-check: 2 advisory flag(s) from 6 question(s) over 3 changed block(s) and 2 rule(s) since main
+[exit 0]
+
+===== B6 promoting a scout: ship instructions carry the step, matched by the recorded project path's name =====
+--- opted in (project=/srv/projects/shop) ---
+# Definition of done
+Delivery contract: mode=direct-PR
+This task ships **direct-PR**: you raise the PR yourself, without the no-mistakes pipeline.
+The task is complete only when committed on your branch.
+Once your work is committed, and before the next step below, run `FM_HOME=$T/home-on bin/fm-house-rules-check.sh shop` in the worktree.
+It prints advisory house-rule flags, one `file:line` per line, and never fails: read each flagged line, fix and commit a real rule break, and leave alone a flag you judge wrong.
+No flag, or a check that could not run, changes nothing: carry on.
+When it is implemented and committed, push your branch and open a PR with `gh-axi`, then append `done: PR {url}` to the status file and stop.
+--- not opted in (project=/srv/projects/not-shop): 0 mentions
+--- key alone (no config): 0 mentions
