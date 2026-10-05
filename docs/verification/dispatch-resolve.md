@@ -145,7 +145,9 @@ It proves the absent key (environment and `.env`) prints one stderr line, nothin
 It proves absent, default-only, and empty-rules files return `no rules to match` without a model or quota request, while a broken rules-file symlink exits 2 as unreadable.
 It proves the documented starter configuration resolves its Pi default through the declared Claude provider, a `.env` key turns the tool on, and the environment wins over it.
 It proves the key is absent from child environments, never appears on `curl` argv, and arrives only as the bearer header on the descriptor.
-It proves the request uses the fixed endpoint and model, carries only the project, brief, and rule Choice with one option per rule plus the fixed neutral none option, and never carries `why`, `use`, or quota.
+It proves the request uses the fixed endpoint and model, carries only the project, the brief's `# Task` section (the whole brief when it has none), and the rule Choice with one option per rule plus the fixed neutral none option, adds the four small questions only when a rule declares `match`, and never carries `why`, `use`, or quota.
+It proves rules that lead to one outcome count as one answer, a rule answer at or above the floor stands against the small answers, an unsure rule answer is decided only by ungated rules whose whole `match` is met and that share one outcome, each of the three approval-gate conditions keeps the result `ambiguous`, and a missing, malformed, non-object, or off-list small answer is `unusable` without making the result `error`.
+It proves every outcome after the gate appends one mode-0600, size-capped line to `state/.dispatch-resolve.log` that holds no brief text and no key, and that a malformed `match` exits 2.
 It proves the clear, fixed-floor ambiguous with candidate evidence, escalate (approval with candidate evidence, unverifiable rule floor, tie, nothing rankable), known rule-floor fall-through, known and unverifiable profile-floor evidence, explicit-provider and provider-ID enforcement, authoritative Agy and explicit-provider Gemini routing, partial providers, eligible unranked candidates and their clear-result note, concrete quota vetoes and profile-floor shortfalls taking precedence over uncertainty, account-wide quota veto, limiting-bound ranking, missing-curl and quota-axi failures, HTTP 429 and 500, transport failure, malformed usage, zero-mass or malformed probabilities or confidence, malformed or duplicate profile, invalid selector, removed-option rejection, and out-of-range rule ID paths behave as the contract states, with configuration errors exiting 2 before any network call.
 `tests/fm-bootstrap.test.sh` proves bootstrap ignores resolver-only fields without the typed key, validates each malformed shape when the environment or home `.env` activates typed resolution, and prevents an environment-provided key from reaching child processes.
 
@@ -154,4 +156,4 @@ $ bash tests/fm-dispatch-resolve.test.sh | tail -1
 # all fm-dispatch-resolve tests passed
 ```
 
-A live run needs a key and is not part of the suite; rerun the table above by pointing the tool at a brief with the key injected for that one command.
+A live run needs a key and is not part of the suite; rerun a live table above by pointing the tool at a brief with the key injected for that one command.
