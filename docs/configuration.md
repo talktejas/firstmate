@@ -275,7 +275,7 @@ With no list or a project that is not in it, the generated ship brief is byte-id
 No project is opted in by default.
 
 **An opted-in project's changed source lines are sent to typesafe.ai.**
-Files are left out by name only, as listed below; a secret written in an ordinary source file is not filtered and is sent with the lines around it.
+Files are left out by name, as listed below, and a line that looks like a credential is withheld as [Jev code projects](#jev-code-projects-configjev-code-projects) describes; a secret in a shape that fixed list does not name, written in an ordinary source file, is sent with the lines around it.
 
 The project name is the repository name `bin/fm-brief.sh` is given, or for `bin/fm-promote.sh` the last path component of the task's recorded project.
 For an opted-in project, the definition of done in every ship brief and in a promoted scout's ship instructions gains one step, in all three delivery modes: run `bin/fm-house-rules-check.sh <project>` once the work is committed, read each flagged line, fix a real break, and leave a wrong flag alone.
@@ -452,7 +452,7 @@ The setting reaches the worker on the same channel as the task marker, on every 
 A harness or sandbox that withholds that one variable from its shell leaves commits exactly as they are without the feature, and one that blocks network access leaves the credential stop and the secret-literal advisory working while the request fails and the commit goes through.
 The pipeline's own fix commits are made outside the worker's terminal and are not checked.
 
-`bin/fm-commit-check.sh`'s header owns the exact gates, patterns, and bounds, `bin/fm-jev-lib.sh` owns the request, the answer validation, the key handling, and the project list, and [`verification/commit-check.md`](verification/commit-check.md) records the live evidence.
+`bin/fm-commit-check.sh`'s header owns the exact gates and bounds, `bin/fm-jev-lib.sh` owns the credential patterns, the request, the answer validation, the key handling, and the project list, and [`verification/commit-check.md`](verification/commit-check.md) records the live evidence.
 
 ## Gate defaults (.no-mistakes.yaml)
 
