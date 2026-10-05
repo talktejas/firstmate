@@ -1,0 +1,123 @@
+=== 1 question, nobody told -> sent back
+    status line this turn: - | files changed: 0 | JEV_MODE=ok JEV_YES='asks_question' JEV_CONF=0.95
+    closing message: I found two ways to store the setting. Which one do you want me to use?
+    exit=0 hook stdout: {"decision":"block","reason":"Firstmate finished check: your closing message asks a question, but nobody was told; append needs-decision: with the question to the status file, or decide and continue."}
+    Jev asked: claims_checks_passed,asks_question
+    state sent to Jev (top-level keys, all calls): ["closing_message"]
+    no shell command or prompt text in any request
+=== 2 same question but needs-decision: reported -> nothing asked
+    status line this turn: needs-decision: column or row? | files changed: 0 | JEV_MODE=ok JEV_YES='asks_question' JEV_CONF=0.95
+    closing message: I found two ways to store the setting. Which one do you want me to use?
+    exit=0 hook stdout: <empty: turn ends as today>
+    Jev asked: 
+    state sent to Jev (top-level keys, all calls): 
+    no shell command or prompt text in any request
+=== 3 no key -> off, no call
+    status line this turn: - | files changed: 1 | JEV_MODE=ok JEV_YES='asks_question partial_or_blocked claims_finished claims_checks_passed' JEV_CONF=0.95
+    closing message: I found two ways to store the setting. Which one do you want me to use?
+    exit=0 hook stdout: <empty: turn ends as today>
+    Jev asked: 
+    state sent to Jev (top-level keys, all calls): 
+    no shell command or prompt text in any request
+=== 4a Jev down (curl timeout)
+    status line this turn: - | files changed: 0 | JEV_MODE=down JEV_YES='asks_question' JEV_CONF=0.95
+    closing message: I found two ways to store the setting. Which one do you want me to use?
+    exit=0 hook stdout: <empty: turn ends as today>
+    Jev asked: claims_checks_passed
+    state sent to Jev (top-level keys, all calls): ["closing_message"]
+    no shell command or prompt text in any request
+=== 4b Jev HTTP 500
+    status line this turn: - | files changed: 0 | JEV_MODE=http500 JEV_YES='' JEV_CONF=0.95
+    closing message: I found two ways to store the setting. Which one do you want me to use?
+    exit=0 hook stdout: <empty: turn ends as today>
+    Jev asked: claims_checks_passed
+    state sent to Jev (top-level keys, all calls): ["closing_message"]
+    no shell command or prompt text in any request
+=== 4c Jev returns non-JSON
+    status line this turn: - | files changed: 0 | JEV_MODE=garbage JEV_YES='' JEV_CONF=0.95
+    closing message: I found two ways to store the setting. Which one do you want me to use?
+    exit=0 hook stdout: <empty: turn ends as today>
+    Jev asked: claims_checks_passed
+    state sent to Jev (top-level keys, all calls): ["closing_message"]
+    no shell command or prompt text in any request
+=== 4d Jev picks a choice off the fixed list
+    status line this turn: - | files changed: 0 | JEV_MODE=offlist JEV_YES='' JEV_CONF=0.95
+    closing message: I found two ways to store the setting. Which one do you want me to use?
+    exit=0 hook stdout: <empty: turn ends as today>
+    Jev asked: claims_checks_passed
+    state sent to Jev (top-level keys, all calls): ["closing_message"]
+    no shell command or prompt text in any request
+=== 5 Jev unsure (yes at 0.55, floor 0.6)
+    status line this turn: - | files changed: 0 | JEV_MODE=ok JEV_YES='asks_question' JEV_CONF=0.55
+    closing message: I found two ways to store the setting. Which one do you want me to use?
+    exit=0 hook stdout: <empty: turn ends as today>
+    Jev asked: claims_checks_passed,asks_question,partial_or_blocked
+    state sent to Jev (top-level keys, all calls): ["closing_message"]
+    no shell command or prompt text in any request
+=== 6 stop after a send-back (stop_hook_active) -> no loop
+    status line this turn: - | files changed: 0 | JEV_MODE=ok JEV_YES='asks_question' JEV_CONF=0.95
+    closing message: I found two ways to store the setting. Which one do you want me to use?
+    exit=0 hook stdout: <empty: turn ends as today>
+    Jev asked: 
+    state sent to Jev (top-level keys, all calls): 
+    no shell command or prompt text in any request
+=== 7 background task still running
+    status line this turn: - | files changed: 0 | JEV_MODE=ok JEV_YES='asks_question' JEV_CONF=0.95
+    closing message: I found two ways to store the setting. Which one do you want me to use?
+    exit=0 hook stdout: <empty: turn ends as today>
+    Jev asked: 
+    state sent to Jev (top-level keys, all calls): 
+    no shell command or prompt text in any request
+=== 8 claims tests pass, no check command this turn (npm test was a PREVIOUS turn) -> sent back
+    status line this turn: done: PR opened | files changed: 1 | JEV_MODE=ok JEV_YES='claims_checks_passed' JEV_CONF=0.95
+    closing message: Fixed and committed. All tests pass and lint is clean.
+    exit=0 hook stdout: {"decision":"block","reason":"Firstmate finished check: your closing message says checks passed, but no test or check command ran this turn; run them, or say which earlier run you rely on."}
+    Jev asked: partial_or_blocked,claims_checks_passed
+    state sent to Jev (top-level keys, all calls): ["closing_message"]
+    no shell command or prompt text in any request
+=== 9 claims checks pass and cargo clippy ran -> not sent back
+    status line this turn: done: PR opened | files changed: 1 | JEV_MODE=ok JEV_YES='claims_checks_passed' JEV_CONF=0.95
+    closing message: Fixed and committed. clippy is clean.
+    exit=0 hook stdout: <empty: turn ends as today>
+    Jev asked: partial_or_blocked
+    state sent to Jev (top-level keys, all calls): ["closing_message"]
+    no shell command or prompt text in any request
+=== 10 test ran past char 200 and >40 commands ago -> not sent back
+    status line this turn: done: PR opened | files changed: 1 | JEV_MODE=ok JEV_YES='claims_checks_passed' JEV_CONF=0.95
+    closing message: All tests pass.
+    exit=0 hook stdout: <empty: turn ends as today>
+    Jev asked: partial_or_blocked
+    state sent to Jev (top-level keys, all calls): ["closing_message"]
+    no shell command or prompt text in any request
+=== 11 reported done: but message says partial -> sent back
+    status line this turn: done: PR opened | files changed: 1 | JEV_MODE=ok JEV_YES='partial_or_blocked' JEV_CONF=0.95
+    closing message: I updated the parser but the migration is not done; the DB would not start.
+    exit=0 hook stdout: {"decision":"block","reason":"Firstmate finished check: you reported done:, but your closing message says work is partial or blocked; finish it, or append the true state (blocked: or needs-decision:) to the status file."}
+    Jev asked: partial_or_blocked
+    state sent to Jev (top-level keys, all calls): ["closing_message"]
+    no shell command or prompt text in any request
+=== 12 says finished, files changed, no state -> sent back
+    status line this turn: - | files changed: 1 | JEV_MODE=ok JEV_YES='claims_finished' JEV_CONF=0.95
+    closing message: The work is complete and committed.
+    exit=0 hook stdout: {"decision":"block","reason":"Firstmate finished check: your closing message says the work is finished, but you reported no state; if the definition of done is met append the done: line to the status file, otherwise say what remains."}
+    Jev asked: claims_checks_passed,asks_question,partial_or_blocked,claims_finished
+    state sent to Jev (top-level keys, all calls): ["closing_message"]
+    no shell command or prompt text in any request
+=== 13 says finished, NO files changed, no state -> fact missing, Jev alone cannot block
+    status line this turn: - | files changed: 0 | JEV_MODE=ok JEV_YES='claims_finished' JEV_CONF=0.95
+    closing message: The work is complete.
+    exit=0 hook stdout: <empty: turn ends as today>
+    Jev asked: claims_checks_passed,asks_question,partial_or_blocked
+    state sent to Jev (top-level keys, all calls): ["closing_message"]
+    no shell command or prompt text in any request
+=== 14 plain status message, Jev says no to all -> turn ends
+    status line this turn: - | files changed: 1 | JEV_MODE=ok JEV_YES='' JEV_CONF=0.95
+    closing message: The current branch is fm/x and the last commit is 08a3a5cd.
+    exit=0 hook stdout: <empty: turn ends as today>
+    Jev asked: claims_checks_passed,asks_question,partial_or_blocked,claims_finished
+    state sent to Jev (top-level keys, all calls): ["closing_message"]
+    no shell command or prompt text in any request
+=== 15 malformed hook stdin
+    exit=0 stdout: <empty> requests: 0
+=== 16 wrong arg count
+    exit=0 output: usage: fm-finished-check.sh <home> <state-dir> <task-id> <worktree>

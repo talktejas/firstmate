@@ -1,0 +1,14 @@
+ok - absent key: nothing asked, turn ends
+ok - unreported stop with nothing changed: two questions, no send-back
+ok - unreported question: sent back with one line
+ok - unreported partial work: sent back
+ok - claims_finished needs the files-changed fact
+ok - reported done: only a contradicting message sends back
+ok - a stale status line counts as unreported
+ok - reported needs-decision, blocked, paused, failed: nothing asked
+ok - a stop after a send-back, running background tasks, or no message: nothing asked
+ok - no open turn in the busy record: nothing asked
+ok - Jev down or unsure: the turn ends
+ok - claims_checks_passed needs the no-check-command fact
+ok - executable: block decision with a key, silent without, key never in a child
+all fm-finished-check tests passed
