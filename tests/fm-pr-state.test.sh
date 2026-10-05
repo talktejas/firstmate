@@ -53,6 +53,9 @@ serve() {
     "api -X GET /repos/o/r/commits/$head/check-runs -f check_name="*" -f filter=all -f per_page=100 --jq "*)
       printf '%s\n' "${FM_TEST_HEAD_RUNS:-{\"check_runs\":[]\}}"
       ;;
+    "api -X GET /repos/o/r/actions/runs/5/jobs -f filter=all -f per_page=100 --jq "*)
+      printf '%s\n' "${FM_TEST_RUN_JOBS:-{\"jobs\":[]\}}"
+      ;;
     "run view --job 41 --log-failed -R o/r")
       printf '%s\n' "${FM_TEST_LOG-}"
       ;;
@@ -287,10 +290,18 @@ test_failed_check_sort_is_off_without_a_key() {
 
 test_failed_check_sort_rules_decide_first() {
   local out
-  out=$(FM_TEST_HEAD_RUNS=$(passed_too 5) run_sort)
+  out=$(FM_TEST_HEAD_RUNS=$(passed_too 5) \
+    FM_TEST_RUN_JOBS='{"jobs":[{"id":40,"run_attempt":1},{"id":41,"run_attempt":2}]}' run_sort)
   [ "$out" = 'FAILED CHECK SORT: CI Status: flaky (rule: another attempt of the same run passed)' ] \
     || fail "a check that passed on another attempt of its run is flaky, got: $out"
   assert_no_grep '--log-failed' "$GH_CALLS" "a flaky verdict needs no log"
+  out=$(FM_TEST_HEAD_RUNS=$(passed_too 5) FM_TEST_LOG='boom' \
+    FM_TEST_RUN_JOBS='{"jobs":[{"id":40,"run_attempt":1},{"id":41,"run_attempt":1}]}' run_sort)
+  [ "$out" = 'FAILED CHECK SORT: CI Status: unknown' ] \
+    || fail "a same-named job that passed in the same attempt is not a retry, got: $out"
+  out=$(FM_TEST_HEAD_RUNS=$(passed_too 5) FM_TEST_LOG='boom' run_sort)
+  [ "$out" = 'FAILED CHECK SORT: CI Status: unknown' ] \
+    || fail "a pass whose attempt cannot be read is not a retry, got: $out"
   out=$(FM_TEST_HEAD_RUNS=$(passed_too 6) FM_TEST_LOG='boom' run_sort)
   [ "$out" = 'FAILED CHECK SORT: CI Status: unknown' ] \
     || fail "a pass from a different run, such as one a pull request edit triggered, is not a retry, got: $out"

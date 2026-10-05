@@ -333,7 +333,7 @@ The sort runs only when the caller passes that option: firstmate passes it when 
 With the option it is still off unless `TYPESAFE_API_KEY` is available under the same environment-then-`.env` contract as [typed dispatch resolution](#typed-dispatch-resolution-env-typesafe_api_key); with the key absent the command reads and prints exactly what it does without the feature.
 The label never re-runs a check, never changes what a check reported, and never changes the command's blocker lines or exit status, so nothing merges, blocks, or discards on it.
 
-Fixed rules decide first from GitHub reads alone: a check that another attempt of the same workflow run passed is flaky, and a check whose failed steps log a connection error while the same check also fails on the base branch is environment.
+Fixed rules decide first from GitHub reads alone: a check that another attempt of the same workflow run passed is flaky, which a same-named job passing in the same attempt is not, and a check whose failed steps log a connection error while the same check also fails on the base branch is environment.
 Only a failure neither rule decides is put to typesafe.ai's System One model (Jev) as one fixed-choice question, `code_bug`, `flaky`, `environment`, or `unclear`.
 A `code_bug` answer needs the shared 0.6 confidence floor, and a `flaky` or `environment` answer needs 0.8, because those two point a worker away from the failure.
 A timeout, a transport or API error, a malformed answer, an `unclear` choice, an answer under its floor, a check with no GitHub Actions job log, and an unreadable GitHub read all print `unknown`, and the worker investigates as it does without the label.

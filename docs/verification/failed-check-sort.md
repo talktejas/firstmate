@@ -45,7 +45,7 @@ gh 2.100.0 refuses to print a job's raw log from `gh api /repos/<owner>/<repo>/a
 No open pull request had a failing required check on the run date, so these were not observed live.
 `tests/fm-pr-state.test.sh` covers them with a fake `gh` that answers in GitHub's JSON shapes and `fm_jev_choice` stubbed at the library boundary, against fixture homes with no key in the environment:
 
-- the `flaky` rule firing on a pass from another attempt of the same run, and not on a pass from a different run;
+- the `flaky` rule firing on a pass from another attempt of the same run, and not on a pass from a different run or from a same-named job of the same attempt;
 - the `environment` rule firing on a connection error whose check also fails on the base branch;
 - `bin/fm-pr-state.sh` itself printing the label beside its unchanged blocker lines, with a fake `curl` that fails, and the key reaching neither `curl`'s argv or environment nor any `gh` call;
 - a call without `--sort-failed-checks`, key and listed repository present, making no check-run read, no log download, and no model call;

@@ -16,7 +16,9 @@
 #   1. Another attempt of the same workflow run passed this check on the same
 #      head commit, so the same code and the same trigger both passed and
 #      failed -> flaky. A pass from a different run does not count, because a
-#      check triggered again by a pull request edit saw a different input.
+#      check triggered again by a pull request edit saw a different input, and
+#      neither does a pass from the same attempt, which is another job that
+#      shares the check's name.
 #   2. The failed steps' log shows a connection error (FM_CHECK_SORT_MARKERS) and
 #      the same check is failing on the base branch, which does not carry this
 #      pull request's change -> environment.
@@ -63,26 +65,41 @@ FM_CHECK_SORT_CRITERIA='{"code_bug":"The log shows the project'"'"'s own code or
 
 # Prints "<class> (<why>)" or "unknown" for one failed check.
 _fm_check_sort_one() {  # <listed:0|1> <owner/repo> <head-sha> <pr-url> <check-name>
-  local listed=$1 repo=$2 head=$3 url=$4 name=$5 runs passed job log evidence base base_state
+  local listed=$1 repo=$2 head=$3 url=$4 name=$5 runs run passed job log evidence base base_state
   runs=$(gh api -X GET "/repos/$repo/commits/$head/check-runs" \
     -f check_name="$name" -f filter=all -f per_page=100 --jq '
     def run: (.details_url // "") | split("/job/") | .[0] // "";
     ([.check_runs[] | select(.app.slug == "github-actions" and .status == "completed" and .conclusion != "success")]
       | max_by(.id)) as $failed
     | (($failed // {}) | run) as $run
-    | ($run != "" and any(.check_runs[]; .conclusion == "success" and run == $run) | tostring),
-      (($failed.id // "") | tostring)' 2>/dev/null) || { echo unknown; return 0; }
+    | ($run | split("/") | last // ""),
+      (($failed.id // "") | tostring),
+      ([.check_runs[] | select($run != "" and .conclusion == "success" and run == $run) | .id | tostring] | join(" "))' \
+    2>/dev/null) || { echo unknown; return 0; }
   {
-    IFS= read -r passed
+    IFS= read -r run
     IFS= read -r job
+    IFS= read -r passed
   } <<EOF
 $runs
 EOF
-  if [ "$passed" = true ]; then
-    echo 'flaky (rule: another attempt of the same run passed)'
-    return 0
-  fi
   case "$job" in ''|*[!0-9]*) echo unknown; return 0 ;; esac
+  case "$run$passed" in
+    ''|*[!0-9\ ]*) ;;
+    *)
+      if [ -n "$passed" ] && gh api -X GET "/repos/$repo/actions/runs/$run/jobs" -f filter=all -f per_page=100 \
+        --jq '.jobs[] | "\(.id) \(.run_attempt)"' 2>/dev/null \
+        | awk -v job="$job" -v passed=" $passed " '
+          { attempt[$1] = $2 }
+          END {
+            if (attempt[job] == "") exit 1
+            for (id in attempt) if (index(passed, " " id " ") && attempt[id] != "" && attempt[id] != attempt[job]) exit 0
+            exit 1
+          }'; then
+        echo 'flaky (rule: another attempt of the same run passed)'
+        return 0
+      fi ;;
+  esac
   # Each line is "<job>\t<step>\t<timestamp> <text>"; only the text is kept.
   log=$(gh run view --job "$job" --log-failed -R "$repo" 2>/dev/null \
     | tail -n "$FM_CHECK_SORT_LOG_LINES" | cut -f 3- | sed -E 's/^[0-9]{4}-[0-9T:.-]+Z //') || true
