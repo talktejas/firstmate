@@ -69,7 +69,7 @@ run_stubbed() {  # <home> [args...]
         fi
         FM_JEV_STATUS=ok
         FM_JEV_ANSWERS=$(jq -c "
-          def ans(\$c; \$k): {choice: \$c, confidence: \$k, probabilities: {(\$c): \$k}};
+          def ans(\$c; \$k): {choice: \$c, confidence: \$k, probabilities: {(\$c): 0.5}};
           {answers: with_entries(.value = (
             if (.value.instructions | contains(\"a-bug\")) then ans(\"inside-task\"; 0.9)
             elif (.value.instructions | contains(\"b-style\")) then ans(\"style-only\"; 0.6)
@@ -107,17 +107,17 @@ assert_contains "$out" 'b-style: settle (style-only, confidence 0.6)' "a style-o
 assert_contains "$out" 'c-grow: by hand (grows-task, confidence 0.95)' "a confident grows-task is by hand"
 assert_contains "$out" 'd-low: by hand (style-only below the confidence floor, 0.59)' "below the floor is by hand"
 assert_contains "$out" 'e-null: by hand (no usable answer)' "a finding with no usable answer is by hand"
-assert_contains "$out" 'f-absent: by hand (not asked: the findings file does not mention this id)' "an id the file never mentions is not asked about"
+assert_contains "$out" 'f-absent: by hand (no usable answer)' "an id the file never mentions is asked about and left by hand"
 assert_equals 6 "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" "one line per named finding, the newest gate only"
-assert_equals 5 "$(jq 'length' "$TMP_ROOT/questions.json")" "one question per id the file mentions"
+assert_equals 6 "$(jq 'length' "$TMP_ROOT/questions.json")" "one question per named id"
 assert_equals '["destructive","grows-task","inside-task","style-only"]' "$(jq -c '[.[].criteria | keys] | unique | .[0]' "$TMP_ROOT/questions.json")" \
   "every question offers exactly the four fixed sorts"
 assert_equals '["findings","intent"]' "$(jq -c 'keys' "$TMP_ROOT/state.json")" "the state is the intent and the findings file only"
 assert_contains "$(jq -r .intent "$TMP_ROOT/state.json")" 'Add a CSV export of members.' "the intent is the brief's Captain's intent"
 assert_not_contains "$(cat "$TMP_ROOT/state.json")" 'SECRET-SPEC-TEXT' "the rest of the brief is not sent"
 assert_equals "$(cat "$ON/data/$T/nm-r1-findings.txt")" "$(jq -r .findings "$TMP_ROOT/state.json")" "the findings file is sent whole, uncut"
-assert_contains "$(cat "$ERR")" '2 of 6 finding(s) sorted as settle from 5 question(s) in one request' "the summary counts the run"
-pass "code picks what is asked; only a confident inside-task or style-only is settle"
+assert_contains "$(cat "$ERR")" '2 of 6 finding(s) sorted as settle from 6 question(s) in one request' "the summary counts the run"
+pass "every named id is asked; only a confident inside-task or style-only is settle"
 
 printf 'id: x-destroy\ndescription: drop the members table\n' > "$ON/data/$T/nm-r2-findings.txt"
 gate "$ON" 'x-destroy' "$ON/data/$T/nm-r2-findings.txt"
@@ -150,14 +150,9 @@ refused "a missing file" 'missing, empty, or not a regular file'
 { printf 'id: a-bug\n'; head -c 20001 /dev/zero | tr '\0' x; } > "$ON/data/$T/nm-big-findings.txt"
 gate "$ON" 'a-bug' "$ON/data/$T/nm-big-findings.txt"
 refused "an over-long file" 'is over 20000 bytes'
-gate "$ON" 'zzz' "$ON/data/$T/nm-r1-findings.txt"
-refused "ids the file never mentions" 'mentions none of the named ids'
 gate "$ON" 'a-bug' "$ON/data/$T/nm-r1-findings.txt"
 printf '# Task\nno split\n' > "$ON/data/$T/brief.md"
 refused "a brief with no Captain's intent" "no Captain's intent"
-gate "$ON" '1,2,3,4,5,6,7,8,9,10,11,12,13' "$ON/data/$T/nm-r1-findings.txt"
-out=$(run_stubbed "$ON" "$T")
-all_by_hand "$out" 13 "more findings than the bound"
 : > "$ON/state/$T.status"
 out=$(run_stubbed "$ON" "$T"); code=$?
 expect_code 0 "$code" "a task with no gate line exits 0"

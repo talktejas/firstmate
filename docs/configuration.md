@@ -338,7 +338,7 @@ The key alone never turns the sort on, because a review finding names the projec
 `config/jev-code-projects` holds one project name per line (the directory name of the task's `project=` metadata), with blank lines and lines starting with `#` ignored; an absent or empty file lists no project, and the file is not inherited by secondmate homes.
 
 Each finding is sorted into one of four fixed kinds: `inside-task` (fixing it corrects the work that was asked for), `grows-task` (fixing it adds something that was not asked for), `style-only`, or `destructive`.
-The script prints `settle` only for an `inside-task` or `style-only` answer whose confidence and probability both reach the shared 0.6 floor, and `by hand` for everything else: `grows-task`, `destructive`, low confidence, a finding with no usable answer, a timeout, a transport or API error, a missing key, and a project that is not listed.
+The script prints `settle` only for an `inside-task` or `style-only` answer whose confidence reaches the shared 0.6 floor, and `by hand` for everything else: `grows-task`, `destructive`, low confidence, a finding with no usable answer, a timeout, a transport or API error, a missing key, and a project that is not listed.
 The sort never says whether a finding is a real defect; that still takes a reading of the code.
 
 The sort is advice only.
@@ -347,8 +347,8 @@ The script exits 0 on every outcome except a usage error (exit 2), answers no ga
 
 Code decides every fact before the call.
 It takes the task's newest `ask-user findings=<ids> file=<path>` status line and requires the file to be a regular `nm-*-findings.txt` directly inside the task's own `data/<task-id>/` directory.
-A findings file over 20000 bytes, a gate naming more than 12 findings, a brief with no `## Captain's intent`, or an intent over 20000 characters is left by hand whole rather than cut to fit, and a finding id the file never mentions is left by hand without being asked about.
-One request then carries one question per remaining finding.
+A findings file over 20000 bytes, a brief with no `## Captain's intent`, or an intent over 20000 characters is left by hand whole rather than cut to fit.
+One request then carries one question per named finding.
 
 That request sends the brief's `## Captain's intent` and the findings file, both whole, and nothing else: no other part of the brief, no status lines, no diff, no file content beyond what a finding itself quotes, and nothing a worker typed in its shell.
 

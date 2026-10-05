@@ -20,18 +20,17 @@
 # What it does when on: code decides every fact first. It takes the task's
 #   newest `ask-user findings=<ids> file=<path>` line from state/<task-id>.status
 #   and requires the file to be a regular nm-*-findings.txt directly inside
-#   data/<task-id>/ of at most FINDING_SORT_MAX_BYTES bytes, at most
-#   FINDING_SORT_MAX_FINDINGS ids, and a `## Captain's intent` in
-#   data/<task-id>/brief.md of at most FINDING_SORT_MAX_BYTES bytes. Nothing is
-#   cut to fit: anything over a bound is left by hand. An id the file never
-#   mentions is left by hand without being asked about.
-#   Only then does ONE request through fm_jev_choices ask, per remaining id,
+#   data/<task-id>/ of at most FINDING_SORT_MAX_BYTES bytes, and a
+#   `## Captain's intent` in data/<task-id>/brief.md of at most
+#   FINDING_SORT_MAX_BYTES bytes. Nothing is cut to fit: anything over the
+#   bound is left by hand.
+#   Only then does ONE request through fm_jev_choices ask, per named id,
 #   one Choice question over the intent and the findings file: inside-task,
 #   grows-task, style-only, or destructive.
 #
 # Output: one line per finding id on stdout, either
 #     <id>: settle (<inside-task|style-only>, confidence <c>)
-#   only when that choice's confidence and probability both reach the shared
+#   only when that choice's confidence reaches the shared
 #   FM_JEV_CONFIDENCE_FLOOR, or
 #     <id>: by hand (<why>)
 #   for every other answer, and one summary line on stderr.
@@ -53,7 +52,6 @@ _fm_sort_dir=${BASH_SOURCE[0]%/*}
 . "$_fm_sort_dir/fm-dod-lib.sh"
 
 FINDING_SORT_MAX_BYTES=20000
-FINDING_SORT_MAX_FINDINGS=12
 # shellcheck disable=SC2016 # Backticks are literal Markdown for the model.
 FINDING_SORT_INSTRUCTIONS='`intent` is what was asked for. `findings` lists code review findings on the work done for it. Sort only the finding whose id is `%s`, by what fixing it would mean. Do not judge whether the finding is correct. Choose `grows-task` whenever no other choice clearly fits or you are unsure.'
 # shellcheck disable=SC2016
@@ -69,8 +67,8 @@ finding_sort_usage() {
 }
 
 finding_sort_main() {
-  local id='' fm_root line ids file dir project intent tmp i settled=0 asked=0 why
-  local all=() ask=()
+  local id='' fm_root line ids file dir project intent tmp i settled=0 why
+  local all=()
   while [ $# -gt 0 ]; do
     case "$1" in
       -h|--help) finding_sort_usage; return 0 ;;
@@ -127,9 +125,6 @@ finding_sort_main() {
   if [ "$(wc -c < "$file")" -gt "$FINDING_SORT_MAX_BYTES" ]; then
     by_hand "the findings file is over $FINDING_SORT_MAX_BYTES bytes"; return
   fi
-  if [ "${#all[@]}" -gt "$FINDING_SORT_MAX_FINDINGS" ]; then
-    by_hand "more than $FINDING_SORT_MAX_FINDINGS findings in one gate"; return
-  fi
   intent=$(fm_brief_task_heading_body "$dir/brief.md" "## Captain's intent")
   if [ -z "$(printf '%s' "$intent" | tr -d '[:space:]')" ]; then
     by_hand "no Captain's intent in $dir/brief.md"; return
@@ -137,49 +132,34 @@ finding_sort_main() {
   if [ "${#intent}" -gt "$FINDING_SORT_MAX_BYTES" ]; then
     by_hand "the Captain's intent is over $FINDING_SORT_MAX_BYTES characters"; return
   fi
-  for i in "${!all[@]}"; do
-    case "${all[$i]}" in
-      ''|*[!A-Za-z0-9._-]*) ;;
-      *) grep -qF -- "${all[$i]}" "$file" && ask+=("$i") ;;
-    esac
-  done
-  [ "${#ask[@]}" -gt 0 ] || { by_hand "the findings file mentions none of the named ids"; return; }
-
   tmp=$(mktemp -d) || { by_hand "mktemp failed"; return; }
   FINDING_SORT_TMP=$tmp
   jq -n --arg intent "$intent" --rawfile findings "$file" '{intent: $intent, findings: $findings}' > "$tmp/state"
   # The instruction template is a constant that carries one %s.
   # shellcheck disable=SC2059
-  for i in "${ask[@]}"; do
+  for i in "${!all[@]}"; do
     jq -n --arg k "f$i" --arg t "$(printf "$FINDING_SORT_INSTRUCTIONS" "${all[$i]}")" \
       --argjson c "$FINDING_SORT_CRITERIA" '{($k): {instructions: $t, criteria: $c}}'
   done | jq -s add > "$tmp/questions"
-  if ! fm_jev_choices "$tmp/questions" "$tmp/state" "f${ask[0]}"; then
+  if ! fm_jev_choices "$tmp/questions" "$tmp/state" f0; then
     rm -rf "$tmp"
     by_hand "no answer: $FM_JEV_ERROR"; return
   fi
   rm -rf "$tmp"
 
   for i in "${!all[@]}"; do
-    why='not asked: the findings file does not mention this id'
-    case " ${ask[*]} " in
-      *" $i "*)
-        asked=$((asked + 1))
-        why=$(jq -r --arg k "f$i" --argjson floor "$FM_JEV_CONFIDENCE_FLOOR" '
-          .answers[$k] as $a
-          | if $a == null then "by hand (no usable answer)"
-            elif ($a.choice == "inside-task" or $a.choice == "style-only")
-              and $a.confidence >= $floor and $a.probabilities[$a.choice] >= $floor
-            then "settle (\($a.choice), confidence \($a.confidence))"
-            elif $a.choice == "inside-task" or $a.choice == "style-only"
-            then "by hand (\($a.choice) below the confidence floor, \($a.confidence))"
-            else "by hand (\($a.choice), confidence \($a.confidence))" end' <<<"$FM_JEV_ANSWERS")
-        case "$why" in settle*) settled=$((settled + 1)) ;; esac
-        printf '%s: %s\n' "${all[$i]}" "$why" ;;
-      *) printf '%s: by hand (%s)\n' "${all[$i]}" "$why" ;;
-    esac
+    why=$(jq -r --arg k "f$i" --argjson floor "$FM_JEV_CONFIDENCE_FLOOR" '
+      .answers[$k] as $a
+      | if $a == null then "by hand (no usable answer)"
+        elif $a.choice != "inside-task" and $a.choice != "style-only"
+        then "by hand (\($a.choice), confidence \($a.confidence))"
+        elif $a.confidence >= $floor
+        then "settle (\($a.choice), confidence \($a.confidence))"
+        else "by hand (\($a.choice) below the confidence floor, \($a.confidence))" end' <<<"$FM_JEV_ANSWERS")
+    case "$why" in settle*) settled=$((settled + 1)) ;; esac
+    printf '%s: %s\n' "${all[$i]}" "$why"
   done
-  echo "finding-sort: $settled of ${#all[@]} finding(s) sorted as settle from $asked question(s) in one request; advice only" >&2
+  echo "finding-sort: $settled of ${#all[@]} finding(s) sorted as settle from ${#all[@]} question(s) in one request; advice only" >&2
   return 0
 }
 

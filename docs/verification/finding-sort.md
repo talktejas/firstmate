@@ -34,7 +34,7 @@ That is the reason the sort stays advice only and firstmate reads every finding 
 ## Offline behavior
 
 `tests/fm-finding-sort.test.sh` proves the rest without the network; none of the following was exercised live.
-With `fm_jev_choices` stubbed at the library boundary it proves that a home without the key and a project outside `config/jev-code-projects` are never asked about, that only the newest gate line is sorted, the `settle` and `by hand` lines, the confidence floor, a finding with no usable answer, an id the file never mentions, a failed call, that the state holds only the intent and the whole findings file, and that a file outside the task's data directory, in a subdirectory, symlinked, missing, or over the size bound, a brief with no intent, and a gate over the finding bound are all left by hand without a call.
+With `fm_jev_choices` stubbed at the library boundary it proves that a home without the key and a project outside `config/jev-code-projects` are never asked about, that only the newest gate line is sorted, the `settle` and `by hand` lines, that the confidence floor alone decides a clear case, that every named id is asked about, a finding with no usable answer, a failed call, that the state holds only the intent and the whole findings file, and that a file outside the task's data directory, in a subdirectory, symlinked, missing, or over the size bound, and a brief with no intent are all left by hand without a call.
 With the real library and a fake `curl` it proves the request shape, that a malformed answer to one finding leaves only that finding by hand, that the key reaches `curl` only on the file-descriptor header and no child environment, argv, or output, and that the task's status record is not written.
 
 ```console
