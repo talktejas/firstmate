@@ -1,0 +1,124 @@
+### case=base-merge-word-exited bin=? key=yes
+### meta:
+window=jevlive:fm-jt-live
+kind=ship
+pr=https://github.com/talktejas/jeweltrek2627-slim/pull/228
+### status:
+done: [2026-09-28T05:17:14Z] PR https://github.com/talktejas/jeweltrek2627-slim/pull/228
+paused: [2026-09-28T05:48:14Z] pull request https://github.com/talktejas/jeweltrek2627-slim/pull/228 open, waiting for the captain's merge word
+### agent state read by the product: dead
+### real pull-request read (fm-pr-state.sh):
+    CHECKS: none reported yet
+### outcome: watcher exited (a wake was delivered)
+### watcher stdout (what the supervisor is woken with):
+    stale: jevlive:fm-jt-live (paused 14523s, awaiting external - declared pause, rechecked on a long cadence not a wedge; confirm the wait still holds)
+### wake queue:
+    1791231335	1	stale	jevlive:fm-jt-live	stale: jevlive:fm-jt-live (paused 14523s, awaiting external - declared pause, rechecked on a long cadence not a wedge; confirm the wait still holds)
+### state/.watch-triage.log:
+    (none)
+### key not present in any home file
+
+### case=target-merge-word-exited bin=1efd16a key=yes
+### meta:
+window=jevlive:fm-jt-live
+kind=ship
+pr=https://github.com/talktejas/jeweltrek2627-slim/pull/228
+### status:
+done: [2026-09-28T05:17:14Z] PR https://github.com/talktejas/jeweltrek2627-slim/pull/228 (into integration/diamond-module; return-by uses house day-count until item 11 lands)
+paused: [2026-09-28T05:48:14Z] pull request https://github.com/talktejas/jeweltrek2627-slim/pull/228 open, waiting for the captain's merge word
+### agent state read by the product: dead
+### real pull-request read (fm-pr-state.sh):
+    CHECKS: none reported yet
+### outcome: watcher still supervising 8s after the absorb (no wake delivered)
+### watcher stdout (what the supervisor is woken with):
+    (empty)
+### wake queue:
+    (empty)
+### state/.watch-triage.log:
+    [2026-10-06T03:15:10+0700] absorbed jev-routine declared-pause-recheck (confidence=0.95, routine=0.98 needs_firstmate=0.02, 354 ms): stale: jevlive:fm-jt-live (paused 14523s, awaiting external - declared pause, rechecked on a long cadence not a wedge; confirm the wait still holds)
+    [2026-10-06T03:15:10+0700] absorbed stale (paused, awaiting external, age 14523s): jevlive:fm-jt-live
+    [2026-10-06T03:15:13+0700] absorbed stale (paused, awaiting external, age 14529s): jevlive:fm-jt-live
+    [2026-10-06T03:15:15+0700] absorbed stale (paused, awaiting external, age 14531s): jevlive:fm-jt-live
+    [2026-10-06T03:15:17+0700] absorbed stale (paused, awaiting external, age 14533s): jevlive:fm-jt-live
+### key not present in any home file
+
+### case=target-conflicting-pr230 bin=1efd16a key=yes
+### meta:
+window=jevlive:fm-jt-live
+kind=ship
+pr=https://github.com/talktejas/jeweltrek2627-slim/pull/230
+### status:
+done: [2026-09-28T18:59:09Z] PR https://github.com/talktejas/jeweltrek2627-slim/pull/230
+paused: [2026-09-28T19:04:12Z] pull request 230 open, waiting for the captain's merge word
+### agent state read by the product: dead
+### real pull-request read (fm-pr-state.sh):
+    MERGEABILITY: conflicting
+    CHECKS: none reported yet
+### outcome: watcher exited (a wake was delivered)
+### watcher stdout (what the supervisor is woken with):
+    stale: jevlive:fm-jt-live (paused 14524s, awaiting external - declared pause, rechecked on a long cadence not a wedge; confirm the wait still holds)
+### wake queue:
+    1791231342	1	stale	jevlive:fm-jt-live	stale: jevlive:fm-jt-live (paused 14524s, awaiting external - declared pause, rechecked on a long cadence not a wedge; confirm the wait still holds)
+### state/.watch-triage.log:
+    (none)
+### key not present in any home file
+
+### case=target-told-which-exited bin=1efd16a key=yes
+### meta:
+window=jevlive:fm-jt-live
+kind=ship
+pr=https://github.com/talktejas/jeweltrek2627-slim/pull/228
+### status:
+done: [2026-09-28T05:17:14Z] PR https://github.com/talktejas/jeweltrek2627-slim/pull/228
+paused: [2026-09-28T05:48:14Z] two ways to fix the schema, waiting to be told which
+### agent state read by the product: dead
+### real pull-request read (fm-pr-state.sh):
+    CHECKS: none reported yet
+### outcome: watcher exited (a wake was delivered)
+### watcher stdout (what the supervisor is woken with):
+    stale: jevlive:fm-jt-live (paused 14523s, awaiting external - declared pause, rechecked on a long cadence not a wedge; confirm the wait still holds)
+### wake queue:
+    1791231350	1	stale	jevlive:fm-jt-live	stale: jevlive:fm-jt-live (paused 14523s, awaiting external - declared pause, rechecked on a long cadence not a wedge; confirm the wait still holds)
+### state/.watch-triage.log:
+    [2026-10-06T03:15:50+0700] jev triage delivered declared-pause-recheck (choice=needs_firstmate confidence=1.0 floor=0.6): stale: jevlive:fm-jt-live (paused 14523s, awaiting external - declared pause, rechecked on a long cadence not a wedge; confirm the wait still holds)
+### key not present in any home file
+
+### case=target-ci-wait-exited bin=1efd16a key=yes
+### meta:
+window=jevlive:fm-jt-live
+kind=ship
+pr=https://github.com/talktejas/jeweltrek2627-slim/pull/228
+### status:
+done: [2026-09-28T05:17:14Z] PR https://github.com/talktejas/jeweltrek2627-slim/pull/228
+paused: [2026-09-28T05:48:14Z] CI is running on the pull request, about 25 minutes, resuming on my own when it finishes
+### agent state read by the product: dead
+### real pull-request read (fm-pr-state.sh):
+    CHECKS: none reported yet
+### outcome: watcher exited (a wake was delivered)
+### watcher stdout (what the supervisor is woken with):
+    stale: jevlive:fm-jt-live (paused 14524s, awaiting external - declared pause, rechecked on a long cadence not a wedge; confirm the wait still holds)
+### wake queue:
+    1791231358	1	stale	jevlive:fm-jt-live	stale: jevlive:fm-jt-live (paused 14524s, awaiting external - declared pause, rechecked on a long cadence not a wedge; confirm the wait still holds)
+### state/.watch-triage.log:
+    [2026-10-06T03:15:58+0700] jev triage delivered declared-pause-recheck (choice=routine confidence=0.24 floor=0.6): stale: jevlive:fm-jt-live (paused 14524s, awaiting external - declared pause, rechecked on a long cadence not a wedge; confirm the wait still holds)
+### key not present in any home file
+
+### case=target-no-key bin=1efd16a key=no
+### meta:
+window=jevlive:fm-jt-live
+kind=ship
+pr=https://github.com/talktejas/jeweltrek2627-slim/pull/228
+### status:
+done: [2026-09-28T05:17:14Z] PR https://github.com/talktejas/jeweltrek2627-slim/pull/228
+paused: [2026-09-28T05:48:14Z] pull request https://github.com/talktejas/jeweltrek2627-slim/pull/228 open, waiting for the captain's merge word
+### agent state read by the product: dead
+### real pull-request read (fm-pr-state.sh):
+    CHECKS: none reported yet
+### outcome: watcher exited (a wake was delivered)
+### watcher stdout (what the supervisor is woken with):
+    stale: jevlive:fm-jt-live (paused 14523s, awaiting external - declared pause, rechecked on a long cadence not a wedge; confirm the wait still holds)
+### wake queue:
+    1791231363	1	stale	jevlive:fm-jt-live	stale: jevlive:fm-jt-live (paused 14523s, awaiting external - declared pause, rechecked on a long cadence not a wedge; confirm the wait still holds)
+### state/.watch-triage.log:
+    (none)
+### key not present in any home file
