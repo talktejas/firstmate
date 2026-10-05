@@ -62,6 +62,7 @@ rm "$REPO/src/gone.sh"
 printf '# doc\nmore prose\n' > "$REPO/docs/x.md"
 printf '{"a":1}\n' > "$REPO/package-lock.json"
 printf 'TOKEN=abc\n' > "$REPO/.env.sample"
+printf 'token: abc\n' > "$REPO/src/Secrets.yml"
 printf 'quoted = 1\n' > "$REPO/src/q\"uote.sh"
 i=0
 while [ "$i" -lt 100 ]; do i=$((i + 1)); printf 'line_%s = %s\n' "$i" "$i"; done > "$REPO/src/big.py"
@@ -144,7 +145,7 @@ out=$(STUB_YES='src/a.sh' run_stubbed "$ON" "$PROJ"); code=$?
 expect_code 0 "$code" "a flagged run still exits 0"
 assert_equals 6 "$(calls)" "three eligible blocks are each asked both built-in rules"
 assert_equals 'src/a.sh src/big.py' "$(cut -d'|' -f1 "$CALLS" | sort -u | tr '\n' ' ' | sed 's/ $//')" \
-  "prose, a lockfile, a secret-shaped file, a deleted file, a removal-only hunk, a path git quotes, and work already on the default branch are never offered"
+  "prose, a lockfile, secret-shaped files in either case, a deleted file, a removal-only hunk, a path git quotes, and work already on the default branch are never offered"
 assert_equals 2 "$(printf '%s\n' "$out" | grep -c '^src/a\.sh:3: ')" "a yes at the floor flags the block's first added line once per rule"
 assert_contains "$out" 'src/a.sh:3: hardcoded-choice (confidence 0.9): Do the added lines hard-code' "a flag names file, line, rule, and confidence"
 assert_contains "$out" 'src/a.sh:3: own-compat-layer (confidence 0.9): ' "each rule is its own question"
@@ -179,11 +180,11 @@ expect_code 2 "$code" "a missing project name is a usage error"
 assert_equals 0 "$(calls)" "a missing project name asks nothing"
 pass "errors, a missing base, and bad usage never flag and never fail the change"
 
-printf '{"projects": ["%s"], "rules": [{"id": "only-rule", "question": "Is it so?", "yes": "Y1", "no": "N1"}]}\n' "$PROJ" \
+printf '{"projects": ["%s"], "rules": [{"id": "only-rule", "question": "Is it \\\\d so?", "yes": "Y1", "no": "N1"}]}\n' "$PROJ" \
   > "$ON/config/house-rules.json"
 out=$(STUB_YES='src/a.sh' run_stubbed "$ON" "$PROJ")
 assert_equals 3 "$(calls)" "configured rules replace the built-in rules"
-assert_equals 'src/a.sh:3: only-rule (confidence 0.9): Is it so?' "$out" "a configured rule flags under its own id and question"
+assert_equals 'src/a.sh:3: only-rule (confidence 0.9): Is it \d so?' "$out" "a configured rule flags under its own id and question, backslash intact"
 assert_equals 'Y1' "$(cut -d'|' -f2 "$CALLS" | sort -u)" "the rule's own criteria are what is asked"
 printf '{"projects": ["%s"], "rules": []}\n' "$PROJ" > "$ON/config/house-rules.json"
 out=$(run_stubbed "$ON" "$PROJ")

@@ -268,7 +268,7 @@ It never blocks, approves, merges, or discards anything, and nothing reads its o
 Code decides every fact before any call.
 The script diffs the worktree against its merge base with the default branch and keeps only added or modified text files.
 Of origin's copy of the default branch and the local one, it uses whichever has the merge base closest to the worktree's `HEAD`, so a copy that lags behind does not pull other tasks' merged work into the check.
-It drops prose (`.md`, `.txt`, `.rst`, `.adoc`), lockfiles, minified, mapped, snapshot and SVG files, anything under `vendor/`, `node_modules/` or `dist/`, files whose name says they hold secrets (`.env*`, `*.pem`, `*.key`, `*secret*`, `*credential*`), and files whose path git has to quote, then cuts each remaining hunk into blocks of at most 80 lines and drops a block that adds nothing.
+It drops prose (`.md`, `.txt`, `.rst`, `.adoc`), lockfiles, minified, mapped, snapshot and SVG files, anything under `vendor/`, `node_modules/` or `dist/`, files whose name says they hold secrets (`.env*`, `*.pem`, `*.key`, `*secret*`, `*credential*`, in any letter case), and files whose path git has to quote, then cuts each remaining hunk into blocks of at most 80 lines and drops a block that adds nothing.
 Each remaining block is asked each rule as its own yes-or-no question, and it is flagged only for a `yes` whose confidence and `yes` probability both reach the shared 0.6 floor.
 Asking stops after 60 questions, 120 seconds, or three failed calls, and the summary line on stderr says how many questions went unasked.
 

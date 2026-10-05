@@ -96,9 +96,9 @@ house_rules_load() {  # <project>
 }
 
 # Paths code never offers: prose, generated or vendored text, and files whose
-# name says they hold secrets.
+# name says they hold secrets, matched without regard to case.
 house_rules_path_skipped() {  # <path>
-  case "$1" in
+  case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
     *.md|*.markdown|*.txt|*.rst|*.adoc) return 0 ;;
     *.lock|*lock.json|*lock.yaml|*.sum|*.min.*|*.map|*.snap|*.svg) return 0 ;;
     vendor/*|*/vendor/*|node_modules/*|*/node_modules/*|dist/*|*/dist/*) return 0 ;;
@@ -194,7 +194,7 @@ house_rules_main() {
   while IFS=$'\t' read -r id line; do
     rule_ids+=("$id")
     rule_questions+=("$line")
-  done < <(jq -r '.[] | [.id, (.question | gsub("[\t\r\n]"; " "))] | @tsv' <<<"$rules")
+  done < <(jq -r '.[] | "\(.id)\t\(.question | gsub("[\t\r\n]"; " "))"' <<<"$rules")
   for (( r = 0; r < count; r++ )); do
     jq --argjson r "$r" '.[$r] | {yes, no}' <<<"$rules" > "$tmp/criteria.$r"
   done
