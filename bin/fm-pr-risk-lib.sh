@@ -74,12 +74,12 @@ _FM_PR_RISK_C_IRREVERSIBLE='{"yes":"It destroys or rewrites stored data, drops o
 # by one "file<TAB>added<TAB>removed<TAB>deleted<TAB>path" line per file.
 _fm_pr_risk_facts() {
   awk '
-    function flush(   lp, t, d) {
+    function flush(   lp, ap, t, d) {
       if (path == "") return
       files++; added += a; removed += r; deleted += del
-      lp = tolower(path); gsub(/author/, "", lp)
+      lp = tolower(path); ap = lp; gsub(/author/, "", ap)
       if (lp ~ /(^|\/)(migrations?|migrate|alembic|flyway|liquibase)(\/|$)/ || lp ~ /\.sql$/ || lp ~ /(^|\/)schema\.(rb|prisma)$/) migration = 1
-      if (lp ~ /auth|login|logout|signin|password|passwd|permission|rbac|oauth|saml|jwt|credential|session/) auth = 1
+      if (lp ~ /authori[sz]/ || ap ~ /auth|login|logout|signin|password|passwd|permission|rbac|oauth|saml|jwt|credential|session/) auth = 1
       if (lp ~ /payment|billing|invoice|checkout|stripe|paypal|razorpay|refund|payout|ledger/) payment = 1
       t = (lp ~ /(^|\/)(tests?|specs?|__tests__|testing)\// || lp ~ /[._-](test|spec)s?\.[a-z0-9]+$/ || lp ~ /(^|\/)test_[^\/]*$/ || path ~ /(Test|Tests|Spec)\.[A-Za-z0-9]+$/)
       d = (lp ~ /\.(md|mdx|txt|rst|adoc)$/ || lp ~ /(^|\/)docs?\//)

@@ -177,6 +177,10 @@ assert_equals 'my schema.sql|src/my parser.test.js' "$(jq -r '[.change.files[].p
   "a path with a space is sent as git names it"
 change src/authors/list.js:3
 assert_contains "$(rate '')" 'risk: low' "an authors path is not a login path"
+for p in src/authorization/policy.rb lib/authorize.js app/unauthorized_handler.py src/Authorisation/roles.ts; do
+  change "$p:3"
+  assert_contains "$(rate '')" 'risk: high - login and permissions' "$p is a login and permissions path"
+done
 change src/old.js:deleted
 assert_contains "$(rate '')" 'risk: medium - 1 deleted file(s)' "a deleted file is medium"
 change src/big.js:400
