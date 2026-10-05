@@ -1,0 +1,146 @@
+
+=== A. commit check: real git commits through the hooks --install writes
+$ fm-commit-check.sh --install <hooks> <home> notlisted <wt>   -> rc=1 output=[]
+PASS  an unlisted project gets no hooks: exit 1, nothing printed, no directory
+PASS  an owner/repo spelling does not match the bare project entry
+$ fm-commit-check.sh --install <hooks> <home> listed <wt>      -> rc=0 setting=['core.hooksPath=<tmp>/hooks']
+PASS  a listed project with a key gets the hooks setting
+$ git commit -m "<message holding a GitHub token line>"   -> rc=0 stderr=[] requests=1
+state sent to Jev:
+{
+  "commit": {
+    "message": "Parse trailing commas\n\nReproduced with the staging token:\n[line withheld: looks like a credential]\nNothing else changed.",
+    "files": [
+      "notes.md",
+      "src/parser.js"
+    ]
+  }
+}
+PASS  the commit is made
+PASS  exactly one request per commit
+PASS  the token pasted into the message is not in the request
+PASS  its line is replaced by the fixed placeholder
+PASS  no line of staged content is sent, only names
+PASS  the key is not on curl argv
+$ git commit -m update   (Jev answers yes to every question)   -> rc=0
+commit-check: advisory, the commit goes through: the message does not say what changed or why. (Jev confidence 0.9)
+commit-check: advisory, the commit goes through: the message appears to contradict the staged file names. (Jev confidence 0.9)
+commit-check: advisory, the commit goes through: a staged file is not accounted for by the message; work outside the described change belongs in its own commit. (Jev confidence 0.9)
+PASS  three confident yes answers only advise: the commit still goes through
+PASS  the advice says the commit goes through
+$ git commit   (Jev times out)   -> rc=0 stderr=[]
+PASS  a Jev timeout neither stops the commit nor says anything
+$ git commit   (a staged line holds a GitHub token)   -> rc=1
+commit-check: commit stopped, an added line looks like a credential:
+  src/conf.py:1: GitHub token
+Remove the credential from the change and commit again.
+PASS  the pattern stop refuses the commit by code alone
+PASS  the stop names file:line and kind, never the value
+PASS  nothing is sent for a stopped commit
+$ git commit in ANOTHER repository under the same exported setting   -> rc=0 stderr=[] requests=0
+PASS  a repository that is not the task worktree is untouched: committed, silent, nothing sent
+$ git commit after the project was removed from the list   -> rc=0 stderr=[] requests=0
+PASS  delisting the project stops every send at once
+
+=== B. risk level: real bin/fm-pr-check.sh registration
+$ fm-pr-check.sh task-a https://github.com/acme/alpha/pull/8   [alpha listed, key present]
+armed: state/task-a.check.sh
+risk: low - no risk fact found and all three questions answered no
+(rc=0, requests=3)
+diff_start sent to Jev:
+diff --git a/src/client.js b/src/client.js
+new file mode 100644
+index 0000000..b908222
+--- /dev/null
++++ b/src/client.js
+@@ -0,0 +1,2 @@
++export const retries = 3
+[line withheld: looks like a credential]
+
+PASS  the registration succeeds and prints one risk line after the arming
+PASS  the pull request is recorded and the merge poll armed
+PASS  the ordinary source line is sent
+PASS  the AWS key line in an ordinary file is in no request
+PASS  the .env file's content is in no request
+PASS  the .pem file's content is in no request
+$ fm-pr-check.sh task-a https://github.com/acme/alpha/pull/8   [list holds acme/alpha, alpha-web, '# alpha']
+armed: state/task-a.check.sh
+risk: not rated - no risk fact found; unanswered: untested (project not listed), mismatch (project not listed), irreversible (project not listed)
+(rc=0, requests=0)
+PASS  an owner/repo entry, a similar name, and a commented name do not list a firstmate project: nothing sent
+PASS  the unlisted project still registers and says why it is not rated
+PASS  the forge description is not read for an unlisted project
+$ fm-pr-check.sh task-a https://github.com/acme/alpha/pull/8   [Jev answers yes to everything]
+armed: state/task-a.check.sh
+risk: high - behaviour changed with no test, description does not match the change, something hard to undo
+(rc=0, requests=3)
+PASS  a worst-case Jev answer still registers and arms: the level is a printed line only
+$ fm-pr-check.sh task-a https://github.com/acme/alpha/pull/8   [Jev times out]
+armed: state/task-a.check.sh
+risk: not rated - no risk fact found; unanswered: untested (Jev error), mismatch (Jev error), irreversible (Jev error)
+(rc=0, requests=1)
+PASS  a Jev timeout still registers and arms
+$ fm-pr-check.sh task-a https://github.com/acme/alpha/pull/8 --no-risk   [what fm-pr-merge.sh runs]
+armed: state/task-a.check.sh
+(rc=0, requests=0)
+PASS  the merge-time registration makes no request and prints no risk line
+
+=== C. failed check sort: real bin/fm-pr-state.sh over a fixture forge
+$ fm-pr-state.sh https://github.com/o/r/pull/7   [o/r listed, key present, option NOT given]
+REQUIRED CHECK: CI Status (FAILURE)
+REQUIRED CHECK: slow (IN_PROGRESS)
+(rc=0, requests=0)
+PASS  without --sort-failed-checks nothing is sent and no label is printed
+PASS  without the option no check-run or job-log read is made
+$ fm-pr-state.sh --sort-failed-checks https://github.com/o/r/pull/7   [o/r listed]
+REQUIRED CHECK: CI Status (FAILURE)
+REQUIRED CHECK: slow (IN_PROGRESS)
+FAILED CHECK SORT: CI Status: code bug (jev, confidence 0.9)
+(rc=0, requests=1)
+state sent to Jev:
+{
+  "check": "CI Status",
+  "log_tail": "[line withheld: looks like a credential]\nassert failed in the parser"
+}
+PASS  the failed check gains one label and the blocker lines are unchanged
+PASS  the token in the job log is not in the request
+PASS  the failure line beside it is sent
+$ list entry [r] -> FAILED CHECK SORT: CI Status: unknown (requests=0)
+PASS  list entry 'r' does not allow o/r: unknown, nothing sent
+$ list entry [x/r] -> FAILED CHECK SORT: CI Status: unknown (requests=0)
+PASS  list entry 'x/r' does not allow o/r: unknown, nothing sent
+$ list entry [O/R] -> FAILED CHECK SORT: CI Status: unknown (requests=0)
+PASS  list entry 'O/R' does not allow o/r: unknown, nothing sent
+$ list entry [o/r-web] -> FAILED CHECK SORT: CI Status: unknown (requests=0)
+PASS  list entry 'o/r-web' does not allow o/r: unknown, nothing sent
+$ list entry [# o/r] -> FAILED CHECK SORT: CI Status: unknown (requests=0)
+PASS  list entry '# o/r' does not allow o/r: unknown, nothing sent
+$ fm-pr-state.sh --sort-failed-checks https://github.com/o/r/pull/7   [Jev unreachable]
+REQUIRED CHECK: CI Status (FAILURE)
+REQUIRED CHECK: slow (IN_PROGRESS)
+FAILED CHECK SORT: CI Status: unknown
+(rc=0, requests=1)
+PASS  with Jev down the report is intact, exit 0, label unknown
+PASS  without a key the option prints exactly the plain report
+
+=== D. the one caller: adversarial inputs to the credential filter
+key tail with no BEGIN line   -> sent: {"block":"[line withheld: looks like a credential]\nplain line after"}
+PASS  a key tail cut off from its BEGIN line sends no body line and no END marker
+PASS  the ordinary line after the block is still sent
+whole block, nested in the state -> sent: {"a":{"deep":["before\n[line withheld: looks like a credential]\nafter"]}}
+PASS  a whole private key block nested deep in the state is replaced by one placeholder
+block with no END line          -> sent: {"t":"x\n[line withheld: looks like a credential]"}
+PASS  a block with no END line is withheld to the end of the string
+one string per credential kind  -> sent: {"lines":["ok line","[line withheld: looks like a credential]","[line withheld: looks like a credential]","[line withheld: looks like a credential]","[line withheld: looks like a credential]","the token type is bearer"]}
+PASS  GitHub, AWS, Slack and quoted-password lines are each withheld; ordinary lines pass
+
+=== E. house-rules check: an embedded private key spanning two 80-line blocks
+$ fm-house-rules-check.sh hr   -> rc=0 requests=4
+house-rules-check: 0 advisory flag(s) from 4 question(s) over 2 changed block(s) and 2 rule(s) since main
+key lines in any request body: 0
+PASS  the change was actually sent in more than one block
+PASS  ordinary lines of both blocks are sent
+PASS  no key body line, BEGIN line or END line is in any request
+PASS  the check exits 0 whatever Jev says
+
+0 check(s) failed
