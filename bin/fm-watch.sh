@@ -1663,7 +1663,12 @@ surface_nonterminal_stale() {  # <window> <hash>
 # jev_triage_enabled refuses while the away daemon or the away-posture record
 # exists, and jev_triage_task_evidence refuses a secondmate, a task with any
 # open keyed decision, a declared clearing time that has passed, an endpoint
-# whose agent is not proven alive, and a task with no recorded pull request.
+# whose agent state is anything but alive or dead, and a task with no recorded
+# pull request. A dead agent beside an existing endpoint is offered because that
+# is the state pause_state_class routes to the pause recheck for an ordinary
+# crew, so refusing it left that recheck with no task it could ever offer; the
+# evidence tells the model the agent exited, and the question keeps such a wait
+# routine only when it is the merge of the open pull request.
 #
 # The recorded pull request (pr= in the task's metadata, which only firstmate
 # records after reading the worker's ready report) is what shows firstmate
@@ -1671,7 +1676,9 @@ surface_nonterminal_stale() {  # <window> <hash>
 # surfaces exactly as before. The deterministic read comes first and settles
 # what it can: the task is offered only while bin/fm-pr-state.sh reads that pull
 # request as open with no blocker reported, so a merged, closed, conflicting,
-# failing, or unreadable one is delivered without asking.
+# failing, or unreadable one is delivered without asking. A repository that
+# reports no checks at all is not a blocker: only a check that reported and is
+# failing or pending is.
 #
 # ponytail: one consecutive-absorb counter per subject bounds the model the way
 # PAUSE_RESURFACE_SECS bounds the deterministic absorbs - after
@@ -1681,8 +1688,8 @@ JEV_TRIAGE_MAX_STREAK=6
 JEV_TRIAGE_PR_TIMEOUT=30
 FM_PR_STATE_BIN="${FM_PR_STATE_BIN:-$SCRIPT_DIR/fm-pr-state.sh}"
 # shellcheck disable=SC2016 # The backticks are literal markup in the question text.
-JEV_TRIAGE_INSTRUCTIONS='A monitoring reminder in `wake` is about to interrupt the supervisor of a fleet of software workers. The supervisor has already seen every status event listed in `wake`, so nothing in it is news. Decide from the words of the evidence what is being waited on. Choose `routine` only when the wait will clear without any action from the supervisor or another person, apart from the already reported merge of an open pull request. When the worker is waiting on a person or on the supervisor to choose, answer, review, approve, or unblock something, or it stopped after a failure, the reminder is how the supervisor remembers that someone still owes the worker a reply, so choose `needs_firstmate`. Choose `needs_firstmate` whenever you are unsure.'
-JEV_TRIAGE_CRITERIA='{"needs_firstmate":"The newest status event shows the worker waiting on a person or on the supervisor: to choose between options, answer a question, review or accept finished work, supply or repair a credential or access, or unblock it; or the worker stopped after a failure or an error; or a diagnostic reports anything other than a read that timed out; or it is not clear what the wait is for.","routine":"The newest status event declares a wait on an automatic external event that clears without the supervisor: an open pull request with nothing failing that only awaits its already reported merge, a running CI job, a rate limit or quota reset, a scheduled window, or an upstream release; or one transient read timeout that the monitor retries on its own."}'
+JEV_TRIAGE_INSTRUCTIONS='A monitoring reminder in `wake` is about to interrupt the supervisor of a fleet of software workers. The supervisor has already seen every status event listed in `wake`, so nothing in it is news. Decide from the words of the evidence what is being waited on. Choose `routine` only when the wait will clear without any action from the supervisor or another person, apart from the already reported merge of an open pull request. A worker that says only that its open pull request is waiting to be merged, or waiting for the merge word or merge approval of the supervisor, the captain, or anyone else, is waiting on that already reported merge, so that is `routine`. When the worker is waiting on a person or on the supervisor to choose, answer, review, approve, or unblock anything other than that merge, or it stopped after a failure, the reminder is how the supervisor remembers that someone still owes the worker a reply, so choose `needs_firstmate`. When `worker_agent` is `exited`, the worker cannot resume by itself: that changes nothing for a pull request that only awaits its merge, which needs nothing more from the worker and stays `routine`, but every other wait is then `needs_firstmate`. Choose `needs_firstmate` whenever you are unsure.'
+JEV_TRIAGE_CRITERIA='{"needs_firstmate":"The newest status event shows the worker waiting on a person or on the supervisor for anything other than the merge of its open pull request: to choose between options, answer a question, review or accept finished work, supply or repair a credential or access, or unblock it; or the worker stopped after a failure or an error; or `worker_agent` is `exited` and the wait is for anything other than the merge of its open pull request; or a diagnostic reports anything other than a read that timed out; or it is not clear what the wait is for.","routine":"The newest status event declares an open pull request with nothing failing that only awaits its already reported merge, whoever gives the merge word and whether `worker_agent` is `running` or `exited`; or, while `worker_agent` is `running`, a wait on an automatic external event that clears without the supervisor: a running CI job, a rate limit or quota reset, a scheduled window, or an upstream release; or one transient read timeout that the monitor retries on its own."}'
 JEV_TRIAGE_TASK_EVIDENCE=
 
 jev_triage_enabled() {
@@ -1694,7 +1701,7 @@ jev_triage_enabled() {
 # 0 when <task> may be offered to Jev, leaving its evidence object in
 # JEV_TRIAGE_TASK_EVIDENCE; 1 for every task the model must never decide.
 jev_triage_task_evidence() {  # <task>
-  local task=$1 meta statusf last until w pr pr_out
+  local task=$1 meta statusf last until w pr pr_out agent
   JEV_TRIAGE_TASK_EVIDENCE=
   case "$task" in ''|*[!A-Za-z0-9._-]*) return 1 ;; esac
   meta="$STATE/$task.meta"
@@ -1711,14 +1718,19 @@ jev_triage_task_evidence() {  # <task>
   [ -n "$pr" ] || return 1
   w=$(fm_backend_target_of_meta "$meta")
   [ -n "$w" ] || return 1
-  [ "$(fm_backend_agent_state "$(fm_backend_of_meta "$meta")" "$w" 2>/dev/null || true)" = alive ] || return 1
+  case "$(fm_backend_agent_state "$(fm_backend_of_meta "$meta")" "$w" 2>/dev/null || true)" in
+    alive) agent='running' ;;
+    dead) agent='exited' ;;
+    *) return 1 ;;
+  esac
   pr_out=$(fm_run_timed "$JEV_TRIAGE_PR_TIMEOUT" "$FM_PR_STATE_BIN" "$pr" 2>/dev/null) || return 1
   if [ -n "$pr_out" ] && printf '%s\n' "$pr_out" | grep -Eqv '^(CHECKS: |MERGEABILITY: unknown$)'; then
     return 1
   fi
   JEV_TRIAGE_TASK_EVIDENCE=$(tail -n 6 "$statusf" 2>/dev/null | cut -c 1-400 \
-    | jq -Rsc --arg task "$task" --arg pr 'open; no blocker reported' \
-      '{task: $task, pull_request: $pr, recent_status_events: (split("\n") | map(select(length > 0)))}' \
+    | jq -Rsc --arg task "$task" --arg pr 'open; no blocker reported' --arg agent "$agent" \
+      '{task: $task, pull_request: $pr, worker_agent: $agent,
+        recent_status_events: (split("\n") | map(select(length > 0)))}' \
       2>/dev/null) || return 1
   [ -n "$JEV_TRIAGE_TASK_EVIDENCE" ]
 }
