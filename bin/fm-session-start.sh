@@ -180,8 +180,15 @@
 # emitted before the bound was hit is already delivered; the parent then prints
 # a loud STARTUP TRUNCATED banner naming the stage that did not finish and the
 # sections that were therefore never emitted, and still exits 0. The child
-# records its progress in FM_SESSION_START_STAGE_FILE, which is also the flag
-# that tells a child it is the child - the parent never recurses.
+# records its progress in the file named by its private --_child argument, which
+# is also what tells a child it is the child - the parent never recurses. That
+# hand-off is an argument rather than an environment setting so nothing the
+# digest starts can inherit it and mistake itself for a bounded child.
+#
+# Before the digest, the parent reports any command-scoped setting this session
+# inherited (bin/fm-launch-env-lib.sh owns the names) as one INHERITED
+# ENVIRONMENT line carrying the clean start command. A session cannot repair
+# the environment it was started in, so the line is the repair.
 # Hosts without timeout, gtimeout, or perl use the shared pure-Bash watchdog, so
 # the digest never runs without the same hard bound and process-group cleanup.
 #
@@ -231,6 +238,7 @@ AGENTS_BASELINE_FILE="$STATE/.session-start-agents-baseline"
 
 REEMIT=0
 SESSION_SOURCE=
+CHILD_STAGE_FILE=
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --reemit)
@@ -244,6 +252,10 @@ while [ "$#" -gt 0 ]; do
     --source=*)
       SESSION_SOURCE=${1#--source=}
       shift
+      ;;
+    --_child)
+      CHILD_STAGE_FILE=${2:-}
+      if [ "$#" -ge 2 ]; then shift 2; else shift; fi
       ;;
     -h|--help)
       sed -n '2,/^set -u$/p' "$SCRIPT_DIR/fm-session-start.sh" | sed 's/^# \{0,1\}//; $d'
@@ -264,8 +276,8 @@ done
 SESSION_START_STAGES='lock bootstrap wake-queue supervision-instructions read-once fleet-state network-checks context next-step'
 
 stage() {  # <stage-name>: breadcrumb for the parent's truncation banner
-  [ -n "${FM_SESSION_START_STAGE_FILE:-}" ] || return 0
-  printf '%s\n' "$1" > "$FM_SESSION_START_STAGE_FILE" 2>/dev/null || true
+  [ -n "$CHILD_STAGE_FILE" ] || return 0
+  printf '%s\n' "$1" > "$CHILD_STAGE_FILE" 2>/dev/null || true
 }
 
 # shellcheck source=bin/fm-timeout-lib.sh
@@ -273,7 +285,43 @@ stage() {  # <stage-name>: breadcrumb for the parent's truncation banner
 # shellcheck source=bin/fm-session-lock-lib.sh
 . "$SCRIPT_DIR/fm-session-lock-lib.sh"
 
-if [ -z "${FM_SESSION_START_STAGE_FILE:-}" ]; then
+# shellcheck source=bin/fm-launch-env-lib.sh
+. "$SCRIPT_DIR/fm-launch-env-lib.sh"
+
+# The FM_ names are judged from this process's own environment: nothing above a
+# session start sets them, so one present here came in with the session.
+# CLAUDE_CODE_CHILD_SESSION is different - Claude Code sets it for every hook and
+# tool child, this one included - so it is judged from the harness process's own
+# environment, which is the one that decides whether the conversation is saved.
+# ponytail: that read needs /proc, so a host without it (macOS) reports only the
+# FM_ names; add a ps-based read there if the marker ever leaks on such a host.
+inherited_environment_report() {
+  local name names='' harness_pid='' harness_env='' start_command
+  harness_pid=$(fm_harness_ancestry_pid 2>/dev/null) || harness_pid=
+  if [ -n "$harness_pid" ] && [ -r "/proc/$harness_pid/environ" ]; then
+    harness_env=$(tr '\0' '\n' < "/proc/$harness_pid/environ" 2>/dev/null) || harness_env=
+  fi
+  for name in $FM_LAUNCH_SCRUB_ENV; do
+    case "$name" in
+      CLAUDE_CODE_CHILD_SESSION)
+        printf '%s\n' "$harness_env" | grep -q "^$name=" || continue
+        ;;
+      *) [ -n "${!name+x}" ] || continue ;;
+    esac
+    names="$names $name"
+  done
+  [ -n "$names" ] || return 0
+  start_command=$("$SCRIPT_DIR/fm-harness.sh" 2>/dev/null) || start_command=
+  case "$start_command" in '' | unknown) start_command='<your usual firstmate command>' ;; esac
+  # shellcheck disable=SC2086 # A fixed list of plain names, split on purpose.
+  printf 'INHERITED ENVIRONMENT: this session was started with%s already set, left behind by another command. This session cannot repair that: its conversation may not be saved and anything it launches inherits them. Exit and start firstmate with: env%s %s\n' \
+    "$names" "$(printf ' -u %s' $names)" "$start_command"
+}
+
+if [ -z "$CHILD_STAGE_FILE" ]; then
+  inherited_environment_report
+  # shellcheck disable=SC2086 # A fixed list of plain names, split on purpose.
+  unset $FM_LAUNCH_SCRUB_ENV
   SESSION_START_BUDGET=${FM_SESSION_START_TIMEOUT:-120}
   # A non-positive or non-numeric budget is not a budget (`timeout 0` disables
   # the deadline outright), so an unusable value falls back to the default
@@ -288,21 +336,17 @@ if [ -z "${FM_SESSION_START_STAGE_FILE:-}" ]; then
   if [ "$REEMIT" -eq 1 ]; then
     if [ -n "$SESSION_SOURCE" ]; then
       fm_run_timed "$SESSION_START_BUDGET" \
-        env FM_SESSION_START_STAGE_FILE="$SESSION_START_STAGE_FILE" \
-        "$SCRIPT_DIR/fm-session-start.sh" --reemit --source "$SESSION_SOURCE"
+        "$SCRIPT_DIR/fm-session-start.sh" --_child "$SESSION_START_STAGE_FILE" --reemit --source "$SESSION_SOURCE"
     else
       fm_run_timed "$SESSION_START_BUDGET" \
-        env FM_SESSION_START_STAGE_FILE="$SESSION_START_STAGE_FILE" \
-        "$SCRIPT_DIR/fm-session-start.sh" --reemit
+        "$SCRIPT_DIR/fm-session-start.sh" --_child "$SESSION_START_STAGE_FILE" --reemit
     fi
   elif [ -n "$SESSION_SOURCE" ]; then
     fm_run_timed "$SESSION_START_BUDGET" \
-      env FM_SESSION_START_STAGE_FILE="$SESSION_START_STAGE_FILE" \
-      "$SCRIPT_DIR/fm-session-start.sh" --source "$SESSION_SOURCE"
+      "$SCRIPT_DIR/fm-session-start.sh" --_child "$SESSION_START_STAGE_FILE" --source "$SESSION_SOURCE"
   else
     fm_run_timed "$SESSION_START_BUDGET" \
-      env FM_SESSION_START_STAGE_FILE="$SESSION_START_STAGE_FILE" \
-      "$SCRIPT_DIR/fm-session-start.sh"
+      "$SCRIPT_DIR/fm-session-start.sh" --_child "$SESSION_START_STAGE_FILE"
   fi
   SESSION_START_RC=$?
   if [ "$SESSION_START_RC" -eq 124 ]; then

@@ -3292,6 +3292,47 @@ test_uninitialized_idle_worker_uses_status() {
   pass 'R2 uninitialized idle workers retain status reporting'
 }
 
+# The exact shape a polluted launch environment produces: the pair names another
+# task's captured records in a snapshot directory that no longer exists.
+test_inherited_override_for_another_task_is_refused_out_loud() {
+  make_uninitialized_worker_case inherited-override idle
+  local d=$TMP_ROOT/inherited-override out err
+  out=$(FM_CREW_STATE_META_OVERRIDE="$d/gone/b2b.meta" FM_CREW_STATE_STATUS_OVERRIDE="$d/gone/b2b.status" \
+    run_crew_state "$d" worker 2>"$d/stderr")
+  err=$(cat "$d/stderr")
+  assert_not_contains "$out" 'no metadata' "an inherited override must not hide this home's own task record"
+  assert_contains "$out" 'implementation continues' "the read must fall back to this home's own records"
+  assert_contains "$err" 'ignoring inherited FM_CREW_STATE_META_OVERRIDE' 'the refusal must be reported, not silent'
+  assert_contains "$err" "$d/gone/b2b.meta" 'the refusal must name the inherited value'
+  pass 'an inherited override naming another task is refused out loud and the home record is read'
+}
+
+test_snapshot_override_for_this_task_is_honored_and_not_passed_on() {
+  make_uninitialized_worker_case snapshot-override idle
+  local d=$TMP_ROOT/snapshot-override out err
+  mkdir -p "$d/capture"
+  cp "$d/state/worker.meta" "$d/capture/worker.meta"
+  printf 'working: captured generation\n' > "$d/capture/worker.status"
+  # The fake no-mistakes is a child of the read, so what it sees is what any
+  # process the read starts would inherit.
+  mv "$d/fakebin/no-mistakes" "$d/fakebin/no-mistakes.real"
+  cat > "$d/fakebin/no-mistakes" <<SH
+#!/usr/bin/env bash
+: >> "$d/child-ran"
+env | grep '^FM_CREW_STATE_.*_OVERRIDE=' >> "$d/child-env"
+exec "$d/fakebin/no-mistakes.real" "\$@"
+SH
+  chmod +x "$d/fakebin/no-mistakes"
+  out=$(FM_CREW_STATE_META_OVERRIDE="$d/capture/worker.meta" FM_CREW_STATE_STATUS_OVERRIDE="$d/capture/worker.status" \
+    run_crew_state "$d" worker 2>"$d/stderr")
+  err=$(cat "$d/stderr")
+  assert_contains "$out" 'captured generation' "a snapshot's own captured pair must still be read"
+  assert_not_contains "$err" 'ignoring inherited' 'a valid captured pair must not be reported as inherited'
+  [ -e "$d/child-ran" ] || fail 'the read started no child process, so the hand-off check proved nothing'
+  [ ! -s "$d/child-env" ] || fail "the override pair reached a child process: $(cat "$d/child-env")"
+  pass 'a captured pair for this task is honored and is not handed to anything the read starts'
+}
+
 make_historical_inventory_case() {
   make_competing_runs_case "$1" completed cancelled
   local d=$TMP_ROOT/$1 gen
@@ -3648,6 +3689,8 @@ test_capped_without_sqlite_preserves_available_ids
 test_live_to_terminal_inventory_disagreement_is_unknown
 test_uninitialized_busy_worker_uses_pane
 test_uninitialized_idle_worker_uses_status
+test_inherited_override_for_another_task_is_refused_out_loud
+test_snapshot_override_for_this_task_is_honored_and_not_passed_on
 test_historical_inventory_uses_current_pane
 test_historical_inventory_uses_current_status
 test_superseded_cancelled_run_preserves_replacement_gate

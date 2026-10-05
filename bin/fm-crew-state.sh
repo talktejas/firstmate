@@ -128,10 +128,28 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 ID=${1:-}
 [ -n "$ID" ] || { echo "usage: fm-crew-state.sh <id>" >&2; exit 2; }
 
-# Fleet snapshot composition supplies its captured metadata path here so every
-# state read resolves the same task generation selected by that snapshot.
-META=${FM_CREW_STATE_META_OVERRIDE:-"$STATE/$ID.meta"}
-LOG=${FM_CREW_STATE_STATUS_OVERRIDE:-"$STATE/$ID.status"}
+# Fleet snapshot composition supplies its captured metadata and status paths
+# here, as a pair, so every state read resolves the same task generation
+# selected by that snapshot. The pair is honored only when it names this task's
+# own captured records; anything else is a setting inherited from another
+# command's scope, which would answer "no metadata" for every task, so it is
+# refused out loud and this home's own records are read instead. Either way the
+# pair is dropped from the environment so nothing this read starts inherits it.
+META="$STATE/$ID.meta"
+LOG="$STATE/$ID.status"
+META_OVERRIDE=${FM_CREW_STATE_META_OVERRIDE:-}
+LOG_OVERRIDE=${FM_CREW_STATE_STATUS_OVERRIDE:-}
+if [ -n "$META_OVERRIDE$LOG_OVERRIDE" ]; then
+  if [ "${META_OVERRIDE##*/}" = "$ID.meta" ] && [ -f "$META_OVERRIDE" ] \
+    && [ "${LOG_OVERRIDE##*/}" = "$ID.status" ]; then
+    META=$META_OVERRIDE
+    LOG=$LOG_OVERRIDE
+  else
+    printf 'fm-crew-state: ignoring inherited FM_CREW_STATE_META_OVERRIDE=%s and FM_CREW_STATE_STATUS_OVERRIDE=%s: they are not the captured records of task %s, so this read uses %s; start firstmate from an environment without them\n' \
+      "$META_OVERRIDE" "$LOG_OVERRIDE" "$ID" "$STATE" >&2
+  fi
+fi
+unset FM_CREW_STATE_META_OVERRIDE FM_CREW_STATE_STATUS_OVERRIDE
 NM_TIMEOUT=${FM_CREW_STATE_NM_TIMEOUT:-10}
 case "$NM_TIMEOUT" in ''|*[!0-9]*) NM_TIMEOUT=10 ;; esac
 # How many of the most recent `no-mistakes runs` rows each ledger read
