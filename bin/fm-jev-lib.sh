@@ -39,14 +39,15 @@
 #   non-200 reply, a malformed answer) is `error`, so a caller's fallback is
 #   one branch.
 #
-# fm_jev_choices <questions-json-file> <state-json-file>
+# fm_jev_choices <questions-json-file> <state-json-file> <required-question-key>
 #   The same single POST carrying several Choice questions over one state.
 #   <questions-json-file> holds one JSON object mapping each question key to
 #   {instructions, criteria}. Sets FM_JEV_STATUS, FM_JEV_ERROR, and
 #   FM_JEV_LATENCY_MS as above, plus:
-#     FM_JEV_ANSWERS        {model, usage, answers: {<key>: {choice, confidence, probabilities}}} JSON (ok only)
-#   Every question must come back well formed under the rule above; one
-#   malformed answer makes the whole call `error` and names that question.
+#     FM_JEV_ANSWERS        {model, usage, answers: {<key>: {choice, confidence, probabilities} | null}} JSON (ok only)
+#   The required question must come back well formed under the rule above, or
+#   the call is `error`; any other question whose answer is missing or
+#   malformed has a null answer.
 
 TYPESAFE_API_KEY_PRIVATE=${TYPESAFE_API_KEY:-}
 export -n TYPESAFE_API_KEY_PRIVATE 2>/dev/null || true
@@ -89,8 +90,8 @@ _fm_jev_fail() {  # <reason>
 # One POST carrying every question in <questions-json>, an object mapping each
 # question key to {instructions, criteria}. Sets FM_JEV_STATUS, FM_JEV_ERROR,
 # FM_JEV_LATENCY_MS, and FM_JEV_ANSWERS; the two public callers below own the rest.
-_fm_jev_ask() {  # <questions-json> <state-json-file>
-  local questions=$1 state_file=$2
+_fm_jev_ask() {  # <questions-json> <state-json-file> <required-question-key>
+  local questions=$1 state_file=$2 required=$3
   local request resp http t0 t1 fields verdict rc=0
   FM_JEV_STATUS='' FM_JEV_ERROR='' FM_JEV_LATENCY_MS=null FM_JEV_ANSWERS=''
   if [ -z "$TYPESAFE_API_KEY_PRIVATE" ]; then
@@ -99,9 +100,9 @@ _fm_jev_ask() {  # <questions-json> <state-json-file>
   fi
   command -v curl >/dev/null 2>&1 || { _fm_jev_fail "curl not installed"; return 1; }
   command -v jq >/dev/null 2>&1 || { _fm_jev_fail "jq not installed"; return 1; }
-  request=$(jq -n --arg model "$FM_JEV_MODEL" --argjson questions "$questions" \
+  request=$(jq -n --arg model "$FM_JEV_MODEL" --argjson questions "$questions" --arg required "$required" \
     --slurpfile state "$state_file" '
-    if ($state | length) != 1 or ($questions | type) != "object" or ($questions | length) == 0
+    if ($state | length) != 1 or ($questions | type) != "object" or ($questions | has($required) | not)
        or any($questions[]; (.instructions | type) != "string" or (.criteria | type) != "object")
     then error("bad input") else
     {
@@ -122,9 +123,9 @@ _fm_jev_ask() {  # <questions-json> <state-json-file>
     rm -f "$resp"
     return 1
   fi
-  # Prints "ok" and the answers, or "bad" and the first question, in request
-  # order, whose answer is not well formed.
-  fields=$(printf '%s' "$request" | jq -r --slurpfile resp "$resp" '
+  # Prints "ok" and the answers, each one that is not well formed as null, or
+  # "bad" when the required question has no well-formed answer.
+  fields=$(printf '%s' "$request" | jq -r --arg required "$required" --slurpfile resp "$resp" '
     def good($q; $a):
       ($a.choice | type) == "string" and
       ($a.confidence | type) == "number" and
@@ -136,15 +137,13 @@ _fm_jev_ask() {  # <questions-json> <state-json-file>
     .questions as $qs |
     ($resp | if length == 1 and (.[0] | type) == "object" then .[0] else {} end) as $r |
     ($r.answers | if type == "object" then . else {} end) as $as |
-    ([$qs | keys_unsorted[] | select(good($qs[.]; $as[.]) | not)] | first // null) as $bad |
+    ($qs | with_entries(.key as $k | .value = (if good(.value; $as[$k]) then ($as[$k] | {choice, confidence, probabilities}) else null end))) as $answers |
     (($r | has("usage") | not) or
       (($r.usage | type) == "object" and
        ($r.usage.input_tokens | type) == "number" and
        ($r.usage.output_tokens | type) == "number")) as $usage_ok |
-    if $bad != null then "bad", $bad
-    elif $usage_ok | not then "bad", ($qs | keys_unsorted[0])
-    else "ok", ({model: $r.model, usage: ($r.usage // null),
-      answers: ($qs | with_entries(.key as $k | .value = ($as[$k] | {choice, confidence, probabilities})))} | tojson)
+    if $answers[$required] == null or ($usage_ok | not) then "bad"
+    else "ok", ({model: $r.model, usage: ($r.usage // null), answers: $answers} | tojson)
     end' 2>/dev/null) || rc=1
   rm -f "$resp"
   [ "$rc" -eq 0 ] || { _fm_jev_fail "response could not be read"; return 1; }
@@ -154,16 +153,16 @@ _fm_jev_ask() {  # <questions-json> <state-json-file>
   } <<EOF
 $fields
 EOF
-  [ "$verdict" = ok ] || { _fm_jev_fail "response is not a $fields Choice answer"; return 1; }
+  [ "$verdict" = ok ] || { _fm_jev_fail "response is not a $required Choice answer"; return 1; }
   FM_JEV_ANSWERS=$fields
   FM_JEV_STATUS=ok
   return 0
 }
 
-fm_jev_choices() {  # <questions-json-file> <state-json-file>
+fm_jev_choices() {  # <questions-json-file> <state-json-file> <required-question-key>
   local questions
   questions=$(jq -c . "$1" 2>/dev/null) || { _fm_jev_fail "request could not be built"; return 1; }
-  _fm_jev_ask "$questions" "$2"
+  _fm_jev_ask "$questions" "$2" "$3"
 }
 
 fm_jev_choice() {  # <question-key> <instructions> <state-json-file> <criteria-json-file>
@@ -172,7 +171,7 @@ fm_jev_choice() {  # <question-key> <instructions> <state-json-file> <criteria-j
   questions=$(jq -c --arg key "$key" --arg instructions "$2" \
     '{($key): {instructions: $instructions, criteria: .}}' "$4" 2>/dev/null) \
     || { FM_JEV_LATENCY_MS=null; _fm_jev_fail "request could not be built"; return 1; }
-  _fm_jev_ask "$questions" "$3" || return 1
+  _fm_jev_ask "$questions" "$3" "$key" || return 1
   fields=$(jq -r --arg key "$key" '
     .answers[$key] as $a |
     ({model, usage} + $a | tojson),

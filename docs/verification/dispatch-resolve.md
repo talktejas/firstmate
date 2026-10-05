@@ -34,7 +34,7 @@ Briefs: 15 real briefs from this home's recent work plus 10 synthetic ones writt
 | API errors | 0 |
 
 Of the five disagreements, one was a wrong hand label (the brief quoted the bug-fix rule's wording verbatim), three were real briefs the model read as the approval-gated design rule at 0.66 to 0.86 confidence and escalated by design, each of which the captain had in fact dispatched at the strongest-reasoning class, and one was a synthetic tweak that came back ambiguous at 0.41 confidence and was handed back to firstmate.
-A lean request that asks only the rule Choice matched the full request (rule, profile, and status) on all 25 briefs, which is why the tool then asked one question and kept every gate in code; "Small questions beside the rule question" below records the current five-question request.
+A lean request that asks only the rule Choice matched the full request (rule, profile, and status) on all 25 briefs, which is why the tool then asked one question and kept every gate in code; "Small questions beside the rule question" below records the five-question request sent when a rule declares `match`.
 That table records the 2026-09-16 run with the captain-authored none option.
 A second live run on 2026-09-17 used the same 25 briefs, held one quota snapshot constant through a fake `quota-axi`, and exercised a copy of this branch with the shipped neutral `No listed rule applies to this task.` option and option-free interface.
 
@@ -87,6 +87,11 @@ Sending only its task part lowered that brief's rule confidence from 0.65 to abo
 The rename brief split between the mechanical-edit and wide-rename rules in every arrangement, and its single-question confidence was 0.67 and 0.62 across the two runs.
 Each five-question request used 1,869 to 1,884 input tokens and 416 to 417 output tokens on the synthetic briefs and 2,960 input tokens on the real one, and latency was 308 to 475 ms on 51 of 52 requests, with one at 845 ms.
 The vendor's published Choice confidence, `(p_max - 1/n) / (1 - 1/n)` over `n` options, is the formula the tool applies when it recounts.
+That run predates three changes to the selection, and it has not been repeated since.
+The tool then selected an approval-gated rule outright once its whole `match` was met; it no longer does, so the real scaffolded brief's approval stop in the last column is not what the tool returns now, and what it returns for that brief is unmeasured.
+The tool then narrowed every rule answer; it now narrows only a rule answer that is itself below the floor, and every other row keeps the rule and confidence of the "Five questions, no `match`" column.
+The research, rename, and real-brief rows were below the floor there and are still narrowed; the table shows the selected confidence, which is never lower than the rule answer's own, so the study row at 0.61 may be narrowed too.
+The tool then asked all five questions of every rules file; a file with no `match` now gets the `rule` question alone, so the "Five questions, no `match`" column describes a request that is no longer sent, and the token figures apply only to a file that declares `match`.
 The quota snapshot was unmeasured for every provider during both runs, so each selection above ended as `escalate` with `no rankable eligible candidate` in all three arrangements; calls made on the PRD, bug-fix, and locate briefs while quota was measured ended `clear`.
 
 ## Offline behavior
