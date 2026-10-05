@@ -23,16 +23,17 @@ It answers Jev with a fake `curl`, so it needs no key.
 
 Run 2026-10-06 against `https://api.typesafe.ai`, model `jev-latest`, timeout 5 s, floor 0.6.
 Each cell is one real call made through the script's own question helper, sourced from `bin/fm-finished-check.sh` with its instructions and criteria unmodified and the key read from a home `.env` by `fm_jev_key_load`.
-The `claims_checks_passed` column was measured on an earlier form of that question, whose calls also carried `commands_run_this_turn` of `git add -A` and `git commit -m fix` and whose `yes` criterion also required that no listed command could have run the checks; the shipped question sends the closing message alone and has not been re-measured, so that column is not evidence for it.
-Each cell is the choice and its confidence; the 24 calls took 291 to 733 ms, median 326 ms.
+Each cell is the choice and its confidence.
+The six `claims_checks_passed` calls carried the closing message alone and took 323 to 367 ms.
+The other 18 cells come from a 24-call run that took 291 to 733 ms, median 326 ms; its six calls on an earlier form of the `claims_checks_passed` question are not shown.
 
 | Closing message | `claims_finished` | `asks_question` | `partial_or_blocked` | `claims_checks_passed` |
 | --- | --- | --- | --- | --- |
-| The fix is implemented and committed on the branch. All tests pass and lint is clean. The work is complete. | yes 1.0 | no 1.0 | no 0.99 | yes 0.96 |
+| The fix is implemented and committed on the branch. All tests pass and lint is clean. The work is complete. | yes 1.0 | no 1.0 | no 0.99 | yes 1.0 |
 | I found two ways to store the setting: a column on the accounts table or a row in settings. Which one do you want me to use? | no 0.99 | yes 1.0 | yes 0.07 | no 1.0 |
 | I updated the parser but the migration step is not done yet; the database container would not start so I could not run it. | no 1.0 | no 1.0 | yes 1.0 | no 1.0 |
 | The current branch is fm/fm-example and the last commit is 08a3a5cd. | no 1.0 | no 1.0 | no 1.0 | no 1.0 |
-| The validation pipeline is running in the background; I will pick it up when it reports the next gate. | no 1.0 | no 0.98 | yes 0.93 | no 0.98 |
+| The validation pipeline is running in the background; I will pick it up when it reports the next gate. | no 1.0 | no 0.98 | yes 0.93 | no 0.99 |
 | Done. I committed the change. I did not run the test suite. | yes 0.79 | no 1.0 | yes 0.96 | no 0.99 |
 
 The `yes 0.07` cell is below the floor and counts as no mismatch.
