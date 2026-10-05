@@ -2026,6 +2026,57 @@ EOF
   pass "a session start inside its budget prints no truncation banner"
 }
 
+# Runs a session start whose environment carries exactly the named inherited
+# settings, whatever the developer's own shell happens to carry.
+run_session_start_inheriting() {  # <home> <root> <path> [NAME=value...]
+  local home=$1 root=$2 path=$3 assignment
+  shift 3
+  (
+    unset FM_CREW_STATE_META_OVERRIDE FM_CREW_STATE_STATUS_OVERRIDE FM_SESSION_START_STAGE_FILE \
+      FM_HOME_SUMMARY_IF_IDLE FM_HOME_SUMMARY_WORKER_BEST_EFFORT CLAUDE_CODE_CHILD_SESSION
+    for assignment in "$@"; do export "${assignment?}"; done
+    run_session_start "$home" "$root" "$path"
+  )
+}
+
+test_inherited_command_scoped_settings_are_reported_with_the_clean_start() {
+  local rec root home fakebin out line stage
+  rec=$(new_world inherited-environment)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+  stage="$home/stale-stage"
+
+  out=$(run_session_start_inheriting "$home" "$root" "$fakebin:$BASE_PATH" \
+    FM_CREW_STATE_META_OVERRIDE=/nonexistent/b2b.meta FM_SESSION_START_STAGE_FILE="$stage")
+  line=$(printf '%s\n' "$out" | grep '^INHERITED ENVIRONMENT:')
+  case "$line" in
+    *"with: env -u FM_CREW_STATE_META_OVERRIDE -u FM_SESSION_START_STAGE_FILE claude") ;;
+    *) fail "the report did not end with the exact clean start command for the inherited names: $line" ;;
+  esac
+  # An inherited breadcrumb path must not turn the session start into its own
+  # unbounded child: the whole digest still runs and the stale path is untouched.
+  assert_contains "$out" "NEXT STEP" "an inherited stage-file setting cut the digest short"
+  assert_absent "$stage" "an inherited stage-file setting was treated as this run's breadcrumb"
+
+  out=$(run_session_start_inheriting "$home" "$root" "$fakebin:$BASE_PATH")
+  assert_not_contains "$out" "INHERITED ENVIRONMENT:" "a clean start reported an inherited environment"
+
+  # The nested-session marker is judged from the harness process's own
+  # environment, which only a host with /proc exposes; the fixture's harness is
+  # the session start itself.
+  if [ -r /proc/self/environ ]; then
+    out=$(run_session_start_inheriting "$home" "$root" "$fakebin:$BASE_PATH" CLAUDE_CODE_CHILD_SESSION=1)
+    assert_contains "$(printf '%s\n' "$out" | grep '^INHERITED ENVIRONMENT:')" \
+      "env -u CLAUDE_CODE_CHILD_SESSION claude" \
+      "a harness that inherited the nested-session marker went unreported"
+  fi
+
+  pass "session start names inherited command-scoped settings and the clean start command, and stays quiet when clean"
+}
+
 test_runtime_bound_leaves_harness_ancestry_headroom() {
   local rec root home fakebin nest out
   rec=$(new_world runtime-bound-ancestry)
@@ -2709,6 +2760,7 @@ test_pi_diagnostic_rejects_previous_session_loaded_marker
 test_runtime_bound_truncates_loudly_and_exits_zero
 test_portable_timeout_escalates_term_resistant_process
 test_runtime_bound_leaves_a_healthy_digest_untouched
+test_inherited_command_scoped_settings_are_reported_with_the_clean_start
 test_runtime_bound_leaves_harness_ancestry_headroom
 test_reemit_skips_startup_sweeps_but_keeps_the_wake_drain
 test_agents_baseline_stays_at_true_start_and_reemits_on_every_drifted_pi_compact
