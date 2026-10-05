@@ -243,6 +243,33 @@ One task may receive six routine answers in a row before the next wake is delive
 Each call sends the wake's class and reason line, the task id, its last six status lines cut to 400 characters each, and its pull request read, or for a contributions check its diagnostic lines; it sends no brief, pane content, or quota.
 `bin/fm-jev-lib.sh` owns the request, the answer validation, and the key handling shared with typed dispatch resolution, `bin/fm-watch.sh`'s `jev_triage_routine` header owns the exact eligibility gates, and [`verification/jev-wake-triage.md`](verification/jev-wake-triage.md) records the live evidence.
 
+## Finished check (.env TYPESAFE_API_KEY)
+
+When a Claude worker stops its turn, its stop hook asks typesafe.ai's System One model (Jev) whether the closing message matches what the worker actually reported, and sends the worker back once with one line naming what is missing.
+It is off unless `TYPESAFE_API_KEY` is available under the same environment-then-`.env` contract as [typed dispatch resolution](#typed-dispatch-resolution-env-typesafe_api_key); with the key absent no call is made and the turn ends exactly as it does without the feature.
+It catches claims and never runs a test itself.
+
+Code decides the facts first: whether the worker appended a status line this turn and which state it reported, whether files changed this turn, and which shell commands ran this turn.
+Jev then answers up to four yes/no questions about the closing message: does it claim the work is finished, does it claim checks passed that no command this turn could have run, is it asking a question, and is the work partial or blocked.
+A send-back needs both a code fact and a `yes` whose confidence and `yes` probability are at or above the shared 0.6 floor, so the model alone never holds a worker:
+
+- a `done:` line reported this turn while the message says work is partial or blocked;
+- a claim that checks passed in a turn where no check-like command ran;
+- a question, or partial or blocked work, with no state reported this turn;
+- a finished claim over changed files with no state reported this turn.
+
+The turn ends without any call when the worker reported `needs-decision:`, `blocked:`, `paused:`, or `failed:` this turn, when background tasks are still running, when there is no closing message, or when the stop already follows a send-back, so one stop is sent back at most once.
+A timeout, a transport or API error, a malformed answer, and a low-confidence answer all end the turn exactly as it does without the feature.
+A sent-back turn has not ended, so it raises no turn-end notification and the worker stays recorded busy.
+
+Each call sends the closing message cut to 4000 characters and, for the checks question only, up to 40 of the turn's shell commands cut to 200 characters each; it sends no instructions, file content, or diff.
+
+Only the Claude worker stop hook runs the check, on every runtime backend, because the hook runs inside the worker's own process.
+Gemini's turn-end hook is the same kind of surface but its send-back reply is not verified here; Pi, omp, and OpenCode report a turn's end through an extension or plugin event that carries no closing message; Codex, Grok, and Kimi only notify that a turn ended; and Muse, Cursor, Rovo, and AGY expose no turn-end hook, so a worker on any of them ends its turn exactly as it does without the feature.
+Second mates carry no worker stop hook and are never checked.
+
+`bin/fm-finished-check.sh`'s header owns the exact fact gates and question order, `bin/fm-jev-lib.sh` owns the request, the answer validation, and the key handling, and [`verification/finished-check.md`](verification/finished-check.md) records the live evidence.
+
 ## Gate defaults (.no-mistakes.yaml)
 
 The tracked `.no-mistakes.yaml` sets `test.evidence.store_in_repo: true` and pins `commands.lint` to `bin/fm-lint.sh`, the same owner CI invokes.
