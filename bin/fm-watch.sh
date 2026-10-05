@@ -11,9 +11,10 @@
 # either a paused: external wait or a verified captain-held transfer, is the
 # separate idle absorb case and re-surfaces only on its long bounded cadence,
 # although its initial no-verb status signal still surfaces in normal mode.
-# A home that holds TYPESAFE_API_KEY additionally offers later repeat checks of
-# such a declared wait, once its declaration has been delivered, and a transient
-# contributions-read timeout, to Jev as one fixed-choice question
+# A home that holds TYPESAFE_API_KEY additionally offers a stale recheck of a
+# paused: wait whose task has a recorded pull request that is still open with no
+# blocker reported, and a transient contributions-read timeout, to Jev as one
+# fixed-choice question
 # (jev_triage_routine owns the gates); every failure there delivers the wake.
 # That cadence is hours long and condition-aware: a paused: line naming
 # `until <UTC ISO 8601>` is rechecked when that time passes, but a declared time
@@ -1649,7 +1650,9 @@ surface_nonterminal_stale() {  # <window> <hash>
 # The eligible classes are an allowlist wired at their own call sites, so a wake
 # that is not one of them never reaches the model:
 #   declared-pause-recheck   a stale wake for a worker whose latest status event
-#                            is a `paused:` external wait (handle_paused_stale,
+#                            is a `paused:` external wait and whose task has a
+#                            recorded pull request that is still open with no
+#                            blocker reported (handle_paused_stale,
 #                            wedge_defer_wait, surface_nonterminal_stale)
 #   contributions-observation-timeout
 #                            a contributions check that reports only forge reads
@@ -1661,14 +1664,15 @@ surface_nonterminal_stale() {  # <window> <hash>
 # jev_triage_enabled refuses while the away daemon or the away-posture record
 # exists, and jev_triage_task_evidence refuses a secondmate, a task with any
 # open keyed decision, a declared clearing time that has passed, an endpoint
-# whose agent is not proven alive, and a status log whose current state has not
-# been delivered to firstmate (the reported signature the delivery paths record
-# in .hb-surfaced-*), so only a repeat of a delivered declaration is ever asked.
+# whose agent is not proven alive, and a task with no recorded pull request.
 #
-# The deterministic read comes first and settles what it can: a task with a
-# recorded pull request is offered only while bin/fm-pr-state.sh reads that pull
-# request as open with no blocker reported, so a merged, closed, conflicting, or
-# failing one is delivered without asking.
+# The recorded pull request (pr= in the task's metadata, which only firstmate
+# records after reading the worker's ready report) is what shows firstmate
+# already knows the wait, so a paused task without one is never offered and
+# surfaces exactly as before. The deterministic read comes first and settles
+# what it can: the task is offered only while bin/fm-pr-state.sh reads that pull
+# request as open with no blocker reported, so a merged, closed, conflicting,
+# failing, or unreadable one is delivered without asking.
 #
 # ponytail: one consecutive-absorb counter per subject bounds the model the way
 # PAUSE_RESURFACE_SECS bounds the deterministic absorbs - after
@@ -1691,7 +1695,7 @@ jev_triage_enabled() {
 # 0 when <task> may be offered to Jev, leaving its evidence object in
 # JEV_TRIAGE_TASK_EVIDENCE; 1 for every task the model must never decide.
 jev_triage_task_evidence() {  # <task>
-  local task=$1 meta statusf last until w pr pr_out pr_note='none recorded'
+  local task=$1 meta statusf last until w pr pr_out
   JEV_TRIAGE_TASK_EVIDENCE=
   case "$task" in ''|*[!A-Za-z0-9._-]*) return 1 ;; esac
   meta="$STATE/$task.meta"
@@ -1704,21 +1708,17 @@ jev_triage_task_evidence() {  # <task>
     [ "$(date +%s)" -lt "$until" ] || return 1
   fi
   [ -z "$(status_open_decisions "$statusf")" ] || return 1
-  status_presentation_marker_reported_matches "$(_hb_surfaced_path "$task")" \
-    "$(fm_wake_signal_sig "$statusf")" || return 1
+  pr=$(fm_meta_get "$meta" pr)
+  [ -n "$pr" ] || return 1
   w=$(fm_backend_target_of_meta "$meta")
   [ -n "$w" ] || return 1
   [ "$(fm_backend_agent_state "$(fm_backend_of_meta "$meta")" "$w" 2>/dev/null || true)" = alive ] || return 1
-  pr=$(fm_meta_get "$meta" pr)
-  if [ -n "$pr" ]; then
-    pr_out=$(fm_run_timed "$JEV_TRIAGE_PR_TIMEOUT" "$FM_PR_STATE_BIN" "$pr" 2>/dev/null) || return 1
-    if [ -n "$pr_out" ] && printf '%s\n' "$pr_out" | grep -Eqv '^(CHECKS: |MERGEABILITY: unknown$)'; then
-      return 1
-    fi
-    pr_note='open; no blocker reported'
+  pr_out=$(fm_run_timed "$JEV_TRIAGE_PR_TIMEOUT" "$FM_PR_STATE_BIN" "$pr" 2>/dev/null) || return 1
+  if [ -n "$pr_out" ] && printf '%s\n' "$pr_out" | grep -Eqv '^(CHECKS: |MERGEABILITY: unknown$)'; then
+    return 1
   fi
   JEV_TRIAGE_TASK_EVIDENCE=$(tail -n 6 "$statusf" 2>/dev/null | cut -c 1-400 \
-    | jq -Rsc --arg task "$task" --arg pr "$pr_note" \
+    | jq -Rsc --arg task "$task" --arg pr 'open; no blocker reported' \
       '{task: $task, pull_request: $pr, recent_status_events: (split("\n") | map(select(length > 0)))}' \
       2>/dev/null) || return 1
   [ -n "$JEV_TRIAGE_TASK_EVIDENCE" ]
