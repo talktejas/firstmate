@@ -17,6 +17,10 @@
 # STALE when it was left at a superseded head.
 # A closed or merged pull request reports that terminal state and nothing else.
 # Unresolved review-thread state is out of this command's scope.
+# When TYPESAFE_API_KEY is available, each failed required check also gets one
+# advisory FAILED CHECK SORT line labelling it a code bug, flaky, environment,
+# or unknown; bin/fm-check-sort-lib.sh owns that sort. The label reads more of
+# GitHub and changes nothing a check reported.
 #
 # Usage: fm-pr-state.sh <pr-url>
 #   Prints one line per blocker it can see and nothing when it sees none.
@@ -26,6 +30,9 @@ set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Sourced before any child runs, so no gh call inherits the Jev key.
+# shellcheck source=bin/fm-check-sort-lib.sh
+. "$SCRIPT_DIR/fm-check-sort-lib.sh"
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
 
@@ -106,10 +113,16 @@ esac
 GH_STDERR=$(mktemp "${TMPDIR:-/tmp}/fm-pr-state.XXXXXX") \
   || die "could not create temporary file"
 trap 'rm -f "$GH_STDERR"' EXIT INT TERM
-if ! REQUIRED=$(gh pr checks "$URL" --required --json name,state,bucket --jq '
+FAILED=
+if REQUIRED=$(gh pr checks "$URL" --required --json name,state,bucket --jq '
   .[]
   | select(.bucket != "pass" and .bucket != "skipping")
-  | "REQUIRED CHECK: \(.name) (\(.state))"' 2>"$GH_STDERR"); then
+  | [.bucket, .state, .name]
+  | @tsv' 2>"$GH_STDERR"); then
+  FAILED=$(printf '%s\n' "$REQUIRED" | awk -F '\t' '$1 == "fail" { print $3 }')
+  REQUIRED=$(printf '%s\n' "$REQUIRED" \
+    | awk -F '\t' 'NF >= 3 { printf "REQUIRED CHECK: %s (%s)\n", $3, $2 }')
+else
   # These two sentences are gh's own human-readable error text, verified against
   # gh 2.100.0 on 2026-09-12. gh reports "nothing reported" as an error rather
   # than as structured data, so matching its text is the only way to tell that
@@ -125,6 +138,9 @@ if ! REQUIRED=$(gh pr checks "$URL" --required --json name,state,bucket --jq '
   fi
 fi
 [ -z "$REQUIRED" ] || printf '%s\n' "$REQUIRED"
+fm_check_sort "${FM_HOME:-$SCRIPT_DIR/..}" "$PATH_PART" "$HEAD" "$URL" <<EOF_FAILED
+$FAILED
+EOF_FAILED
 
 if [ "$REVIEW_DECISION" = CHANGES_REQUESTED ]; then
   printf 'REVIEW DECISION: CHANGES_REQUESTED\n'

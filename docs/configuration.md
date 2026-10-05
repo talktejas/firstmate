@@ -326,6 +326,24 @@ Second mates carry no worker stop hook and are never checked.
 
 `bin/fm-finished-check.sh`'s header owns the exact fact gates and question order, `bin/fm-jev-lib.sh` owns the request, the answer validation, and the key handling, and [`verification/finished-check.md`](verification/finished-check.md) records the live evidence.
 
+## Failed check sort (.env TYPESAFE_API_KEY, config/jev-code-projects)
+
+`bin/fm-pr-state.sh` adds one advisory line under each failed required check it reports, labelling the failure a code bug, flaky, environment, or unknown, so a worker is not sent to fix a failure that is not in its code.
+It is off unless `TYPESAFE_API_KEY` is available under the same environment-then-`.env` contract as [typed dispatch resolution](#typed-dispatch-resolution-env-typesafe_api_key); with the key absent the command reads and prints exactly what it does without the feature.
+The label never re-runs a check, never changes what a check reported, and never changes the command's blocker lines or exit status, so nothing merges, blocks, or discards on it.
+
+Fixed rules decide first from GitHub reads alone: a check that another attempt of the same workflow run passed is flaky, and a check whose failed steps log a connection error while the same check also fails on the base branch is environment.
+Only a failure neither rule decides is put to typesafe.ai's System One model (Jev) as one fixed-choice question, `code_bug`, `flaky`, `environment`, or `unclear`.
+A `code_bug` answer needs the shared 0.6 confidence floor, and a `flaky` or `environment` answer needs 0.8, because those two point a worker away from the failure.
+A timeout, a transport or API error, a malformed answer, an `unclear` choice, an answer under its floor, a check with no GitHub Actions job log, and an unreadable GitHub read all print `unknown`, and the worker investigates as it does without the label.
+
+The question carries the check's name and the failure-naming lines of the job's failed steps, cut to their last 4000 characters.
+A failure log quotes the project's code, so it is sent only for a repository listed in the optional local, gitignored `config/jev-code-projects`, one project name per line, with blank lines and lines starting with `#` ignored; the name compared is the repository name in the pull request's address.
+An unlisted repository still gets the two fixed rules, and its undecided failures are `unknown` with no call.
+
+The sort covers GitHub pull requests only, which is all `bin/fm-pr-state.sh` reads, and it is the same on every harness and runtime backend because the command reads the forge and no worker surface.
+`bin/fm-check-sort-lib.sh`'s header owns the exact rules, bounds, and output, `bin/fm-jev-lib.sh` owns the request, the answer validation, the key handling, and the `fm_jev_code_allowed` project list read, and [`verification/failed-check-sort.md`](verification/failed-check-sort.md) records the live evidence.
+
 ## Gate defaults (.no-mistakes.yaml)
 
 The tracked `.no-mistakes.yaml` sets `test.evidence.store_in_repo: true` and pins `commands.lint` to `bin/fm-lint.sh`, the same owner CI invokes.

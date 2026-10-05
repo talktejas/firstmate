@@ -1456,12 +1456,17 @@ families_for_changed_path() {
       ;;
     bin/fm-jev-lib.sh)
       # The one Jev caller, sourced by bin/fm-dispatch-resolve.sh, the watcher's
-      # routine-wake triage, bin/fm-house-rules-check.sh, and the worker stop
-      # hook's finished check.
+      # routine-wake triage, bin/fm-house-rules-check.sh, the worker stop
+      # hook's finished check, and the failed check sort.
+      printf '%s\n' "__script__:fm-pr-state.test.sh"
       printf '%s\n' "__script__:fm-dispatch-resolve.test.sh"
       printf '%s\n' "__script__:fm-jev-wake-triage.test.sh"
       printf '%s\n' "__script__:fm-house-rules-check.test.sh"
       printf '%s\n' "__script__:fm-finished-check.test.sh"
+      ;;
+    bin/fm-check-sort-lib.sh)
+      # The failed check sort, sourced by bin/fm-pr-state.sh.
+      printf '%s\n' "__script__:fm-pr-state.test.sh"
       ;;
     bin/fm-house-rules-check.sh)
       printf '%s\n' "__script__:fm-house-rules-check.test.sh"

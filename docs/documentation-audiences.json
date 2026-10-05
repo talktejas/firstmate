@@ -465,6 +465,10 @@
       "audience": "maintainer-verification"
     },
     {
+      "path": "docs/verification/failed-check-sort.md",
+      "audience": "maintainer-verification"
+    },
+    {
       "path": "docs/verification/finished-check.md",
       "audience": "maintainer-verification"
     },
