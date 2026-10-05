@@ -38,6 +38,14 @@
 # conflicting role is superseded rather than duplicated.
 # fm_ship_rule_one owns the mode-specific first ship safety rule shared by an
 # ordinary ship brief and the durable contract written during scout promotion.
+# fm_dod_block's optional third argument is the firstmate home. When
+# `bin/fm-house-rules-check.sh --enabled` succeeds for it (TYPESAFE_API_KEY
+# present and at least one rule), every mode's block gains the advisory
+# house-rules step from fm_dod_house_rules_step; otherwise, and whenever the
+# argument is omitted, the block is byte-identical to the one without it.
+
+_FM_DOD_LIB_DIR=${BASH_SOURCE[0]%/*}
+[ "$_FM_DOD_LIB_DIR" != "${BASH_SOURCE[0]}" ] || _FM_DOD_LIB_DIR=.
 
 fm_brief_worker_role() {  # <state-dir> <task-id>
   local state=$1 task_id=$2
@@ -232,15 +240,31 @@ fm_ask_user_escalation_block() {  # <data-dir> <task-id>
 EOF
 }
 
-fm_dod_block() {  # <mode> <task-id>
-  local mode=$1 id=$2
+# Print the advisory house-rules step, led by a newline so it can follow a
+# block line directly, or nothing when the check is off for <home>.
+fm_dod_house_rules_step() {  # <home>
+  local home=$1 check
+  [ -n "$home" ] || return 0
+  check=$(cd "$_FM_DOD_LIB_DIR" 2>/dev/null && pwd)/fm-house-rules-check.sh
+  FM_HOME="$home" "$check" --enabled >/dev/null 2>&1 || return 0
+  # shellcheck disable=SC2016 # Backticks are literal Markdown in the brief.
+  {
+  printf '\nOnce your work is committed, and before the next step below, run `FM_HOME=%q %q` in the worktree, adding `--base <ref>` when your branch was not cut from the default branch.\n' "$home" "$check"
+  printf '%s\n' 'It prints advisory house-rule flags, one `file:line` per line, and never fails: read each flagged line, fix and commit a real rule break, and leave alone a flag you judge wrong.'
+  printf '%s' 'No flag, or a check that could not run, changes nothing: carry on.'
+  }
+}
+
+fm_dod_block() {  # <mode> <task-id> [<home>]
+  local mode=$1 id=$2 house
+  house=$(fm_dod_house_rules_step "${3:-}")
   case "$mode" in
     direct-PR)
       cat <<EOF
 # Definition of done
 Delivery contract: mode=direct-PR
 This task ships **direct-PR**: you raise the PR yourself, without the no-mistakes pipeline.
-The task is complete only when committed on your branch.
+The task is complete only when committed on your branch.$house
 When it is implemented and committed, push your branch and open a PR with \`gh-axi\`, then append \`done: PR {url}\` to the status file and stop.
 Do NOT run /no-mistakes. The configured merge authority decides whether to merge the PR; firstmate relays the outcome.
 EOF
@@ -250,7 +274,7 @@ EOF
 # Definition of done
 Delivery contract: mode=local-only
 This task ships **local-only**: no remote, no PR, no pipeline.
-The task is complete only when committed on your branch \`fm/$id\`. Do NOT push, do NOT open a PR, do NOT merge.
+The task is complete only when committed on your branch \`fm/$id\`. Do NOT push, do NOT open a PR, do NOT merge.$house
 Keep your branch a clean fast-forward onto the current default branch - if \`main\` has advanced, rebase onto it so the eventual merge stays a fast-forward.
 When it is implemented and committed, append \`done: ready in branch fm/$id\` to the status file and stop.
 The configured merge authority approves the ready branch, then firstmate merges it into local \`main\` through the guarded fast-forward path.
@@ -260,7 +284,7 @@ EOF
       cat <<EOF
 # Definition of done
 Delivery contract: mode=no-mistakes
-The task is complete only when committed on your branch.
+The task is complete only when committed on your branch.$house
 When you believe it is complete, append \`done: {summary}\` to the status file and stop.
 Firstmate will then instruct you to run /no-mistakes to validate and ship a PR.
 

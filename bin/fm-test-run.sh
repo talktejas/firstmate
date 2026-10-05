@@ -400,7 +400,7 @@ family_for_basename() {
     fm-branch-supervision.test.sh|fm-busy-adapter-wiring.test.sh|\
     fm-busy-state.test.sh|fm-classify-corr-token.test.sh|\
     fm-claude-stop-autoarm.test.sh|fm-cursor-harness.test.sh|\
-    fm-dispatch-resolve.test.sh|\
+    fm-dispatch-resolve.test.sh|fm-house-rules-check.test.sh|\
     fm-extension-binding.test.sh|fm-gitignore-config.test.sh|\
     fm-no-mistakes-required.test.sh|fm-peek-remote.test.sh|\
     fm-pending-reply.test.sh|fm-pi-branch-extension.test.sh|\
@@ -1452,10 +1452,14 @@ families_for_changed_path() {
       printf '%s\n' "__script__:fm-dispatch-resolve.test.sh"
       ;;
     bin/fm-jev-lib.sh)
-      # The one Jev caller, sourced by bin/fm-dispatch-resolve.sh and by the
-      # watcher's routine-wake triage.
+      # The one Jev caller, sourced by bin/fm-dispatch-resolve.sh, by the
+      # watcher's routine-wake triage, and by bin/fm-house-rules-check.sh.
       printf '%s\n' "__script__:fm-dispatch-resolve.test.sh"
       printf '%s\n' "__script__:fm-jev-wake-triage.test.sh"
+      printf '%s\n' "__script__:fm-house-rules-check.test.sh"
+      ;;
+    bin/fm-house-rules-check.sh)
+      printf '%s\n' "__script__:fm-house-rules-check.test.sh"
       ;;
     bin/fm-env-lib.sh)
       # The one .env accessor, sourced by bin/fm-x-lib.sh (Relay token) and
