@@ -469,6 +469,10 @@
       "audience": "maintainer-verification"
     },
     {
+      "path": "docs/verification/escalation-screen.md",
+      "audience": "maintainer-verification"
+    },
+    {
       "path": "docs/verification/failed-check-sort.md",
       "audience": "maintainer-verification"
     },

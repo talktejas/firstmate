@@ -454,6 +454,30 @@ The pipeline's own fix commits are made outside the worker's terminal and are no
 
 `bin/fm-commit-check.sh`'s header owns the exact gates and bounds, `bin/fm-jev-lib.sh` owns the credential patterns, the request, the answer validation, the key handling, and the project list, and [`verification/commit-check.md`](verification/commit-check.md) records the live evidence.
 
+## Escalation screen (.env TYPESAFE_API_KEY)
+
+`bin/fm-escalation-screen.sh <question text>` asks typesafe.ai's System One model (Jev) what kind of question firstmate is about to put to the captain, so a question that is really a setting with a default, or a choice that is cheap to change later, is noticed before it reaches him.
+It is off unless `TYPESAFE_API_KEY` is available under the same environment-then-`.env` contract as [typed dispatch resolution](#typed-dispatch-resolution-env-typesafe_api_key).
+The key alone turns it on, because only the question's own words are sent; firstmate passes no code or diff in them, and a line that looks like a credential is withheld as [Jev code projects](#jev-code-projects-configjev-code-projects) describes.
+
+Code decides what it can before the call.
+A question that names a merge, an approval, a destructive or irreversible act, or a security-sensitive one is printed as `captain's` without a request, a review-gate line is left to the [review finding sort](#review-finding-sort-env-typesafe_api_key-configjev-code-projects), and a question over 4000 characters is left by hand whole rather than cut to fit.
+One request then sorts the question into one of five fixed kinds: `trade` (how the business works, or a wrong answer misprices a deal or pays the wrong party), `costly-to-undo` (cannot be renamed once shipped, makes the work bigger, destructive, security-sensitive, or a merge), `setting-with-default` (different customers or countries could want different behaviour), `cheap-to-reverse`, or `unclear`.
+
+The script prints exactly one line.
+`screen: yours` is printed only for a `setting-with-default` or `cheap-to-reverse` answer whose confidence reaches the shared 0.6 floor.
+`screen: captain's` is printed for the code rule above and for a `trade` or `costly-to-undo` answer at any confidence.
+`screen: by hand` is printed for everything else: `unclear`, low confidence, a timeout, a transport or API error, a malformed answer, and a missing key.
+
+The screen is advice only.
+`yours` means the question looks like one firstmate already decides under the captain's standing guidance - ship the setting with a default that works, or make the cheap choice - and firstmate's own reading of the question wins whenever it disagrees.
+`captain's` and `by hand` change nothing: firstmate judges the question exactly as without the feature.
+No printed line adds or removes a stop for the captain's approval: merge authority, ask-user findings, destructive, irreversible, and security-sensitive acts keep their own owners in `AGENTS.md`.
+The script exits 0 on every outcome except a usage error (exit 2), asks and answers nothing, holds no task, steers no worker, and writes no record.
+
+The script is one shell command firstmate runs in its own home on text it already holds, so it behaves the same on every supported primary harness and runtime backend and for a local or remote worker; it needs `jq`, `curl`, and outbound network, and a home that lacks any of them judges by hand.
+`bin/fm-escalation-screen.sh`'s header owns the exact rules, bound, question, and output, `bin/fm-jev-lib.sh` owns the request, the answer validation, the key handling, and the credential-line filter, and [`verification/escalation-screen.md`](verification/escalation-screen.md) records the live evidence.
+
 ## Gate defaults (.no-mistakes.yaml)
 
 The tracked `.no-mistakes.yaml` sets `test.evidence.store_in_repo: true` and pins `commands.lint` to `bin/fm-lint.sh`, the same owner CI invokes.
