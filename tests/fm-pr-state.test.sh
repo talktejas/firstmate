@@ -97,7 +97,7 @@ passed_too() {  # <run-id of a passing run of the same check>
 
 run_state() {
   env -u TYPESAFE_API_KEY FM_HOME="${FM_TEST_HOME:-$HOME_OFF}" PATH="$FAKEBIN:$PATH" \
-    "$SCRIPT" https://github.com/o/r/pull/7
+    "$SCRIPT" "$@" https://github.com/o/r/pull/7
 }
 
 # Runs fm_check_sort over one failed check with fm_jev_choice replaced at the
@@ -249,10 +249,32 @@ test_required_failure_is_a_blocker() {
   pass "required failure blocks readiness"
 }
 
+test_failed_check_sort_is_off_unless_asked_for() {
+  local out
+  rm -f "$GH_CALLS" "$TMP_ROOT/curl-calls"
+  cat > "$FAKEBIN/curl" <<'SH'
+#!/bin/sh
+echo called >> "$FM_TEST_CURL_CALLS"
+exit 7
+SH
+  chmod +x "$FAKEBIN/curl"
+  printf 'o/r\n' > "$HOME_ON/config/jev-code-projects"
+  out=$(FM_TEST_HOME="$HOME_ON" FM_TEST_REQUIRED_CHECKS=$FAILING FM_TEST_HEAD_RUNS=$FAILED_RUN \
+    FM_TEST_LOG='assert failed' FM_TEST_GH_CALLS="$GH_CALLS" FM_TEST_CURL_CALLS="$TMP_ROOT/curl-calls" run_state) \
+    || fail "blocked fixture was refused"
+  rm -f "$FAKEBIN/curl" "$HOME_ON/config/jev-code-projects"
+  [ "$out" = "$(printf 'REQUIRED CHECK: CI Status (FAILURE)\nREQUIRED CHECK: slow (IN_PROGRESS)')" ] \
+    || fail "without the option the report is exactly the blocker lines, got: $out"
+  assert_no_grep 'check-runs' "$GH_CALLS" "without the option no check run is read"
+  assert_no_grep 'log-failed' "$GH_CALLS" "without the option no job log is downloaded"
+  [ ! -e "$TMP_ROOT/curl-calls" ] || fail "without the option the model is never asked"
+  pass "the default call reads and prints what it does without the sort, key and listed repository present"
+}
+
 test_failed_check_sort_is_off_without_a_key() {
   local out
   rm -f "$GH_CALLS"
-  out=$(FM_TEST_REQUIRED_CHECKS=$FAILING FM_TEST_GH_CALLS="$GH_CALLS" run_state) \
+  out=$(FM_TEST_REQUIRED_CHECKS=$FAILING FM_TEST_GH_CALLS="$GH_CALLS" run_state --sort-failed-checks) \
     || fail "blocked fixture was refused"
   [ "$out" = "$(printf 'REQUIRED CHECK: CI Status (FAILURE)\nREQUIRED CHECK: slow (IN_PROGRESS)')" ] \
     || fail "without a key the report is exactly the blocker lines, got: $out"
@@ -273,7 +295,7 @@ test_failed_check_sort_rules_decide_first() {
   [ "$out" = 'FAILED CHECK SORT: CI Status: unknown' ] \
     || fail "a pass from a different run, such as one a pull request edit triggered, is not a retry, got: $out"
 
-  printf 'o\nr\n' > "$HOME_ON/config/jev-code-projects"
+  printf 'o/r\n' > "$HOME_ON/config/jev-code-projects"
   out=$(FM_TEST_HEAD_RUNS=$FAILED_RUN \
     FM_TEST_LOG=$(printf 'build\tinstall\t2026-10-06T10:00:00.1234567Z curl: (6) Could not resolve host: registry.example') \
     FM_TEST_BASE_RUNS='{"check_runs":[{"id":9,"status":"completed","conclusion":"failure"}]}' run_sort)
@@ -296,11 +318,17 @@ test_failed_check_sort_asks_only_for_a_listed_project() {
     || fail "an unclear failure in an unlisted repository is unknown, got: $out"
   [ "$(jev_calls)" = 0 ] || fail "an unlisted repository's log is never sent"
 
-  printf '# r\n' > "$HOME_ON/config/jev-code-projects"
+  printf '# o/r\n' > "$HOME_ON/config/jev-code-projects"
   FM_TEST_HEAD_RUNS=$FAILED_RUN FM_TEST_LOG=$log run_sort >/dev/null
-  [ "$(jev_calls)" = 0 ] || fail "a commented-out name does not list the repository"
+  [ "$(jev_calls)" = 0 ] || fail "a commented-out entry does not list the repository"
 
-  printf '# listed\nr\n' > "$HOME_ON/config/jev-code-projects"
+  printf 'r\no\nother/r\no/r2\n' > "$HOME_ON/config/jev-code-projects"
+  out=$(FM_TEST_HEAD_RUNS=$FAILED_RUN FM_TEST_LOG=$log run_sort)
+  [ "$out" = 'FAILED CHECK SORT: CI Status: unknown' ] \
+    || fail "a bare name or a same-named repository under another owner does not list this one, got: $out"
+  [ "$(jev_calls)" = 0 ] || fail "only the exact owner/repo entry lets a repository's log be sent"
+
+  printf '# listed\no/r\n' > "$HOME_ON/config/jev-code-projects"
   out=$(FM_TEST_HEAD_RUNS=$FAILED_RUN FM_TEST_LOG=$log run_sort)
   [ "$out" = 'FAILED CHECK SORT: CI Status: code bug (jev, confidence 0.9)' ] \
     || fail "a confident answer labels the check, got: $out"
@@ -334,7 +362,10 @@ test_failed_check_sort_asks_only_for_a_listed_project() {
   [ "$(jev_calls)" = 0 ] || fail "a check with no log is never sent"
 
   out=$(FAILED_NAMES=$(printf 'a\nb\nc\nd') FM_TEST_HEAD_RUNS=$FAILED_RUN FM_TEST_LOG=$log run_sort)
-  [ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" = 3 ] || fail "only the first three failed checks are sorted, got: $out"
+  [ "$out" = "$(printf 'FAILED CHECK SORT: %s: code bug (jev, confidence 0.9)\n' a b c
+    printf 'FAILED CHECK SORT: d: unknown (not sorted)')" ] \
+    || fail "every failed check gets a line and only the first three are sorted, got: $out"
+  [ "$(jev_calls)" = 3 ] || fail "a check past the bound is never sent"
   rm -f "$HOME_ON/config/jev-code-projects"
   pass "only a listed repository's unclear failure is asked, and every doubt is unknown"
 }
@@ -349,9 +380,9 @@ printf '%s env=%s\n' "$*" "${TYPESAFE_API_KEY-}" >> "$FM_TEST_CURL_CALLS"
 exit 7
 SH
   chmod +x "$FAKEBIN/curl"
-  printf 'r\n' > "$HOME_ON/config/jev-code-projects"
+  printf 'o/r\n' > "$HOME_ON/config/jev-code-projects"
   out=$(FM_TEST_HOME="$HOME_ON" FM_TEST_REQUIRED_CHECKS=$FAILING FM_TEST_HEAD_RUNS=$FAILED_RUN \
-    FM_TEST_LOG='assert failed' FM_TEST_GH_CALLS="$GH_CALLS" FM_TEST_CURL_CALLS="$TMP_ROOT/curl-calls" run_state) || status=$?
+    FM_TEST_LOG='assert failed' FM_TEST_GH_CALLS="$GH_CALLS" FM_TEST_CURL_CALLS="$TMP_ROOT/curl-calls" run_state --sort-failed-checks) || status=$?
   rm -f "$FAKEBIN/curl" "$HOME_ON/config/jev-code-projects"
   [ "$status" -eq 0 ] || fail "a failed model call must not change the exit status"
   [ "$out" = "$(printf 'REQUIRED CHECK: CI Status (FAILURE)\nREQUIRED CHECK: slow (IN_PROGRESS)\nFAILED CHECK SORT: CI Status: unknown')" ] \
@@ -445,6 +476,7 @@ test_changes_requested_decision_is_never_silent
 test_authors_own_changes_requested_review_is_not_a_blocker
 test_pending_approval_is_not_a_blocker
 test_required_failure_is_a_blocker
+test_failed_check_sort_is_off_unless_asked_for
 test_failed_check_sort_is_off_without_a_key
 test_failed_check_sort_rules_decide_first
 test_failed_check_sort_asks_only_for_a_listed_project

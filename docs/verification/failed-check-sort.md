@@ -10,6 +10,7 @@ The API shape itself is recorded in [`dispatch-resolve.md`](dispatch-resolve.md)
 
 Run 2026-10-06 against `https://api.typesafe.ai`, model `jev-latest` answering as `jev-1.13.0`, timeout 5 s, with gh 2.100.0.
 Each row is `fm_check_sort` from `bin/fm-check-sort-lib.sh` run three times on one real failed check of `talktejas/firstmate`, with its rules, question, and criteria unmodified, the key read from the environment by `bin/fm-jev-lib.sh`, and a fixture home whose `config/jev-code-projects` lists `firstmate`.
+The list has since been matched as the exact `<owner>/<repo>`, so the same run now needs the entry `talktejas/firstmate`.
 Every read of GitHub was real: the check runs of the commit, and the failed steps' log through `gh run view --job <id> --log-failed`.
 No rule fired on any row, so each run is one real question; the 18 calls took 298 to 808 ms.
 
@@ -47,8 +48,9 @@ No open pull request had a failing required check on the run date, so these were
 - the `flaky` rule firing on a pass from another attempt of the same run, and not on a pass from a different run;
 - the `environment` rule firing on a connection error whose check also fails on the base branch;
 - `bin/fm-pr-state.sh` itself printing the label beside its unchanged blocker lines, with a fake `curl` that fails, and the key reaching neither `curl`'s argv or environment nor any `gh` call;
+- a call without `--sort-failed-checks`, key and listed repository present, making no check-run read, no log download, and no model call;
 - no key meaning no extra GitHub read and no extra line;
-- an unlisted or commented-out repository name, a check with no job log, a failed call, an `unclear` choice, and an answer under either floor all printing `unknown`;
-- only the failure-naming lines being sent, cut to the last 4000 characters, and only the first three failed checks being sorted.
+- an unlisted or commented-out repository, a bare repository name, a same-named repository under another owner, a check with no job log, a failed call, an `unclear` choice, and an answer under either floor all printing `unknown`;
+- only the failure-naming lines being sent, cut to the last 4000 characters, and only the first three failed checks being sorted, with a fourth printed as `unknown (not sorted)`.
 
 `FM_PR_STATE_LIVE_E2E=1 bash tests/fm-pr-state-live-e2e.test.sh` is the command that confirms gh's own jq engine still accepts the script's pull-request read programs.

@@ -2,8 +2,9 @@
 # Advisory sort of a failed required check: code bug, flaky, or environment.
 # Usage: . bin/fm-check-sort-lib.sh   (source it before the caller runs any child)
 #
-# bin/fm-pr-state.sh is the one caller. It hands over the required checks it
-# already read as failed, and this file prints one extra line per check:
+# bin/fm-pr-state.sh is the one caller, and only under its
+# --sort-failed-checks option. It hands over the required checks it already
+# read as failed, and this file prints one extra line per check:
 #   FAILED CHECK SORT: <check>: <class> (<why>)
 # where <class> is `flaky`, `environment`, `code bug`, or `unknown`. The line is
 # a label for the reader. It never re-runs a check, never changes what a check
@@ -25,9 +26,10 @@
 # failure (FM_CHECK_SORT_EVIDENCE) are sent, or every line when none does, cut
 # to the last FM_CHECK_SORT_TAIL_CHARS characters, because a job states its
 # failure last and ends in summary lines that say nothing about the cause. A failure log quotes the project's
-# code, so it is sent only for a repository whose name fm_jev_code_allowed
-# lists in config/jev-code-projects; an unlisted repository's unclear failure
-# is `unknown` with no call. `unknown` is also the answer for a check with no
+# code, so it is sent only for a repository fm_jev_code_allowed finds in
+# config/jev-code-projects as its exact `<owner>/<repo>`; a bare name there
+# never matches a repository. An unlisted repository's unclear failure is
+# `unknown` with no call. `unknown` is also the answer for a check with no
 # GitHub Actions job log, an unreadable read, a Jev timeout or error, a
 # malformed answer, an `unclear` choice, and a confidence under the floor; the
 # worker then investigates as it does without the label. `code bug` needs the
@@ -37,8 +39,8 @@
 # `environment` at 0.66 (docs/verification/failed-check-sort.md).
 #
 # ponytail: only the first FM_CHECK_SORT_MAX failed checks are sorted, so a
-# pull request with many red checks costs a bounded number of reads; the rest
-# keep their REQUIRED CHECK line and get no label.
+# pull request with many red checks costs a bounded number of reads; each of
+# the rest is printed as `unknown (not sorted)` with nothing read.
 #
 # fm_check_sort <home> <owner/repo> <head-sha> <pr-url>
 #   Reads failed check names, one per line, on stdin. Always returns 0.
@@ -51,6 +53,7 @@ _FM_CHECK_SORT_DIR=${BASH_SOURCE[0]%/*}
 FM_CHECK_SORT_MAX=3
 FM_CHECK_SORT_LOG_LINES=2000
 FM_CHECK_SORT_TAIL_CHARS=4000
+# A live call labelled a process failure `environment` at 0.65 to 0.73 (docs/verification/failed-check-sort.md).
 FM_CHECK_SORT_AWAY_FLOOR=0.8
 FM_CHECK_SORT_EVIDENCE='error|fail|not ok|panic|exception|assert|timed out|timeout|refused|denied|killed|cannot|unable'
 FM_CHECK_SORT_MARKERS='ECONNREFUSED|ECONNRESET|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|could not resolve host|temporary failure in name resolution|connection (refused|reset|timed out)|TLS handshake timeout|50[234] (bad gateway|service unavailable|gateway time-?out)'
@@ -115,10 +118,13 @@ fm_check_sort() {  # <home> <owner/repo> <head-sha> <pr-url>; failed check names
   [ "${#names[@]}" -gt 0 ] || return 0
   fm_jev_key_load "$home" || return 0
   command -v jq >/dev/null 2>&1 || return 0
-  ! FM_HOME=$home fm_jev_code_allowed "${repo##*/}" || listed=1
+  ! FM_HOME=$home fm_jev_code_allowed "$repo" || listed=1
   for name in "${names[@]}"; do
     n=$((n + 1))
-    [ "$n" -le "$FM_CHECK_SORT_MAX" ] || break
+    if [ "$n" -gt "$FM_CHECK_SORT_MAX" ]; then
+      printf 'FAILED CHECK SORT: %s: unknown (not sorted)\n' "$name"
+      continue
+    fi
     printf 'FAILED CHECK SORT: %s: %s\n' "$name" \
       "$(_fm_check_sort_one "$listed" "$repo" "$head" "$url" "$name" </dev/null)" || true
   done

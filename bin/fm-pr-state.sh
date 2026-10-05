@@ -17,12 +17,15 @@
 # STALE when it was left at a superseded head.
 # A closed or merged pull request reports that terminal state and nothing else.
 # Unresolved review-thread state is out of this command's scope.
-# When TYPESAFE_API_KEY is available, each failed required check also gets one
-# advisory FAILED CHECK SORT line labelling it a code bug, flaky, environment,
-# or unknown; bin/fm-check-sort-lib.sh owns that sort. The label reads more of
-# GitHub and changes nothing a check reported.
+# With --sort-failed-checks and TYPESAFE_API_KEY available, each failed
+# required check also gets one advisory FAILED CHECK SORT line labelling it a
+# code bug, flaky, environment, or unknown; bin/fm-check-sort-lib.sh owns that
+# sort. The label reads more of GitHub and changes nothing a check reported.
+# Firstmate passes the option when it reads a pull request's failed checks by
+# hand. The watcher's routine-wake triage does not, so its read costs and
+# prints what it does without the sort.
 #
-# Usage: fm-pr-state.sh <pr-url>
+# Usage: fm-pr-state.sh [--sort-failed-checks] <pr-url>
 #   Prints one line per blocker it can see and nothing when it sees none.
 #   Blockers do not change the successful exit status; lookup or usage refusal
 #   exits non-zero.
@@ -49,7 +52,12 @@ if [ "${1:-}" = --help ] || [ "${1:-}" = -h ]; then
   usage
   exit 0
 fi
-[ "$#" -eq 1 ] || die "usage: fm-pr-state.sh <pr-url>"
+SORT=0
+if [ "${1:-}" = --sort-failed-checks ]; then
+  SORT=1
+  shift
+fi
+[ "$#" -eq 1 ] || die "usage: fm-pr-state.sh [--sort-failed-checks] <pr-url>"
 command -v gh >/dev/null 2>&1 || die "gh is required"
 
 URL=$1
@@ -117,11 +125,10 @@ FAILED=
 if REQUIRED=$(gh pr checks "$URL" --required --json name,state,bucket --jq '
   .[]
   | select(.bucket != "pass" and .bucket != "skipping")
-  | [.bucket, .state, .name]
-  | @tsv' 2>"$GH_STDERR"); then
-  FAILED=$(printf '%s\n' "$REQUIRED" | awk -F '\t' '$1 == "fail" { print $3 }')
-  REQUIRED=$(printf '%s\n' "$REQUIRED" \
-    | awk -F '\t' 'NF >= 3 { printf "REQUIRED CHECK: %s (%s)\n", $3, $2 }')
+  | "REQUIRED CHECK: \(.name) (\(.state))",
+    (select(.bucket == "fail") | "FAILED CHECK NAME: \(.name)")' 2>"$GH_STDERR"); then
+  FAILED=$(printf '%s\n' "$REQUIRED" | sed -n 's/^FAILED CHECK NAME: //p')
+  REQUIRED=$(printf '%s\n' "$REQUIRED" | sed '/^FAILED CHECK NAME: /d')
 else
   # These two sentences are gh's own human-readable error text, verified against
   # gh 2.100.0 on 2026-09-12. gh reports "nothing reported" as an error rather
@@ -138,9 +145,11 @@ else
   fi
 fi
 [ -z "$REQUIRED" ] || printf '%s\n' "$REQUIRED"
-fm_check_sort "${FM_HOME:-$SCRIPT_DIR/..}" "$PATH_PART" "$HEAD" "$URL" <<EOF_FAILED
+if [ "$SORT" -eq 1 ]; then
+  fm_check_sort "${FM_HOME:-$SCRIPT_DIR/..}" "$PATH_PART" "$HEAD" "$URL" <<EOF_FAILED
 $FAILED
 EOF_FAILED
+fi
 
 if [ "$REVIEW_DECISION" = CHANGES_REQUESTED ]; then
   printf 'REVIEW DECISION: CHANGES_REQUESTED\n'

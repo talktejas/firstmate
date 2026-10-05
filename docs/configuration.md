@@ -328,8 +328,9 @@ Second mates carry no worker stop hook and are never checked.
 
 ## Failed check sort (.env TYPESAFE_API_KEY, config/jev-code-projects)
 
-`bin/fm-pr-state.sh` adds one advisory line under each failed required check it reports, labelling the failure a code bug, flaky, environment, or unknown, so a worker is not sent to fix a failure that is not in its code.
-It is off unless `TYPESAFE_API_KEY` is available under the same environment-then-`.env` contract as [typed dispatch resolution](#typed-dispatch-resolution-env-typesafe_api_key); with the key absent the command reads and prints exactly what it does without the feature.
+`bin/fm-pr-state.sh --sort-failed-checks <pr-url>` adds one advisory line under each failed required check it reports, labelling the failure a code bug, flaky, environment, or unknown, so a worker is not sent to fix a failure that is not in its code.
+The sort runs only when the caller passes that option: firstmate passes it when it reads a pull request's failed checks by hand, and the watcher's routine-wake triage never does, so its recheck reads and prints what it does without the feature and sends nothing.
+With the option it is still off unless `TYPESAFE_API_KEY` is available under the same environment-then-`.env` contract as [typed dispatch resolution](#typed-dispatch-resolution-env-typesafe_api_key); with the key absent the command reads and prints exactly what it does without the feature.
 The label never re-runs a check, never changes what a check reported, and never changes the command's blocker lines or exit status, so nothing merges, blocks, or discards on it.
 
 Fixed rules decide first from GitHub reads alone: a check that another attempt of the same workflow run passed is flaky, and a check whose failed steps log a connection error while the same check also fails on the base branch is environment.
@@ -338,7 +339,9 @@ A `code_bug` answer needs the shared 0.6 confidence floor, and a `flaky` or `env
 A timeout, a transport or API error, a malformed answer, an `unclear` choice, an answer under its floor, a check with no GitHub Actions job log, and an unreadable GitHub read all print `unknown`, and the worker investigates as it does without the label.
 
 The question carries the check's name and the failure-naming lines of the job's failed steps, cut to their last 4000 characters.
-A failure log quotes the project's code, so it is sent only for a repository listed in the optional local, gitignored `config/jev-code-projects`, one project name per line, with blank lines and lines starting with `#` ignored; the name compared is the repository name in the pull request's address.
+A failure log quotes the project's code, so it is sent only for a repository listed in the optional local, gitignored `config/jev-code-projects`, one entry per line, with blank lines and lines starting with `#` ignored.
+An entry takes one of two forms: `<owner>/<repo>` matches a caller keyed by repository, such as this sort, only when it equals the pull request's owner and repository exactly, so a same-named repository under another owner is not allowed; a bare name matches only a caller that passes a firstmate project name, and never a repository's basename.
+Only the first three failed required checks are sorted, and each one after them is printed as `unknown (not sorted)` with nothing read.
 An unlisted repository still gets the two fixed rules, and its undecided failures are `unknown` with no call.
 
 The sort covers GitHub pull requests only, which is all `bin/fm-pr-state.sh` reads, and it is the same on every harness and runtime backend because the command reads the forge and no worker surface.
