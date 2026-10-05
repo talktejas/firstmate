@@ -170,6 +170,11 @@ change 'db/migrations/café.sql:3'
 assert_contains "$(rate '')" 'risk: high - database migration' "a path git prints quoted is still classified"
 assert_equals '1|3' "$(jq -r '.change.facts | "\(.files)|\(.changed_lines)"' "$TMP_ROOT/jev-state.json")" \
   "a path git prints quoted is counted as its own file"
+change 'my schema.sql:3' 'src/my parser.test.js:2'
+assert_contains "$(rate 'untested=yes 0.99')" 'risk: high - database migration' "a path with a space is still classified"
+assert_equals 'mismatch irreversible' "$(calls)" "a test file with a space in its name settles untested in code"
+assert_equals 'my schema.sql|src/my parser.test.js' "$(jq -r '[.change.files[].path] | join("|")' "$TMP_ROOT/jev-state.json")" \
+  "a path with a space is sent as git names it"
 change src/authors/list.js:3
 assert_contains "$(rate '')" 'risk: low' "an authors path is not a login path"
 change src/old.js:deleted

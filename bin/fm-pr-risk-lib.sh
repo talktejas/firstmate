@@ -92,7 +92,7 @@ _fm_pr_risk_facts() {
     }
     path == "" { next }
     !hunk && /^deleted file mode/ { del = 1; next }
-    !hunk && /^\+\+\+ "?b\// { path = $0; sub(/^\+\+\+ "?b\//, "", path); sub(/"$/, "", path); next }
+    !hunk && /^\+\+\+ "?b\// { path = $0; sub(/^\+\+\+ "?b\//, "", path); sub(/\t$/, "", path); sub(/"$/, "", path); next }
     /^@@/ { hunk = 1; next }
     hunk && /^\+/ { a++; next }
     hunk && /^-/ { r++; next }
