@@ -38,10 +38,11 @@
 # conflicting role is superseded rather than duplicated.
 # fm_ship_rule_one owns the mode-specific first ship safety rule shared by an
 # ordinary ship brief and the durable contract written during scout promotion.
-# fm_dod_block's optional third argument is the firstmate home. When
-# `bin/fm-house-rules-check.sh --enabled` succeeds for it (TYPESAFE_API_KEY
-# present and at least one rule), every mode's block gains the advisory
-# house-rules step from fm_dod_house_rules_step; otherwise, and whenever the
+# fm_dod_block's optional third and fourth arguments are the firstmate home and
+# the task's project. When `bin/fm-house-rules-check.sh --enabled` succeeds for
+# them (the project's name is opted in in that home's config/house-rules.json
+# and TYPESAFE_API_KEY is present), every mode's block gains the advisory
+# house-rules step from fm_dod_house_rules_step; otherwise, and whenever either
 # argument is omitted, the block is byte-identical to the one without it.
 
 _FM_DOD_LIB_DIR=${BASH_SOURCE[0]%/*}
@@ -241,23 +242,25 @@ EOF
 }
 
 # Print the advisory house-rules step, led by a newline so it can follow a
-# block line directly, or nothing when the check is off for <home>.
-fm_dod_house_rules_step() {  # <home>
-  local home=$1 check
-  [ -n "$home" ] || return 0
+# block line directly, or nothing when the check is off for <project> in
+# <home>. A project path is reduced to its name.
+fm_dod_house_rules_step() {  # <home> <project>
+  local home=$1 project=${2%/} check
+  project=${project##*/}
+  [ -n "$home" ] && [ -n "$project" ] || return 0
   check=$(cd "$_FM_DOD_LIB_DIR" 2>/dev/null && pwd)/fm-house-rules-check.sh
-  FM_HOME="$home" "$check" --enabled >/dev/null 2>&1 || return 0
+  FM_HOME="$home" "$check" --enabled "$project" >/dev/null 2>&1 || return 0
   # shellcheck disable=SC2016 # Backticks are literal Markdown in the brief.
   {
-  printf '\nOnce your work is committed, and before the next step below, run `FM_HOME=%q %q` in the worktree, adding `--base <ref>` when your branch was not cut from the default branch.\n' "$home" "$check"
+  printf '\nOnce your work is committed, and before the next step below, run `FM_HOME=%q %q %q` in the worktree.\n' "$home" "$check" "$project"
   printf '%s\n' 'It prints advisory house-rule flags, one `file:line` per line, and never fails: read each flagged line, fix and commit a real rule break, and leave alone a flag you judge wrong.'
   printf '%s' 'No flag, or a check that could not run, changes nothing: carry on.'
   }
 }
 
-fm_dod_block() {  # <mode> <task-id> [<home>]
+fm_dod_block() {  # <mode> <task-id> [<home> <project>]
   local mode=$1 id=$2 house
-  house=$(fm_dod_house_rules_step "${3:-}")
+  house=$(fm_dod_house_rules_step "${3:-}" "${4:-}")
   case "$mode" in
     direct-PR)
       cat <<EOF
