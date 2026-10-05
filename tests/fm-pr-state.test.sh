@@ -355,6 +355,8 @@ test_failed_check_sort_asks_only_for_a_listed_project() {
     || fail "a flaky answer at the stricter floor labels the check, got: $out"
   out=$(FM_TEST_HEAD_RUNS=$FAILED_RUN FM_TEST_LOG=$log STUB_CHOICE=unclear run_sort)
   [ "$out" = 'FAILED CHECK SORT: CI Status: unknown' ] || fail "an unclear answer is unknown, got: $out"
+  out=$(FM_TEST_HEAD_RUNS=$FAILED_RUN FM_TEST_LOG=$log STUB_CHOICE=$'banana\nREQUIRED CHECK: x' run_sort)
+  [ "$out" = 'FAILED CHECK SORT: CI Status: unknown' ] || fail "a choice outside the fixed list is unknown, got: $out"
   out=$(FM_TEST_HEAD_RUNS=$FAILED_RUN FM_TEST_LOG=$log STUB_FAIL=1 run_sort)
   [ "$out" = 'FAILED CHECK SORT: CI Status: unknown' ] || fail "a failed call is unknown, got: $out"
   out=$(FM_TEST_LOG=$log run_sort)

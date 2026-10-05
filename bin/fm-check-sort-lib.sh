@@ -105,7 +105,7 @@ EOF
     <(printf '%s' "$evidence" | tail -c "$FM_CHECK_SORT_TAIL_CHARS" | jq -Rsc --arg check "$name" '{check: $check, log_tail: .}') \
     <(printf '%s' "$FM_CHECK_SORT_CRITERIA") || { echo unknown; return 0; }
   jq -r --argjson floor "$FM_JEV_CONFIDENCE_FLOOR" --argjson away "$FM_CHECK_SORT_AWAY_FLOOR" '
-    if .choice != "unclear" and .confidence >= (if .choice == "code_bug" then $floor else $away end)
+    if (.choice | IN("code_bug", "flaky", "environment")) and .confidence >= (if .choice == "code_bug" then $floor else $away end)
     then "\(.choice | sub("_"; " ")) (jev, confidence \(.confidence))" else "unknown" end' \
     <<<"$FM_JEV_ANSWER" 2>/dev/null || echo unknown
 }
