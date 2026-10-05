@@ -1,0 +1,128 @@
+### B (base d0dd8b5, the reported failure): exited agent, open PR 228, captain's merge word
+watcher: /tmp/fm-base-p7Dx9d/bin/fm-watch.sh @ d0dd8b5
+agent state read by the backend: dead
+pull request read (https://github.com/talktejas/jeweltrek2627-slim/pull/228): [CHECKS: none reported yet|]
+newest status: paused: [2026-09-28T06:08:12Z] pull request https://github.com/talktejas/jeweltrek2627-slim/pull/228 open, waiting for the captain's merge word
+-- run 1 (no key; the new paused: line is reported): exit=0
+   stdout: signal: /tmp/fm-live-pgpRqp/state/park.status
+-- run 2 (key present; the stale recheck; 124 = still watching, nothing delivered): exit=0
+   stdout: stale: fmlive:fm-park (paused 14526s, awaiting external - declared pause, rechecked on a long cadence not a wedge; confirm the wait still holds)
+   wake-queue lines added: 1
+   triage log:
+
+### A (target): exited agent, open PR 228, captain's merge word
+watcher: /home/tds/.no-mistakes/worktrees/3605d2c32b02/01M46R9QPE4ZQGA9REDD1CDGAE/bin/fm-watch.sh @ 5ea1dcd
+agent state read by the backend: dead
+pull request read (https://github.com/talktejas/jeweltrek2627-slim/pull/228): [CHECKS: none reported yet|]
+newest status: paused: [2026-09-28T06:08:12Z] pull request https://github.com/talktejas/jeweltrek2627-slim/pull/228 open, waiting for the captain's merge word
+-- run 1 (no key; the new paused: line is reported): exit=0
+   stdout: signal: /tmp/fm-live-tjj4eo/state/park.status
+-- run 2 (key present; the stale recheck; 124 = still watching, nothing delivered): exit=124
+   wake-queue lines added: 0
+   triage log:
+     [2026-10-06T02:28:12+0700] absorbed jev-routine declared-pause-recheck (confidence=0.99, routine=0.99 needs_firstmate=0.01, 326 ms): stale: fmlive:fm-park (paused 14527s, awaiting external - declared pause, rechecked on a long cadence not a wedge; confirm the wait still holds)
+     [2026-10-06T02:28:12+0700] absorbed stale (paused, awaiting external, age 14527s): fmlive:fm-park
+     [2026-10-06T02:28:15+0700] absorbed stale (paused, awaiting external, age 14532s): fmlive:fm-park
+     [2026-10-06T02:28:17+0700] absorbed stale (paused, awaiting external, age 14534s): fmlive:fm-park
+     [2026-10-06T02:28:19+0700] absorbed stale (paused, awaiting external, age 14536s): fmlive:fm-park
+     [2026-10-06T02:28:21+0700] absorbed stale (paused, awaiting external, age 14538s): fmlive:fm-park
+
+### C: exited agent, PR 230 reads conflicting, merge word
+watcher: /home/tds/.no-mistakes/worktrees/3605d2c32b02/01M46R9QPE4ZQGA9REDD1CDGAE/bin/fm-watch.sh @ 5ea1dcd
+agent state read by the backend: dead
+pull request read (https://github.com/talktejas/jeweltrek2627-slim/pull/230): [MERGEABILITY: conflicting|CHECKS: none reported yet|]
+newest status: paused: [2026-09-28T19:04:12Z] pull request 230 open, waiting for the captain's merge word
+-- run 1 (no key; the new paused: line is reported): exit=0
+   stdout: signal: /tmp/fm-live-Qv6E5q/state/park.status
+-- run 2 (key present; the stale recheck; 124 = still watching, nothing delivered): exit=0
+   stdout: stale: fmlive:fm-park (paused 14526s, awaiting external - declared pause, rechecked on a long cadence not a wedge; confirm the wait still holds)
+   wake-queue lines added: 1
+   triage log:
+
+### D: exited agent, open PR 228, worker waits on a choice
+watcher: /home/tds/.no-mistakes/worktrees/3605d2c32b02/01M46R9QPE4ZQGA9REDD1CDGAE/bin/fm-watch.sh @ 5ea1dcd
+agent state read by the backend: dead
+pull request read (https://github.com/talktejas/jeweltrek2627-slim/pull/228): [CHECKS: none reported yet|]
+newest status: paused: two ways to fix the schema, waiting to be told which
+-- run 1 (no key; the new paused: line is reported): exit=0
+   stdout: signal: /tmp/fm-live-dvwrBx/state/park.status
+-- run 2 (key present; the stale recheck; 124 = still watching, nothing delivered): exit=0
+   stdout: stale: fmlive:fm-park (paused 14526s, awaiting external - declared pause, rechecked on a long cadence not a wedge; confirm the wait still holds)
+   wake-queue lines added: 1
+   triage log:
+     [2026-10-06T02:28:43+0700] jev triage delivered declared-pause-recheck (choice=needs_firstmate confidence=1.0 floor=0.6): stale: fmlive:fm-park (paused 14526s, awaiting external - declared pause, rechecked on a long cadence not a wedge; confirm the wait still holds)
+
+### E: exited agent, open PR 228, worker waits on CI it would resume from
+watcher: /home/tds/.no-mistakes/worktrees/3605d2c32b02/01M46R9QPE4ZQGA9REDD1CDGAE/bin/fm-watch.sh @ 5ea1dcd
+agent state read by the backend: dead
+pull request read (https://github.com/talktejas/jeweltrek2627-slim/pull/228): [CHECKS: none reported yet|]
+newest status: paused: CI is running on the pull request, about 25 minutes, resuming on my own when it finishes
+-- run 1 (no key; the new paused: line is reported): exit=0
+   stdout: signal: /tmp/fm-live-88Cy0f/state/park.status
+-- run 2 (key present; the stale recheck; 124 = still watching, nothing delivered): exit=0
+   stdout: stale: fmlive:fm-park (paused 14525s, awaiting external - declared pause, rechecked on a long cadence not a wedge; confirm the wait still holds)
+   wake-queue lines added: 1
+   triage log:
+     [2026-10-06T02:28:53+0700] jev triage delivered declared-pause-recheck (choice=routine confidence=0.22 floor=0.6): stale: fmlive:fm-park (paused 14525s, awaiting external - declared pause, rechecked on a long cadence not a wedge; confirm the wait still holds)
+
+### F: exited agent, open PR 228, PR open but worker asks a question
+watcher: /home/tds/.no-mistakes/worktrees/3605d2c32b02/01M46R9QPE4ZQGA9REDD1CDGAE/bin/fm-watch.sh @ 5ea1dcd
+agent state read by the backend: dead
+pull request read (https://github.com/talktejas/jeweltrek2627-slim/pull/228): [CHECKS: none reported yet|]
+newest status: paused: PR is open, waiting for you to decide whether the migration should also ship in this PR
+-- run 1 (no key; the new paused: line is reported): exit=0
+   stdout: signal: /tmp/fm-live-Zjh7Zc/state/park.status
+-- run 2 (key present; the stale recheck; 124 = still watching, nothing delivered): exit=0
+   stdout: stale: fmlive:fm-park (paused 14525s, awaiting external - declared pause, rechecked on a long cadence not a wedge; confirm the wait still holds)
+   wake-queue lines added: 1
+   triage log:
+     [2026-10-06T02:29:03+0700] jev triage delivered declared-pause-recheck (choice=needs_firstmate confidence=0.91 floor=0.6): stale: fmlive:fm-park (paused 14525s, awaiting external - declared pause, rechecked on a long cadence not a wedge; confirm the wait still holds)
+
+### G: exited agent, no recorded pull request, merge word
+watcher: /home/tds/.no-mistakes/worktrees/3605d2c32b02/01M46R9QPE4ZQGA9REDD1CDGAE/bin/fm-watch.sh @ 5ea1dcd
+agent state read by the backend: dead
+newest status: paused: [2026-09-28T06:08:12Z] pull request https://github.com/talktejas/jeweltrek2627-slim/pull/228 open, waiting for the captain's merge word
+-- run 1 (no key; the new paused: line is reported): exit=0
+   stdout: signal: /tmp/fm-live-pas444/state/park.status
+-- run 2 (key present; the stale recheck; 124 = still watching, nothing delivered): exit=0
+   stdout: stale: fmlive:fm-park (paused 14524s, awaiting external - declared pause, rechecked on a long cadence not a wedge; confirm the wait still holds)
+   wake-queue lines added: 1
+   triage log:
+
+### H: running agent, open PR 228, captain's merge word
+watcher: /home/tds/.no-mistakes/worktrees/3605d2c32b02/01M46R9QPE4ZQGA9REDD1CDGAE/bin/fm-watch.sh @ 5ea1dcd
+agent state read by the backend: alive
+pull request read (https://github.com/talktejas/jeweltrek2627-slim/pull/228): [CHECKS: none reported yet|]
+newest status: paused: [2026-09-28T06:08:12Z] pull request https://github.com/talktejas/jeweltrek2627-slim/pull/228 open, waiting for the captain's merge word
+-- run 1 (no key; the new paused: line is reported): exit=0
+   stdout: signal: /tmp/fm-live-j8vv4N/state/park.status
+-- run 2 (key present; the stale recheck; 124 = still watching, nothing delivered): exit=124
+   wake-queue lines added: 0
+   triage log:
+     [2026-10-06T02:30:16+0700] absorbed jev-routine declared-pause-recheck (confidence=0.99, routine=1.0 needs_firstmate=0.0, 465 ms): stale: fmlive:fm-park
+     [2026-10-06T02:30:16+0700] absorbed non-terminal stale (declared wait or open captain call already re-surfaced this window): fmlive:fm-park
+     [2026-10-06T02:30:17+0700] absorbed stale (paused, awaiting external, age 14533s): fmlive:fm-park
+     [2026-10-06T02:30:19+0700] absorbed stale (paused, awaiting external, age 14535s): fmlive:fm-park
+     [2026-10-06T02:30:21+0700] absorbed stale (paused, awaiting external, age 14537s): fmlive:fm-park
+
+### J: exited agent, open PR 222, the real task's own last two status lines
+watcher: /home/tds/.no-mistakes/worktrees/3605d2c32b02/01M46R9QPE4ZQGA9REDD1CDGAE/bin/fm-watch.sh @ 5ea1dcd
+agent state read by the backend: dead
+pull request read (https://github.com/talktejas/jeweltrek2627-slim/pull/222): [CHECKS: none reported yet|]
+newest status: paused: [2026-09-28T05:45:23Z] pull request 222 open, waiting for the captain's merge word
+-- run 1 (no key; the new paused: line is reported): exit=0
+   stdout: signal: /tmp/fm-live-WLiknD/state/park.status
+-- run 2 (key present; the stale recheck; 124 = still watching, nothing delivered): exit=124
+   wake-queue lines added: 0
+   triage log:
+     [2026-10-06T02:30:41+0700] absorbed jev-routine declared-pause-recheck (confidence=0.99, needs_firstmate=0.01 routine=0.99, 318 ms): stale: fmlive:fm-park (paused 14526s, awaiting external - declared pause, rechecked on a long cadence not a wedge; confirm the wait still holds)
+     [2026-10-06T02:30:41+0700] absorbed stale (paused, awaiting external, age 14526s): fmlive:fm-park
+     [2026-10-06T02:30:45+0700] absorbed stale (paused, awaiting external, age 14532s): fmlive:fm-park
+     [2026-10-06T02:30:47+0700] absorbed stale (paused, awaiting external, age 14533s): fmlive:fm-park
+     [2026-10-06T02:30:48+0700] absorbed stale (paused, awaiting external, age 14535s): fmlive:fm-park
+     [2026-10-06T02:30:50+0700] absorbed stale (paused, awaiting external, age 14537s): fmlive:fm-park
+
+### Read-only: agent state of the real (herdr) endpoints named in the intent, read with this change's backend library
+jt-diamond-consignor-statement default:w93:p2 -> dead
+jt-diamond-cert-mismatch-flag default:w8K:p2 -> dead
+jt-diamond-memo-return-by-date default:w8Z:p2 -> dead
