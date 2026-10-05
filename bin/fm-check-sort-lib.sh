@@ -66,6 +66,7 @@ FM_CHECK_SORT_CRITERIA='{"code_bug":"The log shows the project'"'"'s own code or
 # Prints "<class> (<why>)" or "unknown" for one failed check.
 _fm_check_sort_one() {  # <listed:0|1> <owner/repo> <head-sha> <pr-url> <check-name>
   local listed=$1 repo=$2 head=$3 url=$4 name=$5 runs run passed job log evidence base base_state
+  # shellcheck disable=SC2016  # jq variables are literal filter syntax.
   runs=$(gh api -X GET "/repos/$repo/commits/$head/check-runs" \
     -f check_name="$name" -f filter=all -f per_page=100 --jq '
     def run: (.details_url // "") | split("/job/") | .[0] // "";
