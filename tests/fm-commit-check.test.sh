@@ -5,7 +5,8 @@
 # Two layers, neither of which touches the network:
 #   - the decision, with the script sourced and fm_jev_choices stubbed at the
 #     library boundary, so every gate is asserted by which questions were asked
-#     at all, what was sent, and what the committer is told;
+#     at all, what was sent (a message and file names, never content), and
+#     what the committer is told;
 #   - real `git commit` runs through the hooks --install writes, with the real
 #     library and a fake curl, proving the hooks fire only through the exported
 #     setting and only in the worktree recorded at install, the project's own
@@ -89,28 +90,36 @@ asked() { tr -d '\n' < "$ASKED"; }
 # --- layer 1: the decision ---------------------------------------------------
 
 stage src/a.py 'x = 1\n' src/b.py 'y = 2\n'
-STUB_YES='filler contradicts leftovers unmentioned' check "$HOME_OFF" listed 'Add the two counters'
+STUB_YES='filler contradicts unmentioned' check "$HOME_OFF" listed 'Add the two counters'
 expect_code 0 $? "no key must let the commit through"
 assert_equals '' "$(asked)$(cat "$ERR")" "no key must ask and say nothing"
 pass "absent key: nothing asked, nothing said"
 
-STUB_YES='filler contradicts leftovers unmentioned' check "$HOME_ON" unlisted 'Add the two counters'
+STUB_YES='filler contradicts unmentioned' check "$HOME_ON" unlisted 'Add the two counters'
 expect_code 0 $? "an unlisted project must let the commit through"
 assert_equals '' "$(asked)$(cat "$ERR")" "the key alone must send nothing about an unlisted project"
 pass "key without the project opt-in: nothing sent"
 
-STUB_YES='leftovers unmentioned' check "$HOME_ON" listed 'Add the two counters'
+# sent_only_names: fail unless what was sent is exactly a message and file names.
+sent_only_names() {  # <label>
+  assert_equals 'commit' "$(jq -r 'keys | join(" ")' "$SENT")" "$1: only the commit is sent"
+  assert_equals 'files message' "$(jq -r '.commit | keys | join(" ")' "$SENT")" "$1: only a message and file names are sent"
+}
+
+STUB_YES='contradicts unmentioned' check "$HOME_ON" listed 'Add the two counters'
 expect_code 0 $? "advice must let the commit through"
-assert_equals 'filler contradicts leftovers unmentioned' "$(asked)" "one request carries all four questions"
-assert_grep 'advisory, the commit goes through: the staged change appears to carry debug leftovers' "$ERR" "a yes must be said"
+assert_equals 'filler contradicts unmentioned' "$(asked)" "one request carries all three questions"
+assert_grep 'advisory, the commit goes through: the message appears to contradict the staged file names' "$ERR" "a yes must be said"
 assert_grep 'a staged file is not accounted for by the message' "$ERR" "each yes gets its own line"
-assert_no_grep 'contradict' "$ERR" "a no must stay silent"
+assert_no_grep 'does not say what changed' "$ERR" "a no must stay silent"
 assert_equals 'Add the two counters' "$(jq -r .commit.message "$SENT")" "the message is sent"
 assert_equals 'src/a.py src/b.py' "$(jq -r '.commit.files | join(" ")' "$SENT")" "the file names are sent"
-assert_contains "$(jq -r .commit.added "$SENT")" '+x = 1' "the added lines are sent"
-pass "listed project: four questions in one request, a line per yes"
+sent_only_names "two new files"
+assert_not_contains "$(cat "$SENT")" 'x = 1' "no line of a staged file is sent"
+assert_not_contains "$(cat "$SENT")" 'y = 2' "no line of any staged file is sent"
+pass "listed project: three questions in one request, a line per yes, names only"
 
-STUB_YES='contradicts leftovers' STUB_CONF=0.55 check "$HOME_ON" listed 'Add the two counters'
+STUB_YES='contradicts unmentioned' STUB_CONF=0.55 check "$HOME_ON" listed 'Add the two counters'
 assert_equals '' "$(cat "$ERR")" "a yes below the floor must stay silent"
 STUB_YES='contradicts' STUB_MODE=error check "$HOME_ON" listed 'Add the two counters'
 expect_code 0 $? "a failed call must let the commit through"
@@ -119,40 +128,46 @@ pass "low confidence and a failed call: silent, commit goes through"
 
 stage src/a.py 'x = 1\n'
 check "$HOME_ON" listed 'Add the counter'
-assert_equals 'filler contradicts leftovers' "$(asked)" "one staged file leaves nothing to be unmentioned"
-stage README.md 'hello\n' docs/x.md 'more\n'
-check "$HOME_ON" listed 'Describe the setup'
-assert_equals 'filler contradicts unmentioned' "$(asked)" "a prose-only change has no added code to hold leftovers"
-assert_equals '' "$(jq -r .commit.added "$SENT")" "prose is left out of the added lines"
+assert_equals 'filler contradicts' "$(asked)" "one staged file leaves nothing to be unmentioned"
 pass "code facts decide which questions are asked"
 
 stage src/a.py 'x = 1\n' src/b.py 'y = 2\n'
 STUB_YES=filler check "$HOME_ON" listed 'WIP.'
-assert_equals 'filler contradicts leftovers unmentioned' "$(asked)" "filler is Jev's question, even for a bare filler word"
+assert_equals 'filler contradicts unmentioned' "$(asked)" "filler is Jev's question, even for a bare filler word"
 assert_grep 'the message does not say what changed or why' "$ERR" "a filler yes is said"
 STUB_YES='' check "$HOME_ON" listed 'Добавить счётчик'
-assert_equals 'filler contradicts leftovers unmentioned' "$(asked)" "a subject with no ASCII letters is still asked about"
+assert_equals 'filler contradicts unmentioned' "$(asked)" "a subject with no ASCII letters is still asked about"
 assert_equals '' "$(cat "$ERR")" "and code calls no subject filler on its own"
 STUB_YES=filler check "$HOME_ON" unlisted 'update'
 assert_equals '' "$(asked)$(cat "$ERR")" "filler is not judged for a project that is not listed"
 pass "filler: asked of Jev for a listed project, never judged by code"
 
-stage src/a.py 'x = 1\n' .env.local 'VALUE=1\n' package-lock.json '{}\n'
+stage src/a.py 'x = 1\n' .env.local 'VALUE=1\n' package-lock.json '{"lock": 7}\n'
 check "$HOME_ON" listed 'Add the counter and its settings'
-assert_contains "$(jq -r .commit.added "$SENT")" 'src/a.py' "code is sent"
-assert_not_contains "$(jq -r .commit.added "$SENT")" 'VALUE=1' "a secret-shaped file's text is never sent"
-assert_not_contains "$(jq -r .commit.added "$SENT")" 'package-lock' "a lockfile's text is never sent"
-pass "secret-shaped and generated paths: named, never quoted"
+sent_only_names "a secret-shaped path"
+assert_equals '.env.local package-lock.json src/a.py' "$(jq -r '.commit.files | join(" ")' "$SENT")" "every staged file is named"
+assert_not_contains "$(cat "$SENT")" 'VALUE=1' "a secret-shaped file's text is never sent"
+assert_not_contains "$(cat "$SENT")" 'lock": 7' "a lockfile's text is never sent"
+assert_not_contains "$(cat "$SENT")" 'x = 1' "a code file's text is never sent"
+stage src/old.py "$(printf 'kept line %02d\\n' $(seq 1 30))"
+git -C "$WT" commit -q -m 'Seed a file to rename'
+git -C "$WT" mv src/old.py src/new.py
+printf 'appended line\n' >> "$WT/src/new.py"
+git -C "$WT" add -- src/new.py
+check "$HOME_ON" listed 'Rename the module'
+sent_only_names "a rename"
+assert_not_contains "$(cat "$SENT")" 'kept line' "no unchanged line of a renamed file is sent"
+assert_not_contains "$(cat "$SENT")" 'appended line' "no added line of a renamed file is sent"
+git -C "$WT" reset -q --hard
+git -C "$WT" rm -q src/old.py
+git -C "$WT" commit -q -m 'Drop the seeded file'
+pass "no staged content is sent: code, skipped paths, and a rename are named only"
 
-long=$(printf 'line %04d\\n' $(seq 1 4000))
-stage src/big.py "$long"
+stage src/a.py 'x = 1\n'
 check "$HOME_ON" listed "Add the table $(printf 'x%.0s' $(seq 1 5000)) THE-END"
-assert_equals true "$(jq -r .commit.added_truncated "$SENT")" "a long diff is flagged as cut"
-assert_equals 24000 "$(jq -r '.commit.added | length' "$SENT")" "a long diff is cut to its bound"
-assert_contains "$(jq -r .commit.added "$SENT")" 'line 4000' "a long diff keeps its end"
 assert_equals 4000 "$(jq -r '.commit.message | length' "$SENT")" "a long message is cut to its bound"
 assert_contains "$(jq -r .commit.message "$SENT")" 'THE-END' "a long message keeps its end"
-pass "long text keeps its end"
+pass "a long message keeps its end"
 
 stage src/a.py 'x = 1\n'
 check "$HOME_ON" listed 'fixup! Add the counter'
@@ -189,16 +204,14 @@ stage src/db.py 'port = 5432\ndb_password = "hunter2-hunter2"\n'
 check "$HOME_ON" listed 'Add the database settings'
 expect_code 0 $? "a quoted password literal must not stop the commit"
 assert_not_contains "$(cat "$SENT")" 'hunter2' "a flagged line is never sent"
-assert_contains "$(jq -r .commit.added "$SENT")" '+[line withheld]' "a flagged line is sent as a fixed placeholder"
-assert_contains "$(jq -r .commit.added "$SENT")" '+port = 5432' "the rest of the change is still sent"
+sent_only_names "a flagged literal"
 assert_grep 'advisory, the commit goes through: an added line may hold a password or secret literal (src/db.py:2)' "$ERR" \
   "a quoted password literal is warned about, by file and line"
 assert_no_grep 'hunter2' "$ERR" "the literal itself is never printed"
 assert_no_grep 'no-verify' "$ERR" "the warning never suggests skipping the hooks"
 stage src/db.py '# caf\xe9 db_password = "hunter2-hunter2"\n'
 LC_ALL=C.UTF-8 check "$HOME_ON" listed 'Add the database settings'
-assert_not_contains "$(cat "$SENT")" 'hunter2' "a byte that is invalid in the locale cannot let a flagged line through"
-assert_contains "$(jq -r .commit.added "$SENT")" '+[line withheld]' "it is withheld like any other flagged line"
+assert_grep 'password or secret literal (src/db.py:1)' "$ERR" "a byte that is invalid in the locale cannot hide a line from a pattern"
 for line in 'token_type = "access_token"' '"tokenizer": "bert-base-uncased"' \
   'TOKEN_URL = "https://example.com/oauth"' 'secret_name: "my-app-db-secret"'; do
   printf '%s\n' "$line" > "$TMP_ROOT/line"
@@ -208,36 +221,17 @@ for line in 'token_type = "access_token"' '"tokenizer": "bert-base-uncased"' \
   check "$HOME_ON" listed 'Name the token settings'
   expect_code 0 $? "ordinary code must not stop a commit: $line"
 done
-# Only added lines are sent: a credential the change removes, or one beside an
-# edited line, is never part of the request.
+# The stop reads added lines only: removing a tracked credential is not stopped.
 akia="AKIA$(printf 'A%.0s' $(seq 1 16))"
-stage deploy.sh "region=us\\naws_key: $akia\\nmode=fast\\n" src/keys.py 'KEY = """\n-----BEGIN RSA PRIVATE KEY-----\nMIIEbodyline1\nMIIEbodyline2\n-----END RSA PRIVATE KEY-----\n"""\n'
+stage deploy.sh "region=us\\naws_key: $akia\\nmode=fast\\n"
 git -C "$WT" commit -q -m 'Seed a tracked credential'
 printf 'region=eu\nmode=fast\n' > "$WT/deploy.sh"
 git -C "$WT" add -- deploy.sh
 check "$HOME_ON" listed 'Drop the key and move the region'
 expect_code 0 $? "removing a credential must not stop the commit"
 assert_not_contains "$(cat "$SENT")" "$akia" "a removed credential line is never sent"
-assert_not_contains "$(cat "$SENT")" 'region=us' "no removed line is sent"
-assert_not_contains "$(cat "$SENT")" 'mode=fast' "no unchanged line is sent"
-assert_equals $'=== deploy.sh ===\n+region=eu' "$(jq -r .commit.added "$SENT")" "exactly the added lines are sent, under their file"
 git -C "$WT" reset -q --hard
-printf 'region=us\naws_key: %s\nmode=slow\n' "$akia" > "$WT/deploy.sh"
-git -C "$WT" add -- deploy.sh
-check "$HOME_ON" listed 'Slow the mode down'
-assert_not_contains "$(cat "$SENT")" "$akia" "a credential beside an edited line is never sent"
-assert_contains "$(jq -r .commit.added "$SENT")" '+mode=slow' "the edited line is"
-git -C "$WT" reset -q --hard
-printf 'KEY = """\n-----BEGIN RSA PRIVATE KEY-----\nMIIEbodyline1\nMIIEchanged\n-----END RSA PRIVATE KEY-----\n"""\n' > "$WT/src/keys.py"
-printf 'x = 9\n' > "$WT/src/a.py"
-git -C "$WT" add -- src/keys.py src/a.py
-check "$HOME_ON" listed 'Rotate the fixture key'
-expect_code 0 $? "editing inside a tracked key block adds no recognised line and is not stopped"
-assert_not_contains "$(cat "$SENT")" 'MIIE' "no line of a private-key block is sent"
-assert_contains "$(jq -r '.commit.files | join(" ")' "$SENT")" 'src/keys.py' "the file holding it is still named"
-assert_contains "$(jq -r .commit.added "$SENT")" '+x = 9' "the other file's added lines are sent"
-git -C "$WT" reset -q --hard
-git -C "$WT" rm -q deploy.sh src/keys.py
+git -C "$WT" rm -q deploy.sh
 git -C "$WT" commit -q -m 'Drop the seeded credential'
 # shellcheck disable=SC2016 # A literal placeholder, as a source file would hold it.
 stage src/conf.py 'token = os.environ["API_TOKEN"]\npassword = "${DB_PASSWORD}"\n'
@@ -303,12 +297,12 @@ pass "a git without the exported setting is untouched"
 stage src/c.py 'z = 3\n' src/d.py 'w = 4\n'
 commit 'Add two more counters' || fail "advice must not stop a real commit"
 assert_equals 'Add two more counters' "$(git -C "$WT" log -1 --format=%s)" "the commit was made"
-assert_equals 4 "$(grep -c 'advisory, the commit goes through' "$ERR")" "every yes is shown to the committer"
+assert_equals 3 "$(grep -c 'advisory, the commit goes through' "$ERR")" "every yes is shown to the committer"
 assert_grep 'argv:https://api.typesafe.ai/v1/systemone' "$FAKE_CURL_LOG" "one request went out"
 assert_equals 1 "$(grep -c 'argv:-X' "$FAKE_CURL_LOG")" "exactly one request per commit"
 assert_no_grep "$KEY" "$FAKE_CURL_LOG" "the key must not reach curl's argv"
 assert_no_grep secret-present "$FAKE_CURL_LOG" "the key must not reach curl's environment"
-pass "real commit: one request, four advisory lines, commit made, key in no child"
+pass "real commit: one request, three advisory lines, commit made, key in no child"
 
 stage src/conf.py "TOKEN = \"$ghtoken\"\\n"
 if commit 'Add the client token'; then fail "a credential must stop a real commit"; fi

@@ -328,7 +328,7 @@ Second mates carry no worker stop hook and are never checked.
 
 ## Commit check (.env TYPESAFE_API_KEY, config/jev-code-projects)
 
-Before each commit a worker makes, a git hook stops an added line that looks like a credential and asks typesafe.ai's System One model (Jev) whether the commit message matches the staged change, printing each mismatch as one advisory line the worker sees in the commit's own output.
+Before each commit a worker makes, a git hook stops an added line that looks like a credential and asks typesafe.ai's System One model (Jev) whether the commit message matches the staged file names, printing each mismatch as one advisory line the worker sees in the commit's own output.
 It is off unless `TYPESAFE_API_KEY` is available under the same environment-then-`.env` contract as [typed dispatch resolution](#typed-dispatch-resolution-env-typesafe_api_key) and the worker's project is a line of the local, gitignored `config/jev-code-projects` (one project name per line, the name of its directory under `projects/`; blank lines and `#` lines are ignored; absent means no project; not inherited by second-mate homes).
 With the key absent, or for a project that is not listed, a worker is launched and commits exactly as it does without the feature: no hooks setting, no hook, no credential check, and nothing sent.
 
@@ -350,13 +350,11 @@ Code decides first, on the worker's machine:
 - An added line that assigns a quoted literal to a password, secret, token, or API-key name is often ordinary code, so it only prints one advisory line naming the file and the line, and the commit goes through.
 - Merges, rebases, cherry-picks, reverts, `fixup!`, `squash!`, and `amend!` commits, and commits with nothing staged are not checked at all.
 
-The hook then makes one request carrying up to four yes/no questions: is the message filler, does it contradict the change, does the change carry debug leftovers, and is a staged file unaccounted for by the message.
-A question code can already answer is left out: leftovers when the change adds no line of code, and unaccounted files when only one file is staged.
-That request carries the commit message (its last 4000 characters when longer), the staged file names (the first 200), and only the lines the change adds, grouped by file (their last 24000 characters when longer).
-Lines the change removes and lines it leaves unchanged are never sent.
-The added lines of prose, lockfiles, generated, vendored, and secret-shaped paths are left out, and so are those of any file whose staged content holds a private-key header, so no part of a key block is sent; such a file is still named.
-An added line that matches a credential format or the password-or-secret-literal pattern above is never sent: it is replaced by `[line withheld]`.
-All of this matching is byte-wise, so a byte that is not valid in the worker's locale cannot hide a line from a pattern.
+The hook then makes one request carrying up to three yes/no questions, each answerable from the message and the file names alone: is the message filler, does it contradict the staged file names (for example it says only tests changed while other files are staged), and is a staged file unaccounted for by the message.
+The last is left out when only one file is staged.
+That request carries the commit message (its last 4000 characters when longer) and the staged file names (the first 200), and nothing else: no diff and no line of any staged file's content ever leaves the machine.
+Debug leftovers are therefore not judged, because they cannot be told without the content.
+The credential patterns above are matched byte-wise, so a byte that is not valid in the worker's locale cannot hide a line from them.
 A project taken off the list after a worker was launched is no longer checked by that worker's hook.
 A `yes` whose confidence and `yes` probability are both at or above the shared 0.6 floor prints one advisory line; a `no`, a low-confidence answer, a timeout, a transport or API error, and a malformed answer print nothing, and in every one of those cases the commit goes through.
 

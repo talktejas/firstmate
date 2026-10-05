@@ -1465,9 +1465,7 @@ families_for_changed_path() {
       printf '%s\n' "__script__:fm-commit-check.test.sh"
       ;;
     bin/fm-house-rules-check.sh)
-      # Also sourced by bin/fm-commit-check.sh for its skipped-path list.
       printf '%s\n' "__script__:fm-house-rules-check.test.sh"
-      printf '%s\n' "__script__:fm-commit-check.test.sh"
       ;;
     bin/fm-commit-check.sh)
       printf '%s\n' "__script__:fm-commit-check.test.sh"
