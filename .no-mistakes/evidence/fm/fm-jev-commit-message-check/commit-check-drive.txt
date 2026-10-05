@@ -1,0 +1,157 @@
+Commit check driven through real `git commit` runs (git 2.53.0) with the hooks that
+`bin/fm-commit-check.sh --install` wrote and the printed value exported as GIT_CONFIG_PARAMETERS.
+The typesafe.ai endpoint is replaced by a local `curl` stand-in on PATH that records each request
+body and answers per "endpoint mode"; no request left the machine. Driver: commit-check-drive.sh
+
+=== S0 install: no key / unlisted project / not a work tree write nothing ===
+install TMP/home-nokey listed TMP/wt -> exit 1, printed "", hooks dir exists: no
+install TMP/home unlisted TMP/wt -> exit 1, printed "", hooks dir exists: no
+install TMP/home listed TMP/bin -> exit 1, printed "", hooks dir exists: no
+install listed+key -> exit 0, printed: 'core.hooksPath=TMP/task tmp/git-hooks'
+project .git/hooks untouched: 0 non-sample files; repo config core.hooksPath: ''
+
+=== S1 listed project, Jev says yes: one request, advisory lines, commit made ===
+commit-check: advisory, the commit goes through: the message does not say what changed or why. (Jev confidence 0.9)
+commit-check: advisory, the commit goes through: the message appears to contradict the staged file names. (Jev confidence 0.9)
+commit-check: advisory, the commit goes through: a staged file is not accounted for by the message; work outside the described change belongs in its own commit. (Jev confidence 0.9)
+[main c248a1d] wip
+ 2 files changed, 4 insertions(+)
+ create mode 100644 docs/notes.md
+ create mode 100644 src/parser.py
+[exit 0] [requests sent by this commit: 1] [HEAD: wip]
+request body sent:
+{
+  "model": "jev-latest",
+  "state": {
+    "commit": {
+      "message": "wip",
+      "files": [
+        "docs/notes.md",
+        "src/parser.py"
+      ]
+    }
+  },
+  "question_keys": [
+    "contradicts",
+    "filler",
+    "unmentioned"
+  ]
+}
+content markers in everything sent so far: 0
+key on curl argv: 0; TYPESAFE vars in curl env: 0 
+
+=== S1b one staged file: unmentioned not asked; Jev says no: silent ===
+[main b262043] Add the one module
+ 1 file changed, 1 insertion(+)
+ create mode 100644 src/one.py
+[exit 0] [requests sent by this commit: 1] [HEAD: Add the one module]
+question keys: ["contradicts","filler"]
+
+=== S2 Jev unsure or down: commit goes through, nothing said ===
+-- endpoint mode: unsure
+[main 6b9d4d7] wip
+ 1 file changed, 1 insertion(+)
+ create mode 100644 src/n1.py
+[exit 0] [requests sent by this commit: 1] [HEAD: wip]
+-- endpoint mode: http500
+[main 5e82ae5] wip
+ 1 file changed, 1 insertion(+)
+ create mode 100644 src/n2.py
+[exit 0] [requests sent by this commit: 1] [HEAD: wip]
+-- endpoint mode: malformed
+[main 9b8a6f6] wip
+ 1 file changed, 1 insertion(+)
+ create mode 100644 src/n3.py
+[exit 0] [requests sent by this commit: 1] [HEAD: wip]
+-- endpoint mode: down
+[main 0a250d1] wip
+ 1 file changed, 1 insertion(+)
+ create mode 100644 src/n4.py
+[exit 0] [requests sent by this commit: 1] [HEAD: wip]
+
+=== S3 recognised credential stops the commit; value never printed; nothing sent ===
+commit-check: commit stopped, an added line looks like a credential:
+  src/conf.py:1: GitHub token
+Remove the credential from the change and commit again.
+[exit 1] [requests sent by this commit: 0] [HEAD: wip]
+token value echoed back: 0
+
+=== S3b adversarial credential placements ===
+-- AWS key inside a file whose name git quotes
+commit-check: commit stopped, an added line looks like a credential:
+  "b/we\"ird.py":1: AWS access key
+Remove the credential from the change and commit again.
+[exit 1] [requests sent by this commit: 0] [HEAD: wip]
+-- private key block in a symlink replaced by a regular file (type change)
+T	link
+commit-check: commit stopped, an added line looks like a credential:
+  link:1: private key
+Remove the credential from the change and commit again.
+[exit 1] [requests sent by this commit: 0] [HEAD: Add a link to the one module]
+-- token on a line with a byte invalid in UTF-8, UTF-8 locale
+commit-check: commit stopped, an added line looks like a credential:
+  src/latin.py:1: GitHub token
+Remove the credential from the change and commit again.
+[exit 1] [requests sent by this commit: 0] [HEAD: Add a link to the one module]
+-- trying to talk the hook out of it via the message
+commit-check: commit stopped, an added line looks like a credential:
+  src/conf.py:1: GitHub token
+Remove the credential from the change and commit again.
+[exit 1] [requests sent by this commit: 0] [HEAD: Add a link to the one module]
+-- removing an already tracked credential is not stopped
+[main baf4ca9] Remove the leaked token file
+ 1 file changed, 1 deletion(-)
+ delete mode 100644 src/old.py
+[exit 0] [requests sent by this commit: 1] [HEAD: Remove the leaked token file]
+
+=== S4 generic secret literal: advisory only, commit made, literal not sent ===
+commit-check: advisory, the commit goes through: an added line may hold a password or secret literal (src/db.py:1); keep real credentials out of the change.
+[main 51b7872] Add the database settings module
+ 1 file changed, 1 insertion(+)
+ create mode 100644 src/db.py
+[exit 0] [requests sent by this commit: 1] [HEAD: Add the database settings module]
+literal in everything sent: 0
+
+=== S5 skipped-path, lockfile, rename: names only ===
+[main 9e10218] Rename the parser and add settings
+ 3 files changed, 3 insertions(+)
+ create mode 100644 config/.env
+ create mode 100644 package-lock.json
+ rename src/{parser.py => parse2.py} (78%)
+[exit 0] [requests sent by this commit: 1] [HEAD: Rename the parser and add settings]
+{"commit":{"message":"Rename the parser and add settings","files":["config/.env","package-lock.json","src/parse2.py"]}}
+content markers in everything sent: 0
+
+=== S6 same pane setting, a different repository and another worktree of the same one: not checked ===
+[main 95c77ea] wip
+ 1 file changed, 1 insertion(+)
+ create mode 100644 fixture.py
+[exit 0] [requests sent by this commit: 0] [HEAD: wip]
+[side 7c7ddf1] wip
+ 1 file changed, 1 insertion(+)
+ create mode 100644 fixture.py
+[exit 0] [requests sent by this commit: 0] [HEAD: wip]
+
+=== S7 a git without the pane setting is untouched ===
+[exit 0] [requests: 0]
+
+=== S8 the project's own hooks still run and still decide ===
+own pre-commit ran
+own commit-msg refuses
+[exit 1] [requests sent by this commit: 0] [HEAD: wip]
+own pre-commit ran
+[main 8cb806b] Add the y module
+ 1 file changed, 1 insertion(+)
+ create mode 100644 src/y.py
+[exit 0] [requests sent by this commit: 1] [HEAD: Add the y module]
+
+=== S9 key removed / project unlisted after launch: commits untouched, nothing sent ===
+own pre-commit ran
+[main 3341197] wip
+ 1 file changed, 1 insertion(+)
+ create mode 100644 src/late.py
+[exit 0] [requests sent by this commit: 0] [HEAD: wip]
+
+=== totals ===
+requests sent in the whole run: 11; distinct top-level keys of every request: ["model","questions","state"] ; distinct state shapes: {"commit":["files","message"]} 
+URL every request went to: argv:https://api.typesafe.ai/v1/systemone 
