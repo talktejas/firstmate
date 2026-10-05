@@ -1,0 +1,91 @@
+# Live transcript: bin/fm-pr-state.sh failed check sort (target 1a31aca, base d0dd8b5)
+# Real gh against github.com via a logging pass-through shim. curl replaced by a shim that logs and refuses,
+# so nothing was sent to typesafe.ai in any run. Key read by the product from the real firstmate home's .env
+# (which lists no project) or passed in the environment; its value appears in no log.
+
+## Round 1: cli/cli#13788 (3 failed required checks, job logs expired)
+== base gh_calls=2 curl_calls=0
+MERGEABILITY: unknown
+REQUIRED CHECK: build (ubuntu-latest) (FAILURE)
+REQUIRED CHECK: build (macos-latest) (FAILURE)
+REQUIRED CHECK: build (windows-latest) (FAILURE)
+== default gh_calls=2 curl_calls=0
+REQUIRED CHECK: build (ubuntu-latest) (FAILURE)
+REQUIRED CHECK: build (macos-latest) (FAILURE)
+REQUIRED CHECK: build (windows-latest) (FAILURE)
+== sorted gh_calls=8 curl_calls=0
+REQUIRED CHECK: build (ubuntu-latest) (FAILURE)
+REQUIRED CHECK: build (macos-latest) (FAILURE)
+REQUIRED CHECK: build (windows-latest) (FAILURE)
+FAILED CHECK SORT: build (ubuntu-latest): unknown
+FAILED CHECK SORT: build (macos-latest): unknown
+FAILED CHECK SORT: build (windows-latest): unknown
+== nokey gh_calls=2 curl_calls=0
+REQUIRED CHECK: build (ubuntu-latest) (FAILURE)
+REQUIRED CHECK: build (macos-latest) (FAILURE)
+REQUIRED CHECK: build (windows-latest) (FAILURE)
+note: base printed a transient 'MERGEABILITY: unknown' on the first read; two repeat rounds of base vs default were byte-identical.
+
+## Round 2
+== unlisted-nextjs :: fm-pr-state.sh --sort-failed-checks https://github.com/vercel/next.js/pull/99644
+exit=0 gh_calls=4 curl_calls=0 gh_children_with_key=0
+DRAFT: pull request is not ready for review
+REQUIRED CHECK: thank you, next (FAILURE)
+FAILED CHECK SORT: thank you, next: unknown
+  gh pr view https://github.com/vercel/next.js/pull/99644 --json state,mergedAt,isDraft,headRefOid,author,mergeable,reviewDecision
+  gh pr checks https://github.com/vercel/next.js/pull/99644 --required --json
+  gh api -X GET /repos/vercel/next.js/commits/b1928d2a91142154b023252ea038207a2d1466e8/check-runs -f
+  gh run view --job 111577458417 --log-failed
+== unlisted-cargo :: fm-pr-state.sh --sort-failed-checks https://github.com/rust-lang/cargo/pull/17518
+exit=0 gh_calls=4 curl_calls=0 gh_children_with_key=0
+DRAFT: pull request is not ready for review
+REQUIRED CHECK: conclusion (FAILURE)
+FAILED CHECK SORT: conclusion: unknown
+  gh pr view https://github.com/rust-lang/cargo/pull/17518 --json state,mergedAt,isDraft,headRefOid,author,mergeable,reviewDecision
+  gh pr checks https://github.com/rust-lang/cargo/pull/17518 --required --json
+  gh api -X GET /repos/rust-lang/cargo/commits/d414a2ca11bfbd2f1c15871b2e9a4ffbc776e6f9/check-runs -f
+  gh run view --job 108321532286 --log-failed
+== nonactions-k8s :: fm-pr-state.sh --sort-failed-checks https://github.com/kubernetes/kubernetes/pull/142693
+exit=0 gh_calls=4 curl_calls=0 gh_children_with_key=0
+REQUIRED CHECK: pull-kubernetes-unit (ERROR)
+REQUIRED CHECK: pull-kubernetes-verify (ERROR)
+REQUIRED CHECK: pull-kubernetes-e2e-gce (PENDING)
+REQUIRED CHECK: pull-kubernetes-node-e2e-containerd (PENDING)
+FAILED CHECK SORT: pull-kubernetes-unit: unknown
+FAILED CHECK SORT: pull-kubernetes-verify: unknown
+  gh pr view https://github.com/kubernetes/kubernetes/pull/142693 --json state,mergedAt,isDraft,headRefOid,author,mergeable,reviewDecision
+  gh pr checks https://github.com/kubernetes/kubernetes/pull/142693 --required --json
+  gh api -X GET /repos/kubernetes/kubernetes/commits/773b9b50391d1462dd8f7749803a91ff5d37efcc/check-runs -f
+  gh api -X GET /repos/kubernetes/kubernetes/commits/773b9b50391d1462dd8f7749803a91ff5d37efcc/check-runs -f
+== nearmiss-list :: fm-pr-state.sh --sort-failed-checks https://github.com/vercel/next.js/pull/99644
+exit=0 gh_calls=4 curl_calls=0 gh_children_with_key=0
+DRAFT: pull request is not ready for review
+REQUIRED CHECK: thank you, next (FAILURE)
+FAILED CHECK SORT: thank you, next: unknown
+  gh pr view https://github.com/vercel/next.js/pull/99644 --json state,mergedAt,isDraft,headRefOid,author,mergeable,reviewDecision
+  gh pr checks https://github.com/vercel/next.js/pull/99644 --required --json
+  gh api -X GET /repos/vercel/next.js/commits/b1928d2a91142154b023252ea038207a2d1466e8/check-runs -f
+  gh run view --job 111577458417 --log-failed
+== default-listed :: fm-pr-state.sh https://github.com/vercel/next.js/pull/99644
+exit=0 gh_calls=2 curl_calls=0 gh_children_with_key=0
+DRAFT: pull request is not ready for review
+REQUIRED CHECK: thank you, next (FAILURE)
+  gh pr view https://github.com/vercel/next.js/pull/99644 --json state,mergedAt,isDraft,headRefOid,author,mergeable,reviewDecision
+  gh pr checks https://github.com/vercel/next.js/pull/99644 --required --json
+== exact-jev-down :: fm-pr-state.sh --sort-failed-checks https://github.com/vercel/next.js/pull/99644
+exit=0 gh_calls=4 curl_calls=1 gh_children_with_key=0
+DRAFT: pull request is not ready for review
+REQUIRED CHECK: thank you, next (FAILURE)
+FAILED CHECK SORT: thank you, next: unknown
+curl BLOCKED key_in_env=no key_in_argv=no :: -sS --max-time 5 -o /tmp/tmp.iBEvi8oLXI -w %{http_code} -X POST https://api.typesafe.ai/v1/systemone -H Content-Type: application/json -H @/dev/fd/3 --data-binary @- 
+  gh pr view https://github.com/vercel/next.js/pull/99644 --json state,mergedAt,isDraft,headRefOid,author,mergeable,reviewDecision
+  gh pr checks https://github.com/vercel/next.js/pull/99644 --required --json
+  gh api -X GET /repos/vercel/next.js/commits/b1928d2a91142154b023252ea038207a2d1466e8/check-runs -f
+  gh run view --job 111577458417 --log-failed
+== base-nextjs :: fm-pr-state.sh https://github.com/vercel/next.js/pull/99644
+exit=0 gh_calls=2 curl_calls=0 gh_children_with_key=0
+DRAFT: pull request is not ready for review
+REQUIRED CHECK: thank you, next (FAILURE)
+  gh pr view https://github.com/vercel/next.js/pull/99644 --json state,mergedAt,isDraft,headRefOid,author,mergeable,reviewDecision
+  gh pr checks https://github.com/vercel/next.js/pull/99644 --required --json
+default-listed vs base output: IDENTICAL
