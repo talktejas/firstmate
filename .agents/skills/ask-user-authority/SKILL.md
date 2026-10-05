@@ -20,6 +20,16 @@ Firstmate always applies this judgment, decides any finding that is unambiguous 
 The implementation worker never decides or answers its own ask-user finding.
 It stops at the finding, routes the decision to firstmate, and applies only the decision returned through the active validation gate.
 
+## Advisory sort
+
+Before step 1 below, run `bin/fm-finding-sort.sh <task-id>` for the task that reported the gate.
+It prints one line per finding, `settle` or `by hand`, and is off, printing `by hand` for every finding, unless the home has opted in ([`docs/configuration.md`](../../../docs/configuration.md) "Review finding sort").
+The sort says only what kind of finding it is, never whether the finding is right, and it decides nothing: you still read every finding and send every decision yourself.
+
+- `settle (inside-task)` or `settle (style-only)`: decide it now under step 3 without escalating, unless your own reading of the finding puts it under step 4, in which case your reading wins.
+  A style-only finding commits the project to nothing, so fix it or leave it as the accepted design suggests.
+- `by hand`: apply the whole procedure below exactly as if the sort had not run.
+
 ## Decide
 
 1. Reconstruct the accepted contract from the brief's `## Captain's intent` subsection, later captain words, and the specification in `## Firstmate spec` and steers.

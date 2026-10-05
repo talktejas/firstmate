@@ -326,6 +326,35 @@ Second mates carry no worker stop hook and are never checked.
 
 `bin/fm-finished-check.sh`'s header owns the exact fact gates and question order, `bin/fm-jev-lib.sh` owns the request, the answer validation, and the key handling, and [`verification/finished-check.md`](verification/finished-check.md) records the live evidence.
 
+## Review finding sort (.env TYPESAFE_API_KEY, config/jev-code-projects)
+
+`bin/fm-finding-sort.sh <task-id>` asks typesafe.ai's System One model (Jev) what kind of finding each review finding in a task's reported decision gate is, so firstmate can settle the clear ones without stopping to weigh an escalation.
+It is off for every project by default, and it asks about a task only when both of these hold:
+
+- `TYPESAFE_API_KEY` is available under the same environment-then-`.env` contract as [typed dispatch resolution](#typed-dispatch-resolution-env-typesafe_api_key);
+- the task's project is a line of the local, gitignored `config/jev-code-projects`.
+
+The key alone never turns the sort on, because a review finding names the project's files and may quote its code.
+`config/jev-code-projects` holds one project name per line (the directory name of the task's `project=` metadata), with blank lines and lines starting with `#` ignored; an absent or empty file lists no project, and the file is not inherited by secondmate homes.
+
+Each finding is sorted into one of four fixed kinds: `inside-task` (fixing it corrects the work that was asked for), `grows-task` (fixing it adds something that was not asked for), `style-only`, or `destructive`.
+The script prints `settle` only for an `inside-task` or `style-only` answer whose confidence and probability both reach the shared 0.6 floor, and `by hand` for everything else: `grows-task`, `destructive`, low confidence, a finding with no usable answer, a timeout, a transport or API error, a missing key, and a project that is not listed.
+The sort never says whether a finding is a real defect; that still takes a reading of the code.
+
+The sort is advice only.
+Firstmate runs it at the start of [`ask-user-authority`](../.agents/skills/ask-user-authority/SKILL.md), which owns what a printed line means for the decision, reads every finding itself, and sends every decision itself; the worker that reported the gate never runs it.
+The script exits 0 on every outcome except a usage error (exit 2), answers no gate, steers no worker, and writes no record, so a failure leaves every finding decided by hand exactly as without the feature.
+
+Code decides every fact before the call.
+It takes the task's newest `ask-user findings=<ids> file=<path>` status line and requires the file to be a regular `nm-*-findings.txt` directly inside the task's own `data/<task-id>/` directory.
+A findings file over 20000 bytes, a gate naming more than 12 findings, a brief with no `## Captain's intent`, or an intent over 20000 characters is left by hand whole rather than cut to fit, and a finding id the file never mentions is left by hand without being asked about.
+One request then carries one question per remaining finding.
+
+That request sends the brief's `## Captain's intent` and the findings file, both whole, and nothing else: no other part of the brief, no status lines, no diff, no file content beyond what a finding itself quotes, and nothing a worker typed in its shell.
+
+The script is one shell command firstmate runs in its own home, so it behaves the same on every supported primary harness and runtime backend and for a local or remote worker; it needs `jq`, `curl`, and outbound network, and a home that lacks any of them decides by hand.
+`bin/fm-finding-sort.sh`'s header owns the exact bounds, questions, and output, `bin/fm-jev-lib.sh` owns the request, the answer validation, the key handling, and the `fm_jev_code_allowed` project list read, and [`verification/finding-sort.md`](verification/finding-sort.md) records the live evidence.
+
 ## Gate defaults (.no-mistakes.yaml)
 
 The tracked `.no-mistakes.yaml` sets `test.evidence.store_in_repo: true` and pins `commands.lint` to `bin/fm-lint.sh`, the same owner CI invokes.
@@ -1222,7 +1251,7 @@ FMX_RELAY_URL=https://myfirstmate.io   # optional Relay endpoint override, mainl
 FMX_ENV_FILE=           # optional alternate .env file for direct Relay client invocations; bootstrap still checks $FM_HOME/.env
 FMX_DRY_RUN=            # truthy previews Relay replies and dismissals to state/x-outbox/ without posting or requiring a token
 FMX_X_REPLY_MAX_CHARS=280   # X reply per-message split budget; values below 50 clamp to 50
-TYPESAFE_API_KEY=       # typed dispatch resolution opt-in, from the environment or .env; absent means bin/fm-dispatch-resolve.sh is off (docs/configuration.md "Typed dispatch resolution"), and so are routine-wake triage, the finished check, and the house-rules check, which also needs a project opted in in config/house-rules.json
+TYPESAFE_API_KEY=       # typed dispatch resolution opt-in, from the environment or .env; absent means bin/fm-dispatch-resolve.sh is off (docs/configuration.md "Typed dispatch resolution"), and so are routine-wake triage, the finished check, the house-rules check, which also needs a project opted in in config/house-rules.json, and the review finding sort, which also needs the project listed in config/jev-code-projects
 FMX_DISCORD_REPLY_MAX_CHARS=1900   # Discord reply per-message split budget; values below 50 clamp to 50, values above 2000 reset to 1900
 FMX_X_THREAD_MAX=25     # maximum messages in one auto-split reply thread
 FMX_FOLLOWUP_MAX_AGE_SECS=604800   # local window for posting Relay completion follow-ups (7 days)
