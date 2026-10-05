@@ -95,6 +95,48 @@ The tool then asked all five questions of every rules file; a file with no `matc
 The vendor formula above is now applied only when rules that lead to one outcome are counted as one answer.
 The quota snapshot was unmeasured for every provider during both runs, so each selection above ended as `escalate` with `no rankable eligible candidate` in all three arrangements; calls made on the PRD, bug-fix, and locate briefs while quota was measured ended `clear`.
 
+## Live run of the current selection
+
+Run 2026-10-06 local time (records stamped 2026-10-05T18:2x UTC) at commit 6c3ba93 against `https://api.typesafe.ai`, model `jev-latest` answering as `jev-1.13.0`, timeout 5 s, floor 0.6.
+The key was read by the tool itself from a scratch home's `.env`; it was absent from the environment, and it appeared in neither the captured request body nor the record.
+The command was `FM_HOME=<scratch home> bin/fm-dispatch-resolve.sh <brief> --project demo`, 22 requests, none failed.
+`curl` was the real one behind a pass-through that kept a copy of each request body; `quota-axi` was a fixed snapshot (one provider, 79% remaining) so the quota step could not vary.
+Rules: a synthetic four-rule file written for this run, not the captain's: (1) vague investigation or plan or spec writing, `match.kind` `investigate` or `product_document`; (2) architecture, `match.kind` `design`; (3) small bug fix or familiar feature, `match.kind` `bugfix` or `feature` and `match.damage` `low` or `medium`; (4) security-sensitive, `approval: captain`, `match.security` `yes`; each with its own outcome.
+Briefs: 16 synthetic one-sentence briefs with a `# Task` section and one line of standing text after it.
+Latency was 304 to 633 ms; a five-question request used 1,239 to 1,265 input and 268 to 271 output tokens, a `rule`-only request 464 to 490 and 62.
+
+Scenarios driven live, each line being what the tool printed:
+
+| Scenario | Brief | Rule answer | Small answers | Result |
+| --- | --- | --- | --- | --- |
+| Unsure rule answer, product document | Produce a study as a written report | none option 0.52 (0.51 on a second run) | `kind=product_document` 1.0 | `clear`, rule 1's profile, confidence 1.0, `selection: small answers (kind=product_document) meet the declared match of rule_1; rule answer default 0.52` |
+| Confident rule stands | Write the PRD | rule 1 0.98 | `kind=product_document` 1.0 | `clear`, rule 1, no `selection` line |
+| Confident none option stands against a met `match` | Research competitors and write a report | none option 0.65 | `kind=product_document` 1.0, which meets rule 1 | `clear`, default profile, no `selection` line |
+| Confident rule stands against the gated rule's met `match` | Design a service architecture | rule 2 1.0 | `security=yes` 0.91, which meets rule 4 | `clear`, rule 2's profile, no approval stop |
+| Confident gated rule | Change password reset tokens | rule 4 0.99 | `security=yes` 1.0 | `escalate`, captain approval, no profile |
+| Unsure rule answer, unsure small answers | Tidy up the checkout code | rule 1 0.37 | `kind=review` 0.56, `security=yes` 0.32 | `ambiguous`, no profile |
+| Unsure rule answer, a `match` half met | Update the settings page | rule 1 0.44 | `kind=feature` 0.99, `damage=medium` 0.47 | `ambiguous`, no profile |
+| Unsure rule answer, small answers meet no rule | Find where a total is rounded | none option 0.54 | `kind=lookup` 0.99 | `ambiguous`, no profile |
+| Same-outcome rules counted as one answer | Update the settings page, rules 1 and 3 given one outcome | rule 1 0.46 alone | not asked | `clear` at 0.93, `selection: rule_3+rule_1 counted as one answer; rule answer alone rule_1 0.46` |
+
+The captured body of a request to the real API held `model`, `state`, and `questions` only.
+With the four-rule file its questions were `rule`, `kind`, `damage`, `settled`, `security`, and the `rule` options were `rule_1` to `rule_4` plus `default`.
+With `match` removed from every rule its only question was `rule`.
+Its state was `{"task":{"project":"demo","brief":"<the # Task text>"}}`; the standing line after `# Task` and the words `match`, `use`, `why`, `approval`, and every model name were absent.
+The record after the run was mode 600 with one line per call (22 at the time it was read: 15 `clear`, 6 `ambiguous`, 1 `escalate`, read with `jq -r .status state/.dispatch-resolve.log | sort | uniq -c`), each with the status, rule, rule answer, every small answer and its confidence, and profile, and no brief text.
+Of the 16 briefs with the four-rule file, 9 were `clear`, 1 `escalate`, and 6 `ambiguous`; one of the 9 (the study brief) was `clear` only through the small answers.
+That is one synthetic rule file and hand-written briefs, so it shows the mechanism working against the real model, not a hit rate for the captain's rules.
+
+Not driven live, covered only by `tests/fm-dispatch-resolve.test.sh` with a canned reply at the `curl` boundary, because the exact probabilities or a malformed reply cannot be forced from the real model:
+
+- an unsure rule answer where a rule without a gate has its `match` met and the approval-gated rule's `match` is also met;
+- Jev's own unsure pick being the approval-gated rule;
+- the counted-together rule answer being an approval-gated rule;
+- a small answer that is a non-object, off-list, or missing;
+- small answers meeting two rules with different outcomes.
+
+No live brief produced any of these: every unsure rule answer above was rule 1 or the none option, and no unsure brief answered `security` `yes` at or above the floor.
+
 ## Offline behavior
 
 `tests/fm-dispatch-resolve.test.sh` drives the public interface with a fake `curl` that records argv, the request body, the header read from file descriptor 3, and whether the secret reached its environment, plus a fake `quota-axi` that performs the same environment check.
