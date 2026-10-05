@@ -127,6 +127,7 @@ _fm_jev_ask() {  # <questions-json> <state-json-file> <required-question-key>
   # "bad" when the required question has no well-formed answer.
   fields=$(printf '%s' "$request" | jq -r --arg required "$required" --slurpfile resp "$resp" '
     def good($q; $a):
+      ($a | type) == "object" and
       ($a.choice | type) == "string" and
       ($a.confidence | type) == "number" and
       $a.confidence >= 0 and $a.confidence <= 1 and

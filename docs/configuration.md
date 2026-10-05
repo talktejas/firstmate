@@ -527,7 +527,7 @@ Rules whose `use`, `approval`, and `floor` are the same count as one answer, so 
 That counted-together answer is the rule answer in the next three statements.
 A rule answer at or above the confidence floor, whether a rule or the neutral option, stands, and the small answers are not consulted.
 Only when the rule answer is below the floor does the tool take the rules without an approval gate whose whole declared `match` is met by small answers that are each at or above the floor; when those rules all lead to one outcome, that outcome is chosen, with the confidence reported as the lowest among the small answers that met it, and otherwise the result is `ambiguous` on the rule answer.
-That step is skipped, and the result is `ambiguous` on the rule answer, when the unsure rule answer is itself an approval-gated rule or when the small answers also meet an approval-gated rule's whole declared `match`.
+That step is skipped, and the result is `ambiguous` on the rule answer, whenever an approval-gated rule is involved in any way: it is the model's own pick, it is the counted-together rule answer, or the small answers meet its whole declared `match`.
 An approval-gated rule is never chosen that way, so a small answer never adds or removes a stop for approval.
 A small answer that is missing, malformed, or not one of its question's own options is printed as `unusable` and meets nothing; it never makes the result `error`.
 Everything after that selection also runs in code: the confidence floor, the selected rule's `approval` and `floor`, each candidate's `provider` and `floor`, every applicable account-wide and model/product row from one `quota-axi --json` snapshot, and the numeric `spendPriority` argmax over candidates using each candidate's limiting row.

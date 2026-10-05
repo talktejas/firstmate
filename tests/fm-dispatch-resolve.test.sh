@@ -865,6 +865,28 @@ assert_contains "$out" '  rule: rule_4 (The change is security-sensitive.)   con
 assert_contains "$out" '  reason: confidence 0.5 below floor 0.6' "the unsure gated pick is below the floor, not an approval stop"
 assert_not_contains "$out" '  selection:' "the small answers choose nothing against an unsure gated pick"
 assert_not_contains "$out" '  profile:' "no profile is emitted for an unsure gated pick"
+SHARED_USE='{"harness": "claude", "model": "sonnet", "effort": "high"}'
+for gate_case in \
+  'rule_4|0.3|0.05|0.26|0.24|0.4|0.05|[2]|rule_2 (Shared work.)   confidence: 0.33|a gated own pick outweighed by ungated rules counted together' \
+  'rule_1|0.2|0.35|0.31|0.29|0|0.05|[1,2]|rule_2 (Shared work.)   confidence: 0.47|gated rules counted together outweighing an ungated own pick'; do
+  IFS='|' read -r gate_choice gate_conf gate_p1 gate_p2 gate_p3 gate_p4 gate_pd gate_shared gate_rule gate_name <<<"$gate_case"
+  jq -n --argjson shared "$SHARED_USE" --argjson gated "$gate_shared" '
+    {rules: ([
+      {when: "Feature work.", match: {kind: ["feature"]}, use: {harness: "claude", model: "opus", effort: "high"}},
+      {when: "Shared work.", use: $shared},
+      {when: "More shared work.", use: $shared},
+      {when: "Gated work.", approval: "captain", use: {harness: "claude", model: "opus", effort: "medium"}}]
+      | to_entries | map(if (.key as $i | $gated | index($i)) and ($gated | length) == 2 then .value + {approval: "captain"} else .value end)),
+     default: {harness: "claude", model: "haiku"}}' > "$RULES"
+  reset_log
+  match_response "$RESPONSE" "$gate_choice" "$gate_conf" "$gate_p1" "$gate_p2" "$gate_p3" "$gate_p4" "$gate_pd" feature medium settled no 0.9
+  TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
+  assert_contains "$out" '  status: ambiguous' "the result stays unsure though an ungated rule's match is met: $gate_name"
+  assert_contains "$out" "  rule: $gate_rule" "the counted-together rule answer is reported unchanged: $gate_name"
+  assert_not_contains "$out" 'small answers' "the small answers choose nothing: $gate_name"
+  assert_not_contains "$out" '  profile:' "no profile is emitted: $gate_name"
+done
+cp "$MATCH_RULES" "$RULES"
 reset_log
 match_response "$RESPONSE" rule_4 0.9 0.02 0.02 0.02 0.92 0.02 bugfix low settled no 0.9
 TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
@@ -921,7 +943,7 @@ pass "every outcome after the gate is recorded to a private, size-capped log"
 
 # --- a missing, malformed, or off-list small answer meets nothing ------------------
 cp "$MATCH_RULES" "$RULES"
-for damaged in 'del(.answers.kind)' '.answers.kind.confidence = 2' '.answers.kind.choice = "bogus"'; do
+for damaged in 'del(.answers.kind)' '.answers.kind.confidence = 2' '.answers.kind.choice = "bogus"' '.answers.kind = "x"'; do
   reset_log
   match_response "$RESPONSE" rule_1 0.23 0.38 0.31 0.24 0.01 0.06 product_document low partly no 0.9
   jq "$damaged" "$RESPONSE" > "$TMP_ROOT/damaged-small.json" && mv "$TMP_ROOT/damaged-small.json" "$RESPONSE"

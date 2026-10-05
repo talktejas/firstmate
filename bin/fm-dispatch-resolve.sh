@@ -32,8 +32,9 @@
 #     that outcome is chosen, with the lowest confidence among the small
 #     answers that met it; otherwise the rule answer stays, below the floor;
 #   - that step is skipped, and the rule answer stays below the floor, when
-#     the unsure rule answer is itself an approval-gated rule or the small
-#     answers also meet an approval-gated rule's whole `match`;
+#     an approval-gated rule is involved in any way: it is Jev's own pick, it
+#     is the counted-together rule answer, or the small answers meet its whole
+#     `match`;
 #   - an approval-gated rule is never chosen that way, so a small answer never
 #     adds or removes an approval stop, and a missing, malformed, or off-list
 #     small answer meets nothing;
@@ -446,7 +447,8 @@ RESULT=$(jq -n --arg floor "$CONFIDENCE_FLOOR" --argjson lat "$LAT_MS" --arg non
   # whose whole declared match they meet decide, when they share one outcome.
   def gated($r): ($r.approval // "") == "captain";
   ([$opts[] | select(.r != null and (gated(.r) | not) and met(.r))]) as $claim |
-  (if $counted.confidence >= $fl or ($raw_valid | not) or gated(rule_at($counted.choice)) or any($opts[]; .r != null and gated(.r) and met(.r))
+  (if $counted.confidence >= $fl or ($raw_valid | not)
+      or gated(rule_at($a.choice)) or gated(rule_at($counted.choice)) or any($opts[]; .r != null and gated(.r) and met(.r))
       or ($claim | length) == 0 or ($claim | map(.outcome) | unique | length) != 1 then $counted
    else ([$claim[].r.match | keys[]] | unique) as $used |
      {choice: ($claim | max_by(.p) | .k), confidence: ([$used[] | $facts[.].confidence] | min),
