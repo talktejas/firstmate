@@ -308,7 +308,7 @@ jev_triage_pause_routine park "stale: test:fm-park" || fail "a closed decision b
 pass "never eligible: needs-decision, blocked, failed, done, working, captain-held, or an open keyed decision"
 
 # -- never eligible: endpoint, kind, posture, and shape gates -----------------
-for state in dead missing ambiguous unreadable unverified; do
+for state in missing ambiguous unreadable unverified; do
   reset
   mk_task park "pr=$PR_URL" 'paused: waiting on the upstream release'
   AGENT_STATE=$state
@@ -339,7 +339,26 @@ mk_task park "pr=$PR_URL" 'paused: waiting for the window until 2020-01-01T00:00
 rc=0
 jev_triage_pause_routine park "stale: test:fm-park" || rc=$?
 expect_never_asked "$rc" "a declared clearing time that has passed"
-pass "never eligible: a dead, missing, or unproven endpoint, a secondmate, the away posture, a passed clearing time"
+pass "never eligible: a missing or unproven endpoint, a secondmate, the away posture, a passed clearing time"
+
+# -- eligible: a worker whose agent has exited beside its open pull request ----
+# pause_state_class routes an ordinary crew to the pause recheck only once its
+# agent is confidently dead, so this is the recheck's ordinary case.
+reset
+mk_task park "pr=$PR_URL" "done: PR $PR_URL" "paused: pull request $PR_URL open, waiting for the captain's merge word"
+AGENT_STATE=dead
+export FAKE_PR_OUT='CHECKS: none reported yet'
+age_status park 500
+handle_paused_stale test:fm-park park h1
+assert_equals 1 "$(calls)" "a due pause recheck of a worker whose agent has exited asks Jev once"
+assert_equals 0 "$(queued)" "a routine pause recheck of a worker whose agent has exited queues nothing"
+assert_equals 0 "$(woken)" "a routine pause recheck of a worker whose agent has exited does not wake"
+assert_equals 'exited' "$(jq -r '.wake.evidence[0].worker_agent' "$U/jev-state.json")" "Jev is told the worker's agent has exited"
+reset
+mk_task park "pr=$PR_URL" 'paused: PR is open and green, awaiting the merge word'
+jev_triage_pause_routine park "stale: test:fm-park" || fail "a running worker with an open pull request was not offered"
+assert_equals 'running' "$(jq -r '.wake.evidence[0].worker_agent' "$U/jev-state.json")" "Jev is told the worker's agent is running"
+pass "eligible: an exited agent beside an open pull request in a repository with no checks is offered, and Jev is told which"
 
 # -- the deterministic pull-request read settles what it can -----------------
 reset
@@ -347,7 +366,9 @@ mk_task park "pr=$PR_URL" 'paused: PR is open and green, awaiting the merge word
 jev_triage_pause_routine park "stale: test:fm-park" || fail "an open pull request with nothing blocking was not offered"
 assert_equals "$PR_URL" "$(cat "$FAKE_PR_CALLS")" "the recorded pull request is read before Jev is asked"
 assert_equals 'open; no blocker reported' "$(jq -r '.wake.evidence[0].pull_request' "$U/jev-state.json")" "the evidence says no more than the pull-request read established"
-for pr_out in 'MERGEABILITY: unknown' 'CHECKS: none reported yet'; do
+for pr_out in 'MERGEABILITY: unknown' 'CHECKS: none reported yet' \
+  'CHECKS: no required check has reported; readiness unconfirmed' \
+  $'MERGEABILITY: unknown\nCHECKS: none reported yet'; do
   reset
   mk_task park "pr=$PR_URL" 'paused: PR is open and green, awaiting the merge word'
   export FAKE_PR_OUT=$pr_out
@@ -355,7 +376,8 @@ for pr_out in 'MERGEABILITY: unknown' 'CHECKS: none reported yet'; do
   assert_equals 'open; no blocker reported' "$(jq -r '.wake.evidence[0].pull_request' "$U/jev-state.json")" "a pull request reading '$pr_out' is not described as mergeable or passing"
 done
 for pr_out in 'STATE: merged at 2026-10-05T10:00:00Z' 'STATE: closed' 'REQUIRED CHECK: test (FAILURE)' \
-  'MERGEABILITY: conflicting' 'REVIEW DECISION: CHANGES_REQUESTED'; do
+  'REQUIRED CHECK: test (PENDING)' 'MERGEABILITY: conflicting' 'REVIEW DECISION: CHANGES_REQUESTED' \
+  'DRAFT: pull request is not ready for review' $'MERGEABILITY: conflicting\nCHECKS: none reported yet'; do
   reset
   mk_task park "pr=$PR_URL" 'paused: PR is open and green, awaiting the merge word'
   export FAKE_PR_OUT=$pr_out
