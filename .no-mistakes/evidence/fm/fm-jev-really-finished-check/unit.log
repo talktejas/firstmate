@@ -9,6 +9,7 @@ ok - reported needs-decision, blocked, paused, failed: nothing asked
 ok - a stop after a send-back, running background tasks, or no message: nothing asked
 ok - no open turn in the busy record: nothing asked
 ok - Jev down or unsure: the turn ends
+ok - long closing message: its end is what is sent
 ok - claims_checks_passed needs the no-check-command fact
 ok - executable: block decision with a key, silent without, key never in a child
 all fm-finished-check tests passed

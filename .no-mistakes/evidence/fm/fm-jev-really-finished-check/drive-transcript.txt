@@ -1,0 +1,113 @@
+
+### 1. unreported question -> sent back with one line
+  exit=0  jev-questions-asked=[asks_question]
+  hook output: {"decision":"block","reason":"Firstmate finished check: your closing message asks a question, but nobody was told; append needs-decision: with the question to the status file, or decide and continue."}
+  => PASS
+
+### 2. no key -> off, nothing asked
+  exit=0  jev-questions-asked=[]
+  hook output: <nothing: turn ends as today>
+  => PASS
+
+### 3a. Jev returns HTTP 500 -> turn ends
+  exit=0  jev-questions-asked=[asks_question]
+  hook output: <nothing: turn ends as today>
+  => PASS
+
+### 3b. Jev unreachable/timeout (curl exit 28) -> turn ends
+  exit=0  jev-questions-asked=[asks_question]
+  hook output: <nothing: turn ends as today>
+  => PASS
+
+### 3c. Jev returns non-JSON -> turn ends
+  exit=0  jev-questions-asked=[asks_question]
+  hook output: <nothing: turn ends as today>
+  => PASS
+
+### 3d. Jev answers off the fixed list ('maybe' 0.99) -> turn ends
+  exit=0  jev-questions-asked=[asks_question]
+  hook output: <nothing: turn ends as today>
+  => PASS
+
+### 4. Jev unsure (yes at 0.55, floor 0.6) -> turn ends
+  exit=0  jev-questions-asked=[asks_question partial_or_blocked]
+  hook output: <nothing: turn ends as today>
+  => PASS
+
+### 5. stop already follows a send-back (stop_hook_active) -> never loops
+  exit=0  jev-questions-asked=[]
+  hook output: <nothing: turn ends as today>
+  => PASS
+
+### 6. question WAS reported (needs-decision:) -> nothing asked
+  exit=0  jev-questions-asked=[]
+  hook output: <nothing: turn ends as today>
+  => PASS
+
+### 7. unreported partial work -> sent back
+  exit=0  jev-questions-asked=[asks_question partial_or_blocked]
+  hook output: {"decision":"block","reason":"Firstmate finished check: your closing message says work is partial or blocked, but you reported no state; continue, or append blocked: (or paused: for a wait that clears on its own) with the reason to the status file."}
+  => PASS
+
+### 8. reported done: but message says partial -> sent back
+  exit=0  jev-questions-asked=[partial_or_blocked]
+  hook output: {"decision":"block","reason":"Firstmate finished check: you reported done:, but your closing message says work is partial or blocked; finish it, or append the true state (blocked: or needs-decision:) to the status file."}
+  => PASS
+
+### 8b. reported done: and consistent message -> turn ends (model alone cannot block)
+  exit=0  jev-questions-asked=[partial_or_blocked]
+  hook output: <nothing: turn ends as today>
+  => PASS
+
+### 9. claims finished, files changed, no state -> sent back
+  exit=0  jev-questions-asked=[asks_question partial_or_blocked claims_finished]
+  hook output: {"decision":"block","reason":"Firstmate finished check: your closing message says the work is finished, but you reported no state; if the definition of done is met append the done: line to the status file, otherwise say what remains."}
+  => PASS
+
+### 9b. claims finished, NO files changed (fact false) -> Jev not asked that, turn ends
+  exit=0  jev-questions-asked=[asks_question partial_or_blocked]
+  hook output: <nothing: turn ends as today>
+  => PASS
+
+### 10. claims checks passed, no check command ran this turn -> sent back
+  exit=0  jev-questions-asked=[partial_or_blocked claims_checks_passed]
+  hook output: {"decision":"block","reason":"Firstmate finished check: your closing message says checks passed, but no test or check command ran this turn; run them, or say which earlier run you rely on."}
+  => PASS
+  shell command text present in ANY request sent to Jev: 0
+  top-level state keys sent: ["closing_message"] 
+
+### 10b. claims checks passed and 'npm test' DID run -> not asked, turn ends
+  exit=0  jev-questions-asked=[partial_or_blocked]
+  hook output: <nothing: turn ends as today>
+  => PASS
+
+### 10c. adversarial: check ran, then 60 other commands -> still counted, turn ends
+  exit=0  jev-questions-asked=[partial_or_blocked]
+  hook output: <nothing: turn ends as today>
+  => PASS
+
+### 10d. transcript unreadable -> checks question withheld, turn ends
+  exit=0  jev-questions-asked=[partial_or_blocked]
+  hook output: <nothing: turn ends as today>
+  => PASS
+
+### 11. 9000+ char message ending in a question -> the END is sent, question caught
+  exit=0  jev-questions-asked=[asks_question]
+  hook output: {"decision":"block","reason":"Firstmate finished check: your closing message asks a question, but nobody was told; append needs-decision: with the question to the status file, or decide and continue."}
+  => PASS
+  closing_message length sent: 4000  ; contains tail sentence: 1
+
+### 12. background tasks still running -> turn ends
+  exit=0  jev-questions-asked=[]
+  hook output: <nothing: turn ends as today>
+  => PASS
+
+### 13. key hygiene (fake curl records argv+env)
+  exit=0  jev-questions-asked=[asks_question]
+  hook output: {"decision":"block","reason":"Firstmate finished check: your closing message asks a question, but nobody was told; append needs-decision: with the question to the status file, or decide and continue."}
+  => PASS
+  API key occurrences in curl argv or child env: 0 ; in request body: 0
+
+### 14. wrong arg count -> exit 0, stdout/stderr: usage: fm-finished-check.sh <home> <state-dir> <task-id> <worktree>
+
+SCENARIO FAILURES: 0
