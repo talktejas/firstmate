@@ -243,6 +243,62 @@ One task may receive six routine answers in a row before the next wake is delive
 Each call sends the wake's class and reason line, the task id, its last six status lines cut to 400 characters each, and its pull request read, or for a contributions check its diagnostic lines; it sends no brief, pane content, or quota.
 `bin/fm-jev-lib.sh` owns the request, the answer validation, and the key handling shared with typed dispatch resolution, `bin/fm-watch.sh`'s `jev_triage_routine` header owns the exact eligibility gates, and [`verification/jev-wake-triage.md`](verification/jev-wake-triage.md) records the live evidence.
 
+## House-rules check (.env TYPESAFE_API_KEY, config/house-rules.json)
+
+`bin/fm-house-rules-check.sh` asks typesafe.ai's System One model (Jev) whether each changed block of a task's own work breaks a standing rule that a text search cannot catch, and prints each suspected break as a `file:line` flag before the work is handed over.
+It is off for every project by default, and it runs for a project only when both of these hold:
+
+- the project's name is in the `projects` list of the local, gitignored `config/house-rules.json`;
+- `TYPESAFE_API_KEY` is available under the same environment-then-`.env` contract as [typed dispatch resolution](#typed-dispatch-resolution-env-typesafe_api_key).
+
+The key alone never turns the check on: a home that holds it for typed dispatch resolution or routine-wake triage sends no source until a project is named in the list.
+With no file, no `projects` list, an empty list, or a project that is not in it, the generated ship brief is byte-identical to the one without the feature, and the script, if run anyway, makes no call.
+No project is opted in by default.
+
+**An opted-in project's changed source lines are sent to typesafe.ai.**
+Files are left out by name only, as listed below; a secret written in an ordinary source file is not filtered and is sent with the lines around it.
+
+The project name is the repository name `bin/fm-brief.sh` is given, or for `bin/fm-promote.sh` the last path component of the task's recorded project.
+For an opted-in project, the definition of done in every ship brief and in a promoted scout's ship instructions gains one step, in all three delivery modes: run `bin/fm-house-rules-check.sh <project>` once the work is committed, read each flagged line, fix a real break, and leave a wrong flag alone.
+The script checks the list again itself, so running it by hand for a project that is not opted in makes no call.
+The check is advice only.
+A run exits 0 on every outcome except a usage error (exit 2), so a project that is not opted in, a missing key, an unknown base, an invalid rules file, a timeout, a transport or API error, a malformed answer, and low confidence all leave the change exactly where it was, with no flag.
+It never blocks, approves, merges, or discards anything, and nothing reads its output except the worker that ran it.
+
+Code decides every fact before any call.
+The script diffs the worktree against its merge base with the default branch and keeps only added or modified text files.
+Of origin's copy of the default branch and the local one, it uses whichever has the merge base closest to the worktree's `HEAD`, so a copy that lags behind does not pull other tasks' merged work into the check.
+It drops prose (`.md`, `.markdown`, `.txt`, `.rst`, `.adoc`), lockfiles, minified, mapped, snapshot and SVG files, anything under `vendor/`, `node_modules/` or `dist/`, files whose name says they hold secrets (`.env*`, `*.pem`, `*.key`, `*.p12`, `*.pfx`, `*secret*`, `*credential*`, in any letter case), and files whose path git has to quote, then cuts each remaining hunk into blocks of at most 80 lines and drops a block that adds nothing.
+Each remaining block is asked each rule as its own yes-or-no question, and it is flagged only for a `yes` whose confidence and `yes` probability both reach the shared 0.6 floor.
+Asking stops after 60 questions, 120 seconds, or three failed calls, and the summary line on stderr says how many questions went unasked.
+
+Each call sends the file path, one block of the diff with three lines of context and each line cut to 400 characters, and one rule's question and criteria.
+
+Two rules are built in: `hardcoded-choice` (the added lines hard-code a behaviour choice that should be a setting) and `own-compat-layer` (the added lines add a redirect or compatibility layer for one of the project's own old decisions).
+`config/house-rules.json` holds the opt-in list and, optionally, rules that replace the built-in two for every opted-in project in the home:
+
+```json
+{
+  "projects": ["my-project"],
+  "rules": [
+    {
+      "id": "hardcoded-choice",
+      "question": "Do the added lines hard-code a behaviour choice that should be a setting?",
+      "yes": "What the added lines must visibly do for the answer to be yes.",
+      "no": "What makes the answer no, including the unclear case."
+    }
+  ]
+}
+```
+
+`projects` is a list of project names, matched exactly.
+`rules` is optional: absent or empty means the two built-in rules.
+Every rule needs a unique lowercase-dash `id` and non-empty `question`, `yes`, and `no` strings; invalid rules mean no check runs and no step is added to new briefs.
+The file is read from the home that wrote the brief and is not inherited by secondmate homes.
+
+The step is plain brief text and one shell command, so it reaches every supported harness and runtime backend the same way; it needs `git`, `jq`, `curl`, outbound network, and read access to the home's `.env` from the worker, and a worker that lacks any of them carries on unflagged.
+`bin/fm-house-rules-check.sh`'s header owns the exact bounds and output, `bin/fm-dod-lib.sh` owns the brief step, `bin/fm-jev-lib.sh` owns the request, the answer validation, and the key handling, and [`verification/house-rules-check.md`](verification/house-rules-check.md) records the live evidence.
+
 ## Gate defaults (.no-mistakes.yaml)
 
 The tracked `.no-mistakes.yaml` sets `test.evidence.store_in_repo: true` and pins `commands.lint` to `bin/fm-lint.sh`, the same owner CI invokes.
@@ -530,8 +586,8 @@ The tool never replaces firstmate's judgment, `quota-array-dispatch`, the captai
 By accepted design, a `clear` result does not enforce catalog/authentication, reasoning-class, or completion-runway gates.
 Firstmate passes its profile line unless it states a reason to override, such as the brief's reasoning class or an eligible-unranked-candidate note; every non-clear result returns to the full existing intake.
 
-The resolver, the watcher, and bootstrap copy an environment-provided key into a non-exported private variable and unset `TYPESAFE_API_KEY` before launching child processes, so the secret is absent from child environments.
-`bin/fm-jev-lib.sh` is the single owner of the Jev request, the answer validation, and that key handling for the resolver and for [routine-wake triage](#routine-wake-triage-env-typesafe_api_key); it sends the key to `curl` only as a header read from a file descriptor, never on argv, and nothing prints, logs, or writes it.
+The resolver, the watcher, the house-rules check, and bootstrap copy an environment-provided key into a non-exported private variable and unset `TYPESAFE_API_KEY` before launching child processes, so the secret is absent from child environments.
+`bin/fm-jev-lib.sh` is the single owner of the Jev request, the answer validation, and that key handling for the resolver, for [routine-wake triage](#routine-wake-triage-env-typesafe_api_key), and for the [house-rules check](#house-rules-check-env-typesafe_api_key-confighouse-rulesjson); it sends the key to `curl` only as a header read from a file descriptor, never on argv, and nothing prints, logs, or writes it.
 It fixes the endpoint at `https://api.typesafe.ai`, model at `jev-latest`, confidence floor at 0.6, and request timeout at 5 seconds; `TYPESAFE_API_KEY` is the resolver's only resolver-specific environment setting.
 The live rule-match evidence is recorded in [`verification/dispatch-resolve.md`](verification/dispatch-resolve.md).
 
@@ -1122,7 +1178,7 @@ FMX_RELAY_URL=https://myfirstmate.io   # optional Relay endpoint override, mainl
 FMX_ENV_FILE=           # optional alternate .env file for direct Relay client invocations; bootstrap still checks $FM_HOME/.env
 FMX_DRY_RUN=            # truthy previews Relay replies and dismissals to state/x-outbox/ without posting or requiring a token
 FMX_X_REPLY_MAX_CHARS=280   # X reply per-message split budget; values below 50 clamp to 50
-TYPESAFE_API_KEY=       # typed dispatch resolution opt-in, from the environment or .env; absent means bin/fm-dispatch-resolve.sh is off (docs/configuration.md "Typed dispatch resolution"), and so is routine-wake triage
+TYPESAFE_API_KEY=       # typed dispatch resolution opt-in, from the environment or .env; absent means bin/fm-dispatch-resolve.sh is off (docs/configuration.md "Typed dispatch resolution"), and so is routine-wake triage and the house-rules check, which also needs a project opted in in config/house-rules.json
 FMX_DISCORD_REPLY_MAX_CHARS=1900   # Discord reply per-message split budget; values below 50 clamp to 50, values above 2000 reset to 1900
 FMX_X_THREAD_MAX=25     # maximum messages in one auto-split reply thread
 FMX_FOLLOWUP_MAX_AGE_SECS=604800   # local window for posting Relay completion follow-ups (7 days)
