@@ -26,14 +26,28 @@
 #   0 when a key is available, 1 when it is absent from both sources.
 #
 # fm_jev_code_allowed <project>
-#   0 only when <project> is a whole line of $FM_HOME/config/jev-code-projects
-#   (one entry per line; blank lines and lines starting with # are ignored).
+#   0 only when <project> is a whole line of jev-code-projects in the config
+#   directory, ${FM_CONFIG_OVERRIDE:-$FM_HOME/config} like every other config
+#   read (one entry per line; blank lines and lines starting with # are ignored).
 #   A caller keyed by repository passes `<owner>/<repo>`, and a caller keyed by
 #   a firstmate project passes that project's name; neither form matches the
 #   other, so a bare name never allows a repository by its basename.
 #   The key alone lets a caller send routing text and status lines; a caller
 #   that would send a project's code, file list, or pull request text asks this
 #   first. An absent or empty file allows no project.
+#
+# fm_jev_secret_path <path>
+#   0 when the file's name says it holds secrets (FM_JEV_SECRET_PATH, matched
+#   without regard to case). A caller that sends file content leaves such a
+#   file out.
+#
+# Credential lines: no caller can send one. Before the request is built, every
+#   string in the state has each line that matches a recognised credential
+#   format (FM_JEV_CREDENTIALS) or the generic secret literal
+#   (FM_JEV_SECRET_LITERAL) replaced by FM_JEV_WITHHELD, and a private key
+#   block replaced whole by one FM_JEV_WITHHELD, through its END line or the
+#   end of the string. A jq that cannot run the patterns builds no request.
+#   bin/fm-commit-check.sh reads the same two lists for its commit-time stop.
 #
 # fm_jev_choice <question-key> <instructions> <state-json-file> <criteria-json-file>
 #   One POST to $FM_JEV_BASE/v1/systemone. <state-json-file> holds the JSON
@@ -80,6 +94,23 @@ FM_JEV_TIMEOUT=5
 # The floor every current caller applies to a Choice answer's confidence.
 FM_JEV_CONFIDENCE_FLOOR=0.6
 
+# ponytail: a fixed list of recognised formats, "<kind><TAB><pattern>", each
+# pattern valid for both grep -E and jq. It misses credential shapes it does
+# not name; add a line here when a real one gets through.
+FM_JEV_PRIVATE_KEY_BEGIN='-----BEGIN [A-Z ]*PRIVATE KEY-----'
+FM_JEV_PRIVATE_KEY_END='-----END [A-Z ]*PRIVATE KEY-----'
+FM_JEV_CREDENTIALS="private key	$FM_JEV_PRIVATE_KEY_BEGIN"'
+AWS access key	(^|[^A-Za-z0-9])A(KIA|SIA)[0-9A-Z]{16}([^A-Za-z0-9]|$)
+GitHub token	(gh[pousr]_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{50,})
+Slack token	xox[abprs]-[A-Za-z0-9-]{10,}
+Google API key	AIza[0-9A-Za-z_-]{35}
+API key	(^|[^A-Za-z0-9])sk-[A-Za-z0-9_-]{32,}'
+# A quoted literal assigned to a password, secret, token or api-key name. It
+# also matches ordinary code such as a token type or a URL.
+FM_JEV_SECRET_LITERAL='([Pp][Aa][Ss][Ss][Ww][Oo]?[Rr]?[Dd]|[Ss][Ee][Cc][Rr][Ee][Tt]|[Tt][Oo][Kk][Ee][Nn]|[Aa][Pp][Ii][_-]?[Kk][Ee][Yy])[A-Za-z0-9_]*["'"'"']?[[:space:]]*[:=][[:space:]]*["'"'"'][^"'"'"'$<{[:space:]]{8,}["'"'"']'
+FM_JEV_WITHHELD='[line withheld: looks like a credential]'
+FM_JEV_SECRET_PATH='(^|/)[.]env([.].*)?$|[.](pem|key|p12|pfx)$|secret|credential'
+
 FM_JEV_STATUS=
 FM_JEV_ERROR=
 FM_JEV_LATENCY_MS=null
@@ -97,7 +128,13 @@ fm_jev_key_load() {  # <home>
 
 fm_jev_code_allowed() {  # <project>
   [ -n "$1" ] && [ "${1#\#}" = "$1" ] \
-    && grep -qxF -- "$1" "${FM_HOME:-.}/config/jev-code-projects" 2>/dev/null
+    && grep -qxF -- "$1" "${FM_CONFIG_OVERRIDE:-${FM_HOME:-.}/config}/jev-code-projects" 2>/dev/null
+}
+
+fm_jev_secret_path() {  # <path>
+  local lower
+  lower=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+  [[ $lower =~ $FM_JEV_SECRET_PATH ]]
 }
 
 _fm_jev_fail() {  # <reason>
@@ -120,13 +157,22 @@ _fm_jev_ask() {  # <questions-json> <state-json-file> <required-question-key>
   command -v curl >/dev/null 2>&1 || { _fm_jev_fail "curl not installed"; return 1; }
   command -v jq >/dev/null 2>&1 || { _fm_jev_fail "jq not installed"; return 1; }
   request=$(jq -n --arg model "$FM_JEV_MODEL" --argjson questions "$questions" --arg required "$required" \
-    --slurpfile state "$state_file" '
+    --slurpfile state "$state_file" --arg credentials "$FM_JEV_CREDENTIALS" --arg literal "$FM_JEV_SECRET_LITERAL" \
+    --arg begin "$FM_JEV_PRIVATE_KEY_BEGIN" --arg end "$FM_JEV_PRIVATE_KEY_END" --arg withheld "$FM_JEV_WITHHELD" '
+    ([$credentials | split("\n")[] | split("\t")[1]] + [$literal]) as $patterns |
+    def withhold:
+      reduce split("\n")[] as $line ({out: [], key: false};
+        if .key then .key = ($line | test($end) | not)
+        elif ($line | test($begin)) then .out += [$withheld] | .key = ($line | test($end) | not)
+        elif any($patterns[]; . as $p | $line | test($p)) then .out += [$withheld]
+        else .out += [$line] end)
+      | .out | join("\n");
     if ($state | length) != 1 or ($questions | type) != "object" or ($questions | has($required) | not)
        or any($questions[]; (.instructions | type) != "string" or (.criteria | type) != "object")
     then error("bad input") else
     {
       model: $model,
-      state: $state[0],
+      state: ($state[0] | walk(if type == "string" then withhold else . end)),
       questions: ($questions | map_values({type: "choice", instructions, criteria}))
     } end' 2>/dev/null) || { _fm_jev_fail "request could not be built"; return 1; }
   resp=$(mktemp) || { _fm_jev_fail "mktemp failed"; return 1; }

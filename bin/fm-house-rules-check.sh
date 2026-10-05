@@ -7,7 +7,8 @@
 #   fm-house-rules-check.sh --enabled <project>  (exit 0 when a run would ask Jev)
 #
 # Opt-in gate, both halves required: fm_jev_code_allowed finds <project> in
-#   config/jev-code-projects, and TYPESAFE_API_KEY is available under the same
+#   jev-code-projects in the same config directory the rules are read from,
+#   and TYPESAFE_API_KEY is available under the same
 #   environment-then-$FM_HOME/.env contract as bin/fm-dispatch-resolve.sh.
 #   The key alone never sends a project's source. bin/fm-jev-lib.sh owns the
 #   project list read, the key handling, the request, and the answer
@@ -76,7 +77,7 @@ house_rules_usage() {
 house_rules_load() {  # <project>
   local file=$HOUSE_RULES_CONFIG/house-rules.json
   if ! fm_jev_code_allowed "$1"; then
-    echo "house-rules-check: off (project \"$1\" is not a line of $FM_HOME/config/jev-code-projects)" >&2
+    echo "house-rules-check: off (project \"$1\" is not a line of $HOUSE_RULES_CONFIG/jev-code-projects)" >&2
     return 1
   fi
   [ -e "$file" ] || { jq -c .rules <<<"$HOUSE_RULES_DEFAULT"; return; }
@@ -103,9 +104,8 @@ house_rules_path_skipped() {  # <path>
     *.md|*.markdown|*.txt|*.rst|*.adoc) return 0 ;;
     *.lock|*lock.json|*lock.yaml|*.sum|*.min.*|*.map|*.snap|*.svg) return 0 ;;
     vendor/*|*/vendor/*|node_modules/*|*/node_modules/*|dist/*|*/dist/*) return 0 ;;
-    .env|.env.*|*/.env|*/.env.*|*.pem|*.key|*.p12|*.pfx|*secret*|*credential*) return 0 ;;
   esac
-  return 1
+  fm_jev_secret_path "$1"
 }
 
 # Cut the diff on stdin into block files <dir>/<n> and print "<n>\t<line>\t<file>"

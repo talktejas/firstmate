@@ -278,7 +278,7 @@ while [ $# -gt 0 ]; do
     *) printf 'argv:%s\n' "$1" >> "$FAKE_CURL_LOG"; shift ;;
   esac
 done
-jq -c '{model: "jev-test", answers: (.questions | map_values({choice: "yes", confidence: 0.9, probabilities: {yes: 0.9, no: 0.1}}))}' > "$out"
+tee -a "$FAKE_CURL_LOG.body" | jq -c '{model: "jev-test", answers: (.questions | map_values({choice: "yes", confidence: 0.9, probabilities: {yes: 0.9, no: 0.1}}))}' > "$out"
 printf 200
 SH
 chmod +x "$FAKEBIN/curl"
@@ -327,6 +327,16 @@ if commit 'Add the client token'; then fail "a credential must stop a real commi
 assert_grep 'src/conf.py:1: GitHub token' "$ERR" "the stop is shown to the committer"
 assert_equals 'Add two more counters' "$(git -C "$WT" log -1 --format=%s)" "no commit was made"
 pass "real commit: a credential stops it"
+
+stage src/g.py 't = 7\n'
+rm -f "$FAKE_CURL_LOG.body"
+commit "Add the seventh counter
+
+Pushed by hand with GH_TOKEN=$ghtoken while the runner was down." || fail "a credential in the message must not stop a real commit"
+assert_grep 'Add the seventh counter' "$FAKE_CURL_LOG.body" "the rest of the message is still sent"
+assert_no_grep "$ghtoken" "$FAKE_CURL_LOG.body" "a message line holding a credential is not in the request"
+assert_grep 'line withheld: looks like a credential' "$FAKE_CURL_LOG.body" "the credential line is replaced by the placeholder"
+pass "real commit: a message line that looks like a credential is withheld from the request"
 
 # Any other repository the worker's process tree commits to is left alone.
 OTHER="$TMP_ROOT/other"

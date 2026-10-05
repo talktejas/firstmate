@@ -20,7 +20,8 @@
 #   low     none of those
 # Jev (bin/fm-jev-lib.sh, the one caller) is then asked only the judgement that
 # remains, as up to three separate yes/no questions over the title, description,
-# file list, facts, and a capped diff excerpt:
+# file list, facts, and a capped diff excerpt that leaves out every file whose
+# name says it holds secrets (fm_jev_secret_path's list: .env, *.pem, ...):
 #   untested      behaviour changed with no test - asked only when code changed
 #                 and no test file did; otherwise code answers no
 #   mismatch      the description does not match the change - asked only when
@@ -104,6 +105,18 @@ _fm_pr_risk_facts() {
     }'
 }
 
+# Reads a unified diff on stdin and prints it from its first file on, leaving
+# out every file whose old or new name says it holds secrets.
+_fm_pr_risk_excerpt() {
+  awk -v secret="$FM_JEV_SECRET_PATH" '
+    /^diff --git "?a\// {
+      old = $0; sub(/^diff --git "?a\//, "", old); sub(/ "?b\/.*$/, "", old); sub(/"$/, "", old)
+      new = $0; sub(/^.* "?b\//, "", new); sub(/"$/, "", new)
+      keep = !(tolower(old) ~ secret || tolower(new) ~ secret)
+    }
+    keep'
+}
+
 # 0 a counted yes, 1 a counted no, 2 not answered (why in _FM_PR_RISK_WHY).
 _fm_pr_risk_ask() {  # <key> <question> <criteria-json> <state-file>
   _FM_PR_RISK_WHY=
@@ -178,7 +191,7 @@ _fm_pr_risk_run() {  # <tmp-dir> <task-id> <provider> <url> <host> <project-path
 
   if [ "$listed" = 0 ]; then
     :
-  elif ! { sed -n '/^diff --git "\{0,1\}a\//,$p' "$tmp/diff" | head -c "$FM_PR_RISK_DIFF_BYTES" > "$tmp/excerpt"; } 2>/dev/null \
+  elif ! { _fm_pr_risk_excerpt < "$tmp/diff" | head -c "$FM_PR_RISK_DIFF_BYTES" > "$tmp/excerpt"; } 2>/dev/null \
     || ! grep '^file	' "$tmp/facts" | head -n 100 | jq -Rn \
       --slurpfile pr "$tmp/pr" --rawfile diff "$tmp/excerpt" \
       --argjson lines "$lines" --argjson files "$files" --argjson deleted "$deleted" \

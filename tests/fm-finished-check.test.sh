@@ -230,7 +230,9 @@ while [ $# -gt 0 ]; do
     *) printf 'argv:%s\n' "$1" >> "$FAKE_CURL_LOG"; shift ;;
   esac
 done
-key=$(jq -r '.questions | keys[0]')
+body=$(cat)
+printf '%s\n' "$body" >> "$FAKE_CURL_LOG.body"
+key=$(jq -r '.questions | keys[0]' <<<"$body")
 jq -cn --arg k "$key" '{model: "jev-test", answers: {($k): {choice: "yes", confidence: 0.9, probabilities: {yes: 0.9, no: 0.1}}}}' > "$out"
 printf 200
 SH
@@ -247,5 +249,15 @@ out=$(PATH="$FAKEBIN:$PATH" FAKE_CURL_LOG="$TMP_ROOT/curl.log" "$CHECK" "$HOME_O
   <<<"$(stop_json 'Should I use A or B?')")
 assert_equals '' "$out" "the executable prints nothing without a key"
 pass "executable: block decision with a key, silent without, key never in a child"
+
+PLANTED="ghp_$(printf 'a%.0s' $(seq 1 36))"
+reset
+rm -f "$TMP_ROOT/curl.log.body"
+PATH="$FAKEBIN:$PATH" FAKE_CURL_LOG="$TMP_ROOT/curl.log" "$CHECK" "$HOME_ON" "$STATE" "$ID" "$WT" \
+  <<<"$(stop_json "I pushed with the token below."$'\n'"GH_TOKEN=$PLANTED"$'\n'"Should I use A or B?")" >/dev/null
+assert_grep 'Should I use A or B?' "$TMP_ROOT/curl.log.body" "the rest of the closing message is still sent"
+assert_no_grep "$PLANTED" "$TMP_ROOT/curl.log.body" "a closing-message line holding a credential is in no request"
+assert_grep 'line withheld: looks like a credential' "$TMP_ROOT/curl.log.body" "the credential line is replaced by the placeholder"
+pass "executable: a closing-message line that looks like a credential is withheld from the request"
 
 echo "all fm-finished-check tests passed"

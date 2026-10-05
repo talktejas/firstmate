@@ -406,6 +406,34 @@ SH
   pass "with the model down the blocker lines are intact and the check is unknown"
 }
 
+test_failed_check_sort_withholds_a_credential_line_from_the_request() {
+  local out planted log
+  planted="ghp_$(printf 'a%.0s' $(seq 1 36))"
+  log=$(printf 'build\tpush\t2026-10-06T10:00:00.0000000Z error: push failed with GH_TOKEN=%s\nbuild\ttest\t2026-10-06T10:00:01.0000000Z assert failed in the parser\n' "$planted")
+  rm -f "$GH_CALLS" "$TMP_ROOT/curl-body"
+  cat > "$FAKEBIN/curl" <<'SH'
+#!/bin/sh
+out=
+while [ $# -gt 0 ]; do
+  case "$1" in -o) out=$2; shift 2 ;; *) shift ;; esac
+done
+cat > "$FM_TEST_CURL_BODY"
+printf '%s' '{"answers":{"failed_check":{"choice":"code_bug","confidence":0.9,"probabilities":{"code_bug":0.9,"flaky":0.05,"environment":0.03,"unclear":0.02}}}}' > "$out"
+printf 200
+SH
+  chmod +x "$FAKEBIN/curl"
+  printf 'o/r\n' > "$HOME_ON/config/jev-code-projects"
+  out=$(FM_TEST_HOME="$HOME_ON" FM_TEST_REQUIRED_CHECKS=$FAILING FM_TEST_HEAD_RUNS=$FAILED_RUN \
+    FM_TEST_LOG=$log FM_TEST_GH_CALLS="$GH_CALLS" FM_TEST_CURL_BODY="$TMP_ROOT/curl-body" run_state --sort-failed-checks) \
+    || fail "blocked fixture was refused"
+  rm -f "$FAKEBIN/curl" "$HOME_ON/config/jev-code-projects"
+  assert_contains "$out" 'FAILED CHECK SORT: CI Status: code bug (jev, confidence 0.9)' "the failed check is still sorted"
+  assert_contains "$(jq -r .state.log_tail "$TMP_ROOT/curl-body")" 'assert failed in the parser' "the rest of the log is still sent"
+  assert_no_grep "$planted" "$TMP_ROOT/curl-body" "a log line holding a credential is not in the request"
+  assert_grep 'line withheld: looks like a credential' "$TMP_ROOT/curl-body" "the credential line is replaced by the placeholder"
+  pass "a failed job's log line that looks like a credential is withheld from the request"
+}
+
 # The next two cases supply gh's own "nothing reported" sentences through
 # FM_TEST_CHECKS_ERROR, so they prove the behaviour GIVEN those strings and
 # nothing about the strings themselves. A gh reword is invisible to this
@@ -494,6 +522,7 @@ test_failed_check_sort_is_off_without_a_key
 test_failed_check_sort_rules_decide_first
 test_failed_check_sort_asks_only_for_a_listed_project
 test_failed_check_sort_never_changes_the_report
+test_failed_check_sort_withholds_a_credential_line_from_the_request
 test_unreported_required_checks_are_unconfirmed
 test_no_reported_checks_is_unverified
 test_help_states_what_silence_means_and_what_is_out_of_scope

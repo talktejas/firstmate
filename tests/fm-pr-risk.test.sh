@@ -266,6 +266,24 @@ printf 'TYPESAFE_API_KEY=%s\n' "$KEY" > "$H/.env"
 out=$(check FAKE_CHOICE=yes) || fail "the registration failed with the key in .env"
 assert_contains "$out" 'risk: high - database migration, behaviour changed with no test, description does not match the change, something hard to undo' \
   "the key is read from the home's .env and every counted yes is named"
+
+PLANTED="ghp_$(printf 'a%.0s' $(seq 1 36))"
+git -C "$WT" reset -q --hard main
+mkdir -p "$WT/src" "$WT/deploy"
+printf 'const retries = 3\nconst key = "%s"\n' "$PLANTED" > "$WT/src/client.js"
+printf 'ENV-FILE-MARKER=1\n' > "$WT/deploy/.env"
+printf 'PEM-FILE-MARKER\n' > "$WT/deploy/Server.PEM"
+git -C "$WT" add -A
+git -C "$WT" commit -qm 'client and deploy files'
+check >/dev/null || fail "the registration failed for a change holding a credential"
+sent=$(jq -r .state.change.diff_start "$H/log/body")
+assert_contains "$sent" 'const retries = 3' "the ordinary file's diff is still sent"
+assert_no_grep "$PLANTED" "$H/log/body" "a diff line holding a credential is not in the request"
+assert_contains "$sent" 'line withheld: looks like a credential' "the credential line is replaced by the placeholder"
+assert_not_contains "$sent" 'ENV-FILE-MARKER' "a .env file's content is left out of the diff excerpt"
+assert_not_contains "$sent" 'PEM-FILE-MARKER' "a .pem file's content is left out of the diff excerpt, whatever its case"
+assert_equals '["deploy/.env","deploy/Server.PEM","src/client.js"]' "$(jq -c '[.state.change.files[].path] | sort' "$H/log/body")" \
+  "the file list still names every changed file"
 change src/parser.js:12
 out=$(check FAKE_CURL_FAIL=28) || fail "a Jev timeout failed the registration"
 assert_equals "armed: state/task-a.check.sh

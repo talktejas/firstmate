@@ -98,6 +98,28 @@ assert_equals "Authorization: Bearer $KEY" "$(cat "$LIB_DIR/log/header")" "the k
 assert_not_contains "$(cat "$LIB_DIR/log/argv")" "$KEY" "the key never appears on curl argv"
 assert_equals 'curl:clean' "$(cat "$LIB_DIR/log/child-env")" "the key is absent from curl's environment"
 rm -rf "$LIB_DIR/log"; mkdir -p "$LIB_DIR/log"
+PLANTED="ghp_$(printf 'a%.0s' $(seq 1 36))"
+jq -n --arg token "$PLANTED" '{subject: "a", notes: ["kept one\nGH_TOKEN=\($token)\nkept two",
+  "db_password = \"hunter2-hunter2\"", "before\n-----BEGIN RSA PRIVATE KEY-----\nKEYBODYLINE\n-----END RSA PRIVATE KEY-----\nafter",
+  "cut\n-----BEGIN PRIVATE KEY-----\nOPENKEYLINE\nnever closed"]}' > "$LIB_DIR/state.json"
+out=$(lib_call TYPESAFE_API_KEY="$KEY")
+assert_equals '0|ok|yes|0.8|yes=0.8 no=0.2|' "$out" "a state holding credential lines is still asked"
+sent=$(cat "$LIB_DIR/log/body.1")
+assert_not_contains "$sent" "$PLANTED" "a line holding a recognised credential is not sent"
+assert_not_contains "$sent" 'hunter2' "a line holding a secret literal is not sent"
+assert_not_contains "$sent" 'KEYBODYLINE' "no line of a private key block is sent"
+assert_not_contains "$sent" 'PRIVATE KEY' "the private key block's own markers are not sent"
+assert_not_contains "$sent" 'OPENKEYLINE' "a private key block that never closes is withheld to the end of its text"
+assert_equals "kept one
+[line withheld: looks like a credential]
+kept two" "$(jq -r '.state.notes[0]' <<<"$sent")" "only the credential line is replaced, by the fixed placeholder"
+assert_equals "before
+[line withheld: looks like a credential]
+after" "$(jq -r '.state.notes[2]' <<<"$sent")" "a private key block is replaced whole and the text after it is kept"
+assert_equals "cut
+[line withheld: looks like a credential]" "$(jq -r '.state.notes[3]' <<<"$sent")" "nothing after an unclosed private key block is sent"
+printf '%s' '{"subject":"a"}' > "$LIB_DIR/state.json"
+rm -rf "$LIB_DIR/log"; mkdir -p "$LIB_DIR/log"
 out=$(lib_call)
 assert_equals '1|off||||' "$out" "no key is off"
 assert_absent "$LIB_DIR/log/calls" "off makes no network call"
@@ -522,6 +544,20 @@ assert_equals 'declared-pause-recheck' "$(jq -r '.state.wake.class' "$dir/log/bo
 assert_equals '["wake"]' "$(jq -c '.questions | keys' "$dir/log/body.1")" "one fixed-choice question is asked"
 assert_equals '["needs_firstmate","routine"]' "$(jq -c '.questions.wake.criteria | keys' "$dir/log/body.1")" "the choices are the fixed list"
 pass "watcher: a new paused: status signal is delivered unasked; the later recheck of its open pull request is absorbed, logged, and unqueued; the key stays on the fd header"
+
+dir=$(make_parked planted)
+printf 'paused: PR is open and green, awaiting the merge word\npaused: pushed with GH_TOKEN=%s, awaiting the merge word\n' "$PLANTED" >> "$dir/state/park.status"
+watch_parked "$dir" TYPESAFE_API_KEY="$KEY"
+pid=$!
+wait_for_exit "$pid" 150 || fail_parked "$dir" "$pid" "a status line holding a credential was not delivered"
+watch_parked "$dir" TYPESAFE_API_KEY="$KEY" FM_WATCH_HANDLING_SUCCESSOR=1
+pid=$!
+wait_for_log "$dir" "$pid" 'absorbed jev-routine declared-pause-recheck' \
+  || fail_parked "$dir" "$pid" "the recheck of a status line holding a credential was not asked"
+reap "$pid"
+assert_no_grep "$PLANTED" "$dir/log/body.1" "a status line holding a credential is not in the watcher's request"
+assert_grep 'line withheld: looks like a credential' "$dir/log/body.1" "the watcher's status line is replaced by the placeholder"
+pass "watcher: a status line holding a credential is withheld from the request"
 
 # A parked worker whose paused: signal an earlier watcher run already reported;
 # the later run is the successor that supervises while that wake is handled.

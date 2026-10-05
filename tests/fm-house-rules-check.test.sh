@@ -273,4 +273,34 @@ FM_HOME="$ON" "$ROOT/bin/fm-brief.sh" hr-scout "$PROJ" --scout >/dev/null 2>&1 |
 assert_no_grep 'advisory house-rule flags' "$ON/data/hr-scout/brief.md" "a scout brief carries no check"
 pass "brief: every ship mode gains the advisory step only for an opted-in project in a home with the key"
 
+# --- credential lines never leave -------------------------------------------
+
+PLANTED="ghp_$(printf 'a%.0s' $(seq 1 36))"
+printf 'retries = 3\nGH_TOKEN=%s\n' "$PLANTED" > "$REPO/src/client.sh"
+rgit add -A
+rgit commit -qm client
+rm -rf "$LOG"; mkdir -p "$LOG"
+(cd "$REPO" && env PATH="$FAKEBIN:$PATH" FAKE_CURL_LOG="$LOG" FAKE_CURL_RESPONSE="$TMP_ROOT/response.json" \
+  TYPESAFE_API_KEY="$KEY" FM_HOME="$OPTED" "$TOOL" "$PROJ" >/dev/null 2>&1)
+sent=$(cat "$LOG"/body.*)
+assert_contains "$sent" 'retries = 3' "the block holding the credential line is still asked about"
+assert_not_contains "$sent" "$PLANTED" "a changed line holding a credential is in no request"
+assert_contains "$sent" 'line withheld: looks like a credential' "the credential line is replaced by the placeholder"
+pass "executable: a changed line that looks like a credential is withheld from every request"
+
+# --- the gate and the rules read one config directory -------------------------
+
+ALT="$TMP_ROOT/alt-config"
+mkdir -p "$ALT"
+printf '%s\n' "$PROJ" > "$ALT/jev-code-projects"
+printf '{"rules":[{"id":"alt-rule","question":"Alt?","yes":"Alt yes.","no":"Alt no."}]}\n' > "$ALT/house-rules.json"
+FM_CONFIG_OVERRIDE="$ALT" run_stubbed "$KEYONLY" --enabled "$PROJ"; code=$?
+expect_code 0 "$code" "FM_CONFIG_OVERRIDE's project list opts the project in for a home that lists none"
+out=$(FM_CONFIG_OVERRIDE="$ALT" STUB_YES='src/a.sh' run_stubbed "$KEYONLY" "$PROJ")
+assert_contains "$out" 'src/a.sh:3: alt-rule ' "the rules come from the same directory as the project list"
+: > "$ALT/jev-code-projects"
+FM_CONFIG_OVERRIDE="$ALT" run_stubbed "$ON" --enabled "$PROJ"; code=$?
+expect_code 1 "$code" "the home's own project list is not read when FM_CONFIG_OVERRIDE names another directory"
+pass "FM_CONFIG_OVERRIDE selects one directory for both the project list and the rules"
+
 printf '# all fm-house-rules-check tests passed\n'

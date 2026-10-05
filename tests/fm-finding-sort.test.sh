@@ -213,4 +213,16 @@ assert_not_contains "$out" "$KEY" "the key never appears in the output"
 assert_equals "$(cat "$TMP_ROOT/status.before")" "$(cat "$OPTED/state/$T.status")" "the sort writes nothing to the task's status record"
 pass "executable: one request of fixed four-way questions through the shared caller; key on the fd header only"
 
+
+PLANTED="ghp_$(printf 'a%.0s' $(seq 1 36))"
+printf '\nid: g-token\ndescription: the fixture hard-codes GH_TOKEN=%s\n' "$PLANTED" >> "$OPTED/data/$T/nm-r1-findings.txt"
+rm -rf "$LOG"; mkdir -p "$LOG"
+env PATH="$FAKEBIN:$PATH" FAKE_CURL_LOG="$LOG" FAKE_CURL_RESPONSE="$TMP_ROOT/response.json" \
+  TYPESAFE_API_KEY="$KEY" FM_HOME="$OPTED" "$TOOL" "$T" >/dev/null 2>&1
+sent=$(jq -r .state.findings "$LOG/body.1")
+assert_contains "$sent" 'id: g-token' "the rest of the findings file is still sent"
+assert_no_grep "$PLANTED" "$LOG/body.1" "a findings line holding a credential is not in the request"
+assert_contains "$sent" 'line withheld: looks like a credential' "the credential line is replaced by the placeholder"
+pass "executable: a findings line that looks like a credential is withheld from the request"
+
 printf '# all fm-finding-sort tests passed\n'

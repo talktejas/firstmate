@@ -646,6 +646,16 @@ TYPESAFE_API_KEY=$KEY run code out err "$NO_TASK_BRIEF"
 assert_contains "$(jq -r .state.task.brief "$LOG/body")" 'HAND-WRITTEN-BRIEF fix the pager.' "a brief with no task section is sent whole"
 pass "request state carries the task part of a scaffolded brief and a section-less brief whole"
 
+PLANTED="ghp_$(printf 'a%.0s' $(seq 1 36))"
+PLANTED_BRIEF="$TMP_ROOT/planted-brief.md"
+printf '%s\n' '# Notes' 'PLANTED-BRIEF fix the pager.' "Use GH_TOKEN=$PLANTED to push." > "$PLANTED_BRIEF"
+reset_log
+TYPESAFE_API_KEY=$KEY run code out err "$PLANTED_BRIEF"
+assert_contains "$(jq -r .state.task.brief "$LOG/body")" 'PLANTED-BRIEF fix the pager.' "the rest of the brief is still sent"
+assert_not_contains "$(cat "$LOG/body")" "$PLANTED" "a brief line holding a credential is not in the request"
+assert_contains "$(jq -r .state.task.brief "$LOG/body")" '[line withheld: looks like a credential]' "the credential line is replaced by the placeholder"
+pass "a brief line that looks like a credential is withheld from the request"
+
 # --- rules with one outcome count as one answer -----------------------------------
 SAME_OUTCOME="$TMP_ROOT/same-outcome.json"
 cat > "$SAME_OUTCOME" <<'JSON'

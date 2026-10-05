@@ -252,7 +252,13 @@ The file holds one entry per line, matched as a whole line, with blank lines and
 An entry takes one of two forms, and neither matches the other.
 A bare project name, the last path component of the task's project, matches a check keyed by firstmate project: the [house-rules check](#house-rules-check-env-typesafe_api_key-confighouse-rulesjson), the [review finding sort](#review-finding-sort-env-typesafe_api_key-configjev-code-projects), the [pull request risk level](#pull-request-risk-level-env-typesafe_api_key), and the [commit check](#commit-check-env-typesafe_api_key-configjev-code-projects).
 `<owner>/<repo>` matches a check keyed by repository, the [failed check sort](#failed-check-sort-env-typesafe_api_key-configjev-code-projects), only when it equals the pull request's owner and repository exactly, so a same-named repository under another owner is not allowed and a bare name never allows a repository by its basename.
-`bin/fm-jev-lib.sh`'s `fm_jev_code_allowed` is the one read of this file, and every check above calls it.
+This is the single opt-in list: naming a project here enables every code-sending Jev check for it at once, each still subject to its own other conditions, and no check keeps a project list of its own.
+`bin/fm-jev-lib.sh`'s `fm_jev_code_allowed` is the one read of this file, and every check above calls it; it reads the file from the same config directory as every other setting, so `FM_CONFIG_OVERRIDE` moves the list together with `config/house-rules.json`.
+
+A line that looks like a credential is never sent, by any Jev check, listed project or not.
+Before `bin/fm-jev-lib.sh` builds a request, every piece of text a check hands it as state - a brief, a status line, a closing message, a commit message, a diff, a findings file, a failure log - has each line that matches a recognised credential format (a private key block's first line, or an AWS, GitHub, Slack, Google, or `sk-` style key) or that assigns a quoted literal to a password, secret, token, or API-key name replaced by the fixed text `[line withheld: looks like a credential]`.
+A private key block is replaced whole by that one line, through its `END` line or, when the text was cut short, the end of the text.
+The library holds the one copy of those patterns, which the [commit check](#commit-check-env-typesafe_api_key-configjev-code-projects) also uses for its commit-time stop; the list is fixed, so a credential shape it does not name is not caught.
 This file replaces the `projects` list of `config/house-rules.json`; a `projects` key in that file is ignored.
 
 ## House-rules check (.env TYPESAFE_API_KEY, config/house-rules.json)
@@ -382,7 +388,7 @@ A change that cannot be read at all is `risk: not rated`.
 
 The key alone sends nothing about any project.
 [`config/jev-code-projects`](#jev-code-projects-configjev-code-projects) lists the projects whose changes the model may see.
-For a listed project each call sends the pull request's title and description, its file list with line counts, the facts above, and the first 30000 bytes of its diff to `https://api.typesafe.ai`; that text is written by the pull request's author, so it can sway an answer, which is why an answer may raise the level and nothing more.
+For a listed project each call sends the pull request's title and description, its file list with line counts, the facts above, and the first 30000 bytes of its diff, leaving out every file whose name says it holds secrets (`.env*`, `*.pem`, `*.key`, `*.p12`, `*.pfx`, or a name containing `secret` or `credential`), to `https://api.typesafe.ai`; that text is written by the pull request's author, so it can sway an answer, which is why an answer may raise the level and nothing more.
 For a project that is not listed the model is asked nothing and the forge is not read for a description: the level comes from the facts alone, every question code could not settle is named as unanswered with `project not listed`, and the line is `risk: not rated` when no fact raised the level, never `risk: low`.
 The rating adds at most one change read (60 seconds), one forge read (20 seconds), and three model calls to a registration made with `bin/fm-pr-check.sh <id> <PR url>`, and stops calling the model after the first call that fails outright.
 The level is rated only then: the re-registration `bin/fm-pr-merge.sh` performs passes `--no-risk`, so a merge reads no change, sends nothing, waits on nothing, and prints no `risk:` line.
@@ -427,7 +433,7 @@ A listed project whose setup step installs hooks should have them installed in t
 
 Code decides first, on the worker's machine:
 
-- An added line matching a recognised credential format - a private key block, or an AWS, GitHub, Slack, Google, or `sk-` style key - stops the commit, names the file, the line, and the kind, never the value, and tells the worker to remove the credential from the change.
+- An added line matching a recognised credential format - the list `bin/fm-jev-lib.sh` holds for [every Jev request](#jev-code-projects-configjev-code-projects): a private key block, or an AWS, GitHub, Slack, Google, or `sk-` style key - stops the commit, names the file, the line, and the kind, never the value, and tells the worker to remove the credential from the change.
   This is the only thing that stops a commit, and Jev has no part in it.
 - An added line that assigns a quoted literal to a password, secret, token, or API-key name is often ordinary code, so it only prints one advisory line naming the file and the line, and the commit goes through.
 - Merges, rebases, cherry-picks, reverts, `fixup!`, `squash!`, and `amend!` commits, and commits with nothing staged are not checked at all.
@@ -435,6 +441,7 @@ Code decides first, on the worker's machine:
 The hook then makes one request carrying up to three yes/no questions, each answerable from the message and the file names alone: is the message filler, does it contradict the staged file names (for example it says only tests changed while other files are staged), and is a staged file unaccounted for by the message.
 The last is left out when only one file is staged.
 That request carries the commit message (its last 4000 characters when longer) and the staged file names (the first 200), and nothing else: no diff and no line of any staged file's content ever leaves the machine.
+A message line that looks like a credential is withheld from the request like any other, and does not stop the commit.
 Debug leftovers are therefore not judged, because they cannot be told without the content.
 The credential patterns above are matched byte-wise, so a byte that is not valid in the worker's locale cannot hide a line from them.
 A project taken off the list after a worker was launched is no longer checked by that worker's hook.
