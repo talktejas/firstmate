@@ -4024,7 +4024,12 @@ if [ "$KIND" != secondmate ]; then
     busy_cmd_prefix="$(shell_quote "$FM_ROOT/bin/fm-busy-event.sh") apply $(shell_quote "$STATE_REAL") $(shell_quote "$ID")"
     busy_suffix="--gen $(shell_quote "$BUSY_GEN") --source claude-hook"
     j_submit=$(json_escape "$busy_cmd_prefix busy $busy_suffix --event user-prompt-submit 2>/dev/null || true")
-    j_stop=$(json_escape "touch $(shell_quote "$TURNEND"); $busy_cmd_prefix idle $busy_suffix --event stop 2>/dev/null || true")
+    # Stop first runs the key-gated finished check (bin/fm-finished-check.sh):
+    # when it prints a block decision the worker is sent back, so the turn has
+    # not ended and neither the marker nor the idle event fires; when it prints
+    # nothing, or cannot run at all, the turn ends exactly as before.
+    finished_cmd="$(shell_quote "$FM_ROOT/bin/fm-finished-check.sh") $(shell_quote "$FM_HOME") $(shell_quote "$STATE_REAL") $(shell_quote "$ID") $(shell_quote "$WT")"
+    j_stop=$(json_escape "fm_block=\$($finished_cmd 2>/dev/null) || fm_block=; if [ -n \"\$fm_block\" ]; then printf '%s\\n' \"\$fm_block\"; else touch $(shell_quote "$TURNEND"); $busy_cmd_prefix idle $busy_suffix --event stop 2>/dev/null || true; fi")
     j_stopfail=$(json_escape "$busy_cmd_prefix idle $busy_suffix --event stop-failure 2>/dev/null || true")
     j_sessionend=$(json_escape "$busy_cmd_prefix idle $busy_suffix --event session-end 2>/dev/null || true")
     cat >"$WT/.claude/settings.local.json" <<EOF

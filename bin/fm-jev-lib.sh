@@ -9,8 +9,8 @@
 # option, and a status; every decision
 # made from that answer (a confidence floor, an approval gate, an absorb) stays
 # in the caller's own code. bin/fm-dispatch-resolve.sh, the watcher's
-# routine-wake triage (bin/fm-watch.sh), and bin/fm-house-rules-check.sh are
-# the callers.
+# routine-wake triage (bin/fm-watch.sh), bin/fm-house-rules-check.sh, and the
+# worker stop hook's finished check (bin/fm-finished-check.sh) are the callers.
 #
 # Key handling: sourcing this file copies an environment-provided
 # TYPESAFE_API_KEY into one non-exported shell variable and unsets the exported

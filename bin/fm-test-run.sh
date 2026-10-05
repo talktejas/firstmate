@@ -358,7 +358,7 @@ family_for_basename() {
     fm-opencode-primary-live-e2e.test.sh|fm-pi-branch-live-e2e.test.sh|\
     fm-pi-branch-responsiveness-live-e2e.test.sh|\
     fm-pi-primary-live-e2e.test.sh|fm-pi-codex-native.test.sh|fm-omp-primary-live-e2e.test.sh|\
-    fm-pr-state-live-e2e.test.sh|\
+    fm-pr-state-live-e2e.test.sh|fm-finished-check-live-e2e.test.sh|\
     fm-sessionstart-hook-live-e2e.test.sh|fm-sessionstart-instruction-refresh-live-e2e.test.sh|\
     fm-quota-array-dispatch-live-e2e.test.sh|fm-send-secondmate-marker-herdr-e2e.test.sh|\
     fm-send-inbox-doorbell-live-e2e.test.sh|\
@@ -401,6 +401,7 @@ family_for_basename() {
     fm-busy-state.test.sh|fm-classify-corr-token.test.sh|\
     fm-claude-stop-autoarm.test.sh|fm-cursor-harness.test.sh|\
     fm-dispatch-resolve.test.sh|fm-house-rules-check.test.sh|\
+    fm-finished-check.test.sh|\
     fm-extension-binding.test.sh|fm-gitignore-config.test.sh|\
     fm-no-mistakes-required.test.sh|fm-peek-remote.test.sh|\
     fm-pending-reply.test.sh|fm-pi-branch-extension.test.sh|\
@@ -717,6 +718,8 @@ tests/fm-daemon.test.sh 27262
 tests/fm-dispatch-resolve.test.sh 4397
 tests/fm-documentation-audiences.test.sh 847
 tests/fm-extension-binding.test.sh 9053
+tests/fm-finished-check-live-e2e.test.sh 45
+tests/fm-finished-check.test.sh 2500
 tests/fm-fleet-snapshot-view.test.sh 17465
 tests/fm-fleet-sync.test.sh 35983
 tests/fm-gate-refuse.test.sh 5328
@@ -1452,14 +1455,23 @@ families_for_changed_path() {
       printf '%s\n' "__script__:fm-dispatch-resolve.test.sh"
       ;;
     bin/fm-jev-lib.sh)
-      # The one Jev caller, sourced by bin/fm-dispatch-resolve.sh, by the
-      # watcher's routine-wake triage, and by bin/fm-house-rules-check.sh.
+      # The one Jev caller, sourced by bin/fm-dispatch-resolve.sh, the watcher's
+      # routine-wake triage, bin/fm-house-rules-check.sh, and the worker stop
+      # hook's finished check.
       printf '%s\n' "__script__:fm-dispatch-resolve.test.sh"
       printf '%s\n' "__script__:fm-jev-wake-triage.test.sh"
       printf '%s\n' "__script__:fm-house-rules-check.test.sh"
+      printf '%s\n' "__script__:fm-finished-check.test.sh"
       ;;
     bin/fm-house-rules-check.sh)
       printf '%s\n' "__script__:fm-house-rules-check.test.sh"
+      ;;
+    bin/fm-finished-check.sh)
+      # The worker stop hook's finished check; the wiring suite runs the Stop
+      # hook command bin/fm-spawn.sh writes around it.
+      printf '%s\n' "__script__:fm-finished-check.test.sh"
+      printf '%s\n' "__script__:fm-busy-adapter-wiring.test.sh"
+      printf '%s\n' "__script__:fm-finished-check-live-e2e.test.sh"
       ;;
     bin/fm-env-lib.sh)
       # The one .env accessor, sourced by bin/fm-x-lib.sh (Relay token) and

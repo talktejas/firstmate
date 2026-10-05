@@ -272,6 +272,48 @@ test_claude_hooks_semantic_lifecycle() {
   pass "claude hooks open on UserPromptSubmit and close on Stop, StopFailure, and SessionEnd"
 }
 
+# The key-gated finished check (bin/fm-finished-check.sh) runs first in the Stop
+# hook: a block decision is the hook's whole output and the turn stays open.
+test_claude_stop_hook_finished_check_sends_back() {
+  local rec id=busy-cl-fc out state settings fake
+  rec=$(make_spawn_case claude-finished-check claude "$id")
+  read_case_record "$rec"
+  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id" "$PROJ_DIR")
+  expect_code 0 $? "claude spawn should succeed: $out"
+  state="$HOME_DIR/state"
+  settings="$WT_DIR/.claude/settings.local.json"
+  printf 'TYPESAFE_API_KEY=test-key-wiring\n' > "$HOME_DIR/.env"
+  fake="$CASE_DIR/fake-curl"
+  mkdir -p "$fake"
+  cat > "$fake/curl" <<'SH'
+#!/usr/bin/env bash
+out=''
+while [ $# -gt 0 ]; do
+  case "$1" in -o) out=$2; shift 2 ;; *) shift ;; esac
+done
+key=$(jq -r '.questions | keys[0]')
+jq -cn --arg k "$key" '{answers: {($k): {choice: "yes", confidence: 0.9, probabilities: {yes: 0.9, no: 0.1}}}}' > "$out"
+printf 200
+SH
+  chmod +x "$fake/curl"
+
+  rm -f "$state/$id.turn-ended"
+  out=$(PATH="$fake:$PATH" run_claude_hook "$settings" Stop \
+    <<<'{"stop_hook_active":false,"last_assistant_message":"Should I use A or B?"}')
+  [ "$(jq -r .decision <<<"$out")" = block ] || fail "Stop must print the block decision, got '$out'"
+  [ ! -e "$state/$id.turn-ended" ] || fail "a sent-back turn must not touch the notification marker"
+  out=$(classify claude "$id" "$state")
+  [ "$out" = "busy fm-spawn" ] || fail "a sent-back turn must stay busy, got '$out'"
+
+  out=$(PATH="$fake:$PATH" run_claude_hook "$settings" Stop \
+    <<<'{"stop_hook_active":true,"last_assistant_message":"Should I use A or B?"}')
+  [ -z "$out" ] || fail "the stop after a send-back must print nothing, got '$out'"
+  [ -f "$state/$id.turn-ended" ] || fail "the stop after a send-back must end the turn"
+  out=$(classify claude "$id" "$state")
+  [ "$out" = "idle claude-hook" ] || fail "the stop after a send-back must classify idle, got '$out'"
+  pass "claude Stop hook sends the worker back once, then ends the turn as before"
+}
+
 test_claude_hooks_stale_incarnation_harmless() {
   local rec id=busy-cl-2 out state settings
   rec=$(make_spawn_case claude-stale claude "$id")
@@ -428,6 +470,7 @@ test_pi_extension_stale_incarnation_rejected
 test_kimi_and_grok_install_no_unverified_wiring
 test_opencode_plugin_semantic_lifecycle
 test_claude_hooks_semantic_lifecycle
+test_claude_stop_hook_finished_check_sends_back
 test_claude_hooks_stale_incarnation_harmless
 test_gemini_hooks_semantic_lifecycle
 test_gemini_hooks_stale_incarnation_harmless
