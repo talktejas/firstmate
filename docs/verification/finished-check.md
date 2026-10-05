@@ -23,7 +23,7 @@ It answers Jev with a fake `curl`, so it needs no key.
 
 Run 2026-10-06 against `https://api.typesafe.ai`, model `jev-latest`, timeout 5 s, floor 0.6.
 Each cell is one real call made through the script's own question helper, sourced from `bin/fm-finished-check.sh` with its instructions and criteria unmodified and the key read from a home `.env` by `fm_jev_key_load`.
-The `claims_checks_passed` calls also carried `commands_run_this_turn` of `git add -A` and `git commit -m fix`.
+The `claims_checks_passed` column was measured on an earlier form of that question, whose calls also carried `commands_run_this_turn` of `git add -A` and `git commit -m fix` and whose `yes` criterion also required that no listed command could have run the checks; the shipped question sends the closing message alone and has not been re-measured, so that column is not evidence for it.
 Each cell is the choice and its confidence; the 24 calls took 291 to 733 ms, median 326 ms.
 
 | Closing message | `claims_finished` | `asks_question` | `partial_or_blocked` | `claims_checks_passed` |

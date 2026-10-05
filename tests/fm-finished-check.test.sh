@@ -166,24 +166,34 @@ assert_equals '' "$out" "a yes below the floor is not a mismatch"
 pass "Jev down or unsure: the turn ends"
 
 transcript="$TMP_ROOT/transcript.jsonl"
-write_transcript() {  # <command>
-  jq -cn --arg c "$1" '
+write_transcript() {  # <command>...  (this turn's shell commands, in order)
+  jq -cn '
     {type: "user", message: {content: "older"}},
     {type: "assistant", message: {content: [{type: "tool_use", name: "Bash", input: {command: "bin/fm-lint.sh"}}]}},
     {type: "user", message: {content: "commit it"}},
-    {type: "assistant", message: {content: [{type: "tool_use", name: "Bash", input: {command: $c}}]}},
-    {type: "user", message: {content: [{type: "tool_result", content: "ok"}]}}' > "$transcript"
+    ($ARGS.positional[] | {type: "assistant", message: {content: [{type: "tool_use", name: "Bash", input: {command: .}}]}}),
+    {type: "user", message: {content: [{type: "tool_result", content: "ok"}]}}' --args "$@" > "$transcript"
 }
 reset 'done: [2026-01-01T00:01:00Z] shipped'
 write_transcript 'git commit -m x'
 out=$(STUB_YES='claims_checks_passed' check "$HOME_ON" "$(stop_json 'All tests pass.' "{\"transcript_path\":\"$transcript\"}")")
 assert_contains "$out" 'no test or check command ran this turn' "a checks claim with no check command must be sent back"
-assert_equals '["git commit -m x"]' "$(jq -c 'select(has("commands_run_this_turn")) | .commands_run_this_turn' "$SENT")" \
-  "only this turn's commands are sent"
+assert_equals '["closing_message"]' "$(jq -cs 'map(keys[]) | unique' "$SENT")" \
+  "only the closing message is sent, never a shell command"
 reset 'done: [2026-01-01T00:01:00Z] shipped'
 write_transcript 'bin/fm-lint.sh'
 STUB_YES='claims_checks_passed' check "$HOME_ON" "$(stop_json 'All tests pass.' "{\"transcript_path\":\"$transcript\"}")" >/dev/null
 assert_equals 'partial_or_blocked' "$(asked)" "a check command this turn withholds the checks question"
+many=()
+for _ in $(seq 60); do many+=('git status'); done
+reset 'done: [2026-01-01T00:01:00Z] shipped'
+write_transcript 'bin/fm-test-run.sh' "${many[@]}"
+STUB_YES='claims_checks_passed' check "$HOME_ON" "$(stop_json 'All tests pass.' "{\"transcript_path\":\"$transcript\"}")" >/dev/null
+assert_equals 'partial_or_blocked' "$(asked)" "a check command followed by many others still withholds the checks question"
+reset 'done: [2026-01-01T00:01:00Z] shipped'
+write_transcript "cd /srv/app && $(printf 'git status && %.0s' $(seq 40))npm test"
+STUB_YES='claims_checks_passed' check "$HOME_ON" "$(stop_json 'All tests pass.' "{\"transcript_path\":\"$transcript\"}")" >/dev/null
+assert_equals 'partial_or_blocked' "$(asked)" "a check late in a long command still withholds the checks question"
 pass "claims_checks_passed needs the no-check-command fact"
 
 # --- layer 2: the executable, real library, fake curl -------------------------

@@ -29,9 +29,8 @@
 #
 # "This turn" is everything since the busy-state record opened the turn
 # (bin/fm-busy-lib.sh). Each call sends the closing message cut to 4000
-# characters and, for the checks question, the turn's shell commands; no brief,
-# file content, or diff. The operator-facing contract is docs/configuration.md
-# "Finished check".
+# characters and nothing else: no shell command, brief, file content, or diff.
+# The operator-facing contract is docs/configuration.md "Finished check".
 
 _FM_FC_DIR=${BASH_SOURCE[0]%/*}
 [ "$_FM_FC_DIR" != "${BASH_SOURCE[0]}" ] || _FM_FC_DIR=.
@@ -52,7 +51,7 @@ FM_FC_INSTRUCTIONS='closing_message is the last message a software worker wrote 
 _fm_fc_criteria() {  # <question-key> -> its yes/no criteria JSON
   case "$1" in
     partial_or_blocked) printf '%s' '{"yes":"The message says some of the requested work is not done, was skipped or left for later, or that the worker is blocked or could not proceed.","no":"The message does not say work remains or that the worker is blocked, or it is unclear."}' ;;
-    claims_checks_passed) printf '%s' '{"yes":"The message states that tests, lint, a build, or other checks passed or were run successfully, and no command in commands_run_this_turn could have run them.","no":"The message makes no such claim, or a listed command could have run those checks, or it is unclear."}' ;;
+    claims_checks_passed) printf '%s' '{"yes":"The message states that tests, lint, a build, or other checks passed or were run successfully.","no":"The message makes no such claim, or it is unclear."}' ;;
     asks_question) printf '%s' '{"yes":"The message asks someone to choose, confirm, approve, or answer something before the worker continues.","no":"The message asks nothing that the worker is waiting on, or it is unclear."}' ;;
     claims_finished) printf '%s' '{"yes":"The message claims the assigned work is finished, complete, or ready.","no":"The message does not claim the work is finished, or it is unclear."}' ;;
   esac
@@ -95,15 +94,15 @@ fm_finished_check() {  # <home> <state-dir> <task-id> <worktree>
     || [ -n "$(git -C "$wt" log -1 --since="$ts" --format=%h 2>/dev/null)" ]; then
     changed=1
   fi
-  # The shell commands since the turn's last typed prompt; empty when the
-  # transcript is unreadable, which withholds the checks question.
+  # The shell commands since the turn's last typed prompt, kept on this
+  # machine; empty when the transcript is unreadable, which withholds the
+  # checks question.
   transcript=$(jq -r '.transcript_path // ""' 2>/dev/null <<<"$input")
   commands=$(jq -cs '
     (map(.type == "user" and ((.message.content | type) == "string"
         or any(.message.content[]?; .type == "text"))) | rindex(true) // 0) as $start
     | [.[$start:][] | select(.type == "assistant") | .message.content[]?
-       | select(.type == "tool_use" and .name == "Bash") | (.input.command // "" | .[0:200])]
-    | .[-40:]' "$transcript" 2>/dev/null) || commands=
+       | select(.type == "tool_use" and .name == "Bash") | (.input.command // "")]' "$transcript" 2>/dev/null) || commands=
 
   msg_state=$(jq -cn --arg m "$msg" '{closing_message: $m}')
   for check in done_partial claims_checks_passed asks_question partial_or_blocked claims_finished; do
@@ -133,11 +132,7 @@ fm_finished_check() {  # <home> <state-dir> <task-id> <worktree>
         ;;
     esac
     [ "$fact" -eq 1 ] || continue
-    if [ "$key" = claims_checks_passed ]; then
-      _fm_fc_yes "$key" "$(jq -c --argjson c "$commands" '. + {commands_run_this_turn: $c}' <<<"$msg_state")"
-    else
-      _fm_fc_yes "$key" "$msg_state"
-    fi
+    _fm_fc_yes "$key" "$msg_state"
     rc=$?
     [ "$rc" -ne 2 ] || return 0
     [ "$rc" -eq 0 ] || continue
