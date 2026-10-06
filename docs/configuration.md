@@ -454,6 +454,31 @@ The pipeline's own fix commits are made outside the worker's terminal and are no
 
 `bin/fm-commit-check.sh`'s header owns the exact gates and bounds, `bin/fm-jev-lib.sh` owns the credential patterns, the request, the answer validation, the key handling, and the project list, and [`verification/commit-check.md`](verification/commit-check.md) records the live evidence.
 
+## Worker health (.env TYPESAFE_API_KEY)
+
+`bin/fm-worker-health.sh <task-id>` prints a task's deterministic current state and, when that read alone cannot tell, asks typesafe.ai's System One model (Jev) whether the worker is working, stuck, waiting, or finished, so a worker that has stopped is noticed at the first look instead of after a reading of its terminal.
+It is on when `TYPESAFE_API_KEY` is available under the same environment-then-`.env` contract as [typed dispatch resolution](#typed-dispatch-resolution-env-typesafe_api_key), and off otherwise.
+The key alone is the whole opt-in, because no project code, file list, or diff is sent and [`config/jev-code-projects`](#jev-code-projects-configjev-code-projects) is therefore not consulted.
+
+Code decides every fact before the call.
+The script runs `bin/fm-crew-state.sh <task-id>` and prints that one line unchanged on every run, so without the key its output is that line alone.
+The model is asked only when that line's source is `pane` or `status-log`, the two fallbacks used when no validation run speaks for the task, and only for a local ship or scout task.
+A read that comes from a validation run, a gone or unreachable endpoint, a remote endpoint, and a secondmate, whose idle endpoint is healthy, are never asked about.
+
+One request then carries one question with four fixed choices: `working`, `stuck`, `waiting`, or `finished`.
+An answer whose confidence reaches the shared 0.6 floor adds one line, `health: <choice> (confidence <c>, advice only)`; a low-confidence answer, a timeout, a transport or API error, a malformed answer, and a missing key add nothing.
+
+That request sends the crew-state line, the task's kind, the newest six lines of the task's status log, how many whole minutes ago the status log, the turn-end marker, and the progress marker last changed, and the count and oldest age of unacknowledged steering messages, and nothing else: no terminal content, nothing a worker typed in its shell, no steering message text, no part of the brief, and no file of the project.
+A status line over 400 characters keeps its head and its end.
+
+The health line is advice only.
+Firstmate runs the script at the start of the live-endpoint escalation in [`stuck-crewmate-recovery`](../.agents/skills/stuck-crewmate-recovery/SKILL.md), which owns what a printed line means; a worker never runs it.
+The script exits 0 on every outcome except a usage error (exit 2), steers, interrupts, and relaunches nothing, and writes no record, so a failure leaves the recovery exactly as it is without the feature.
+Nothing runs it automatically: the watcher, the fleet view, and `bin/fm-crew-state.sh` itself are unchanged.
+
+The script is one shell command firstmate runs in its own home over `bin/fm-crew-state.sh`, which already covers every supported worker harness and runtime backend, so it behaves the same on each of them and on every supported primary harness; it needs `jq`, `curl`, and outbound network, and a home that lacks any of them gets the crew-state line alone.
+`bin/fm-worker-health.sh`'s header owns the exact gates, bounds, question, and output, `bin/fm-jev-lib.sh` owns the request, the answer validation, the key handling, and the credential-line filter, and [`verification/worker-health.md`](verification/worker-health.md) records the live evidence.
+
 ## Gate defaults (.no-mistakes.yaml)
 
 The tracked `.no-mistakes.yaml` sets `test.evidence.store_in_repo: true` and pins `commands.lint` to `bin/fm-lint.sh`, the same owner CI invokes.

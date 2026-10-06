@@ -402,6 +402,7 @@ family_for_basename() {
     fm-claude-stop-autoarm.test.sh|fm-cursor-harness.test.sh|\
     fm-dispatch-resolve.test.sh|fm-house-rules-check.test.sh|\
     fm-finished-check.test.sh|fm-finding-sort.test.sh|fm-commit-check.test.sh|\
+    fm-worker-health.test.sh|\
     fm-extension-binding.test.sh|fm-gitignore-config.test.sh|\
     fm-no-mistakes-required.test.sh|fm-peek-remote.test.sh|\
     fm-pending-reply.test.sh|fm-pi-branch-extension.test.sh|\
@@ -845,6 +846,7 @@ tests/fm-watch-checkpoint.test.sh 6076
 tests/fm-watch-recovery-loop.test.sh 58946
 tests/fm-watch-triage.test.sh 697969
 tests/fm-watcher-lock.test.sh 108940
+tests/fm-worker-health.test.sh 2500
 EOF
 }
 
@@ -1479,6 +1481,9 @@ families_for_changed_path() {
       ;;
     bin/fm-house-rules-check.sh)
       printf '%s\n' "__script__:fm-house-rules-check.test.sh"
+      ;;
+    bin/fm-worker-health.sh)
+      printf '%s\n' "__script__:fm-worker-health.test.sh"
       ;;
     bin/fm-commit-check.sh)
       printf '%s\n' "__script__:fm-commit-check.test.sh"
