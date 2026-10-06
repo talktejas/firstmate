@@ -523,10 +523,7 @@ A project taken off the list after a worker was launched is no longer asked abou
 
 The request carries the hand-off's short description, its helper type, and its prompt (the last 4000 characters when longer), and nothing else.
 A hand-off prompt can quote code, which is why the project list applies; a line that looks like a credential is withheld like any other.
-The hook never states a permission decision, so the helper-agent tool is allowed, asked about, or refused exactly as without it, and the pick is never the thing that blocks or approves anything.
-
-Every hand-off that was asked about appends one JSON line to the private, mode-0600 `state/.helper-model.log`: the time, the task, the outcome (`cheaper`, `kept`, or `error`), the answer and its confidence, the helper type, the first 80 characters of the description, and the latency; the prompt is never written.
-`jq -r .outcome state/.helper-model.log | sort | uniq -c` reads how often the pick moved a helper; the file is size-capped by dropping its oldest lines and is safe to delete.
+The hook never states a permission decision, so the helper-agent tool is allowed, asked about, or refused exactly as without it, and the pick is never the thing that blocks or approves anything; it writes no record.
 
 This applies to Claude workers only: the hook is Claude Code's pre-tool hook for its helper-agent tool, which is the only supported harness where firstmate writes a per-tool hook and where a hand-off carries a model of its own.
 Every other harness, and every runtime backend, launches exactly as before.

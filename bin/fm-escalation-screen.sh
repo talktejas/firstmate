@@ -54,7 +54,7 @@ ESCALATION_SCREEN_MAX_CHARS=4000
 # ponytail: a fixed word list, matched as whole words without regard to case.
 # It only ever sends a question to the captain, so a miss costs nothing the
 # model's own costly-to-undo choice does not cover; add a word when one slips.
-ESCALATION_SCREEN_CAPTAIN_WORDS='merge|merges|merging|merged|approve|approval|delete|deletes|deleting|drop|discard|destroy|wipe|overwrite|force|force-push|irreversible|undone|credential|credentials|password|secret|permission|permissions|security'
+ESCALATION_SCREEN_CAPTAIN_WORDS='merge|merges|merging|merged|approve|approves|approved|approving|approval|delete|deletes|deleting|deleted|deletion|remove|removed|removal|drop|drops|dropped|discard|discarded|destroy|destroyed|wipe|wiped|overwrite|overwrites|overwritten|revert|reset|force|forced|force-push|irreversible|undone|credential|credentials|password|secret|token|key|permission|permissions|security'
 # shellcheck disable=SC2016 # Backticks are literal Markdown for the model.
 ESCALATION_SCREEN_INSTRUCTIONS='`question` is a question about a piece of software work that is about to be put to the owner of the business the software serves. Sort it by what a wrong answer would cost. Do not answer it. Choose `unclear` whenever no other choice clearly fits or you are unsure.'
 ESCALATION_SCREEN_CRITERIA='{

@@ -5,7 +5,7 @@
 # Two layers, neither of which touches the network:
 #   - the decision, with the script sourced and fm_jev_choice stubbed at the
 #     library boundary, so every gate is asserted by whether a question was
-#     asked at all, what was sent, what the hook prints, and what is recorded;
+#     asked at all, what was sent, and what the hook prints;
 #   - bin/fm-spawn.sh on a fake tmux, proving the worker's settings file gains
 #     the hook only with a key, a listed project, and a named strong worker model,
 #     and that the command it holds works as written, with the real library
@@ -22,11 +22,9 @@ KEY='test-key-7c1d-never-on-argv'
 HOME_ON="$TMP_ROOT/home"
 HOME_OFF="$TMP_ROOT/home-off"
 HOME_KEY="$TMP_ROOT/home-key"
-STATE="$TMP_ROOT/state"
-LOG="$STATE/.helper-model.log"
 SENT="$TMP_ROOT/sent"
 OUT="$TMP_ROOT/out"
-mkdir -p "$HOME_ON/config" "$HOME_OFF" "$HOME_KEY" "$STATE"
+mkdir -p "$HOME_ON/config" "$HOME_OFF" "$HOME_KEY"
 printf 'TYPESAFE_API_KEY=%s\n' "$KEY" > "$HOME_ON/.env"
 printf 'TYPESAFE_API_KEY=%s\n' "$KEY" > "$HOME_KEY/.env"
 printf '# projects whose hand-offs may be sent\nlisted\n' > "$HOME_ON/config/jev-code-projects"
@@ -56,7 +54,7 @@ hook() {
         {choice: $c, confidence: $p, probabilities: (if $c == "mechanical" then {mechanical: $p, judgement: (1 - $p)} else {mechanical: (1 - $p), judgement: $p} end)}')
       return 0
     }
-    fm_helper_model_hook "$1" "$STATE" task1 "$2"
+    fm_helper_model_hook "$1" "$2"
   ) > "$OUT"
 }
 
@@ -69,8 +67,7 @@ expect_code 0 $? "no key must let the hand-off through"
 assert_equals '' "$(cat "$SENT" "$OUT")" "no key must ask and print nothing"
 hook "$HOME_ON" unlisted "$GREP"
 assert_equals '' "$(cat "$SENT" "$OUT")" "the key alone must send nothing about an unlisted project"
-assert_absent "$LOG" "nothing is recorded when nothing is asked"
-pass "absent key or unlisted project: nothing asked, printed, or recorded"
+pass "absent key or unlisted project: nothing asked or printed"
 
 hook "$HOME_ON" listed "$GREP"
 expect_code 0 $? "the hook always exits 0"
@@ -81,20 +78,15 @@ assert_equals "$(jq -cS . <<<"$GREP")" "$(jq -cS '.hookSpecificOutput.updatedInp
 assert_equals 'PreToolUse' "$(jq -r .hookSpecificOutput.hookEventName "$OUT")" "the answer names its event"
 assert_equals 'false' "$(jq -r '.hookSpecificOutput | has("permissionDecision")' "$OUT")" \
   "the hook never names a permission decision"
-assert_equals 'task1 cheaper mechanical 0.9 Find callers' \
-  "$(tail -n 1 "$LOG" | jq -r '[.task, .outcome, .choice, .confidence, .description] | join(" ")')" "the pick is recorded"
-assert_no_grep parse_rate "$LOG" "the prompt is never written to the record"
-pass "confident mechanical: model lowered, input otherwise intact, recorded"
+pass "confident mechanical: model lowered, input otherwise intact"
 
 STUB_CHOICE=judgement hook "$HOME_ON" listed "$GREP"
 assert_equals '' "$(cat "$OUT")" "judgement keeps the model the worker asked for"
-assert_equals 'kept' "$(tail -n 1 "$LOG" | jq -r .outcome)" "a kept hand-off is recorded"
 STUB_CONF=0.55 hook "$HOME_ON" listed "$GREP"
 assert_equals '' "$(cat "$OUT")" "a mechanical below the floor keeps the model"
 STUB_MODE=error hook "$HOME_ON" listed "$GREP"
 expect_code 0 $? "a failed call must let the hand-off through"
 assert_equals '' "$(cat "$OUT")" "a failed call keeps the model"
-assert_equals 'error' "$(tail -n 1 "$LOG" | jq -r .outcome)" "a failed call is recorded"
 pass "judgement, low confidence, and a failed call: the helper keeps its model"
 
 for input in \
@@ -108,7 +100,7 @@ for input in \
 done
 hook "$HOME_ON" listed '{"description":"d","prompt":"p"}'
 assert_equals 'general-purpose' "$(jq -r .helper.type "$SENT")" "a hand-off with no type is the general-purpose helper"
-printf 'not json\n' | "$PICK" --hook "$HOME_ON" "$STATE" task1 listed > "$OUT"
+printf 'not json\n' | "$PICK" --hook "$HOME_ON" listed > "$OUT"
 expect_code 0 $? "unreadable hook input must let the hand-off through"
 assert_equals '' "$(cat "$OUT")" "and print nothing"
 pass "code facts first: a named model or a non-inheriting helper type is never asked about"
@@ -212,8 +204,7 @@ assert_equals 'class' "$(jq -r '.questions | keys | join(" ")' "$FAKE_CURL_LOG.b
 assert_no_grep "$secret" "$FAKE_CURL_LOG.body" "a credential line is withheld before sending"
 assert_no_grep "$KEY" "$FAKE_CURL_LOG" "the key must not reach curl's argv"
 assert_no_grep secret-present "$FAKE_CURL_LOG" "the key must not reach curl's environment"
-assert_equals 'cheaper' "$(tail -n 1 "$TMP_ROOT/spawn-on/home/state/.helper-model.log" | jq -r .outcome)" \
-  "the pick is recorded in the home's state"
+assert_equals '' "$(find "$TMP_ROOT/spawn-on/home/state" -name '.helper-model*')" "the pick writes no record"
 pass "spawn: the worker gets the hook only with a key, a listed project, and a strong model, and it works as written"
 
 echo "all fm-helper-model tests passed"

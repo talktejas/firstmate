@@ -25,7 +25,7 @@ No other harness was launched for this record.
 ### The question, against the live endpoint
 
 Run 2026-10-06, six real calls through `bin/fm-helper-model.sh --hook` with invented hand-offs, each a general-purpose helper with no model named.
-The columns are the recorded outcome, answer, confidence, and latency in milliseconds.
+The columns are the outcome (`cheaper` when the hook printed the lowered model, `kept` when it printed nothing), answer, confidence, and latency in milliseconds.
 
 ```text
 cheaper  mechanical  1.0  346  Find callers       "List every file under src/ that calls parse_rate and report file and line. Do not change anything."
@@ -38,11 +38,11 @@ kept     judgement   1.0  339  Rotate credentials "Update the production deploy 
 
 The three `cheaper` calls printed a hook answer with model `sonnet`; the three `kept` calls printed nothing.
 Six clear-cut cases are not an accuracy figure.
-How the model answers real, mixed hand-offs is unmeasured; `state/.helper-model.log` is where that evidence accumulates.
+How the model answers real, mixed hand-offs is unmeasured.
 
 ## Portable coverage
 
 `tests/fm-helper-model.test.sh` covers the rest with no network, against a fixture home.
-With `fm_jev_choice` stubbed at the library boundary it asserts: nothing asked, printed, or recorded without a key or for a project that is not listed; that the request holds exactly a description, a helper type, and a prompt; that a confident `mechanical` sets the model and leaves every other input field intact with no permission decision; that `judgement`, a low-confidence answer, and a failed call print nothing; that a hand-off naming a model or using a helper type that does not inherit the worker's model is never asked about; that a long prompt is sent as its end and handed on whole; that the record never holds the prompt; and the `--enabled` gate.
-It then runs `bin/fm-spawn.sh` on a fake tmux and asserts that the worker's settings file is the keyless file for a key without the project listed for a worker launched on a cheaper model, and for a worker launched with no model named, that with a key and a listed project it differs only by the one hook, and that the written command, run with the real library and a fake `curl`, makes one request, withholds a credential line, keeps the key off `curl`'s argv and environment, and records the pick in the home's state.
+With `fm_jev_choice` stubbed at the library boundary it asserts: nothing asked or printed without a key or for a project that is not listed; that the request holds exactly a description, a helper type, and a prompt; that a confident `mechanical` sets the model and leaves every other input field intact with no permission decision; that `judgement`, a low-confidence answer, and a failed call print nothing; that a hand-off naming a model or using a helper type that does not inherit the worker's model is never asked about; that a long prompt is sent as its end and handed on whole; and the `--enabled` gate.
+It then runs `bin/fm-spawn.sh` on a fake tmux and asserts that the worker's settings file is the keyless file for a key without the project listed for a worker launched on a cheaper model, and for a worker launched with no model named, that with a key and a listed project it differs only by the one hook, and that the written command, run with the real library and a fake `curl`, makes one request, withholds a credential line, and keeps the key off `curl`'s argv and environment.
 The timeout, transport-error, and malformed-answer paths were exercised only there and in the library's own callers' suites, not against the live endpoint.

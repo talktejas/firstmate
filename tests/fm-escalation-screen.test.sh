@@ -88,7 +88,10 @@ assert_equals 'screen: yours (cheap-to-reverse, confidence 0.9)' "$out" "the que
 pass "only a confident setting or cheap-to-reverse is yours; trade and costly-to-undo are the captain's"
 
 for q in 'Shall I merge the export branch now?' 'OK to DELETE the old members table?' \
-  'Do you approve the release?' 'Which password policy should the portal use?' 'Should I force-push the rebased branch?'; do
+  'Do you approve the release?' 'Which password policy should the portal use?' 'Should I force-push the rebased branch?' \
+  'Has the captain approved shipping this?' 'Should the old rows be deleted?' 'Should the stale branch be dropped?' \
+  'Should I remove the legacy table?' 'Rotate the API token now?' 'Was the cache wiped or overwritten?' \
+  'Should I revert the rename?' 'Is a reset of the counter wanted?' 'Which signing key should the build use?'; do
   out=$(STUB_CHOICE=cheap-to-reverse STUB_CONFIDENCE=1 run_stubbed "$ON" "$q")
   assert_contains "$out" "screen: captain's (names a merge" "\"$q\" is the captain's by code"
   assert_equals 0 "$(calls)" "\"$q\": the model is not asked"

@@ -4041,7 +4041,7 @@ if [ "$KIND" != secondmate ]; then
     j_pretool=
     if { [ "$KIND" = ship ] || [ "$KIND" = scout ]; } \
       && "$FM_ROOT/bin/fm-helper-model.sh" --enabled "$FM_HOME" "${PROJ_ABS##*/}" "$MODEL" 2>/dev/null; then
-      j_pretool=$(json_escape "$(shell_quote "$FM_ROOT/bin/fm-helper-model.sh") --hook $(shell_quote "$FM_HOME") $(shell_quote "$STATE_REAL") $(shell_quote "$ID") $(shell_quote "${PROJ_ABS##*/}") 2>/dev/null || true")
+      j_pretool=$(json_escape "$(shell_quote "$FM_ROOT/bin/fm-helper-model.sh") --hook $(shell_quote "$FM_HOME") $(shell_quote "${PROJ_ABS##*/}") 2>/dev/null || true")
       j_pretool="\"PreToolUse\":[{\"matcher\":\"Agent|Task\",\"hooks\":[{\"type\":\"command\",\"command\":\"$j_pretool\"}]}],"
     fi
     cat >"$WT/.claude/settings.local.json" <<EOF
