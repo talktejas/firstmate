@@ -489,6 +489,10 @@
       "audience": "maintainer-verification"
     },
     {
+      "path": "docs/verification/intake-route.md",
+      "audience": "maintainer-verification"
+    },
+    {
       "path": "docs/verification/house-rules-check.md",
       "audience": "maintainer-verification"
     },

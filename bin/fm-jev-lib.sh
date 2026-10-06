@@ -14,8 +14,9 @@
 # finding sort (bin/fm-finding-sort.sh), the pull request risk level
 # (bin/fm-pr-risk-lib.sh), the failed check sort (bin/fm-check-sort-lib.sh),
 # the worker commit check (bin/fm-commit-check.sh), the escalation screen
-# (bin/fm-escalation-screen.sh), and the helper model pick
-# (bin/fm-helper-model.sh) are the callers.
+# (bin/fm-escalation-screen.sh), the helper model pick
+# (bin/fm-helper-model.sh), and intake routing (bin/fm-intake-route.sh) are
+# the callers.
 #
 # Key handling: sourcing this file copies an environment-provided
 # TYPESAFE_API_KEY into one non-exported shell variable and unsets the exported

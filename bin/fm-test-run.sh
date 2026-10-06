@@ -404,6 +404,7 @@ family_for_basename() {
     fm-finished-check.test.sh|fm-finding-sort.test.sh|fm-commit-check.test.sh|\
     fm-escalation-screen.test.sh|\
     fm-helper-model.test.sh|\
+    fm-intake-route.test.sh|\
     fm-extension-binding.test.sh|fm-gitignore-config.test.sh|\
     fm-no-mistakes-required.test.sh|fm-peek-remote.test.sh|\
     fm-pending-reply.test.sh|fm-pi-branch-extension.test.sh|\
@@ -742,6 +743,7 @@ tests/fm-herdr-submit-confirm-live-e2e.test.sh 46
 tests/fm-herdr-version-floor-live-e2e.test.sh 72
 tests/fm-home-summary-refresh.test.sh 37264
 tests/fm-inactive-reconcile.test.sh 53178
+tests/fm-intake-route.test.sh 2500
 tests/fm-kimi-harness.test.sh 19151
 tests/fm-lint-workflows.test.sh 785
 tests/fm-live-gate.test.sh 1755
@@ -1462,7 +1464,7 @@ families_for_changed_path() {
       # routine-wake triage, bin/fm-house-rules-check.sh, the worker stop
       # hook's finished check, the review finding sort, the pull request risk
       # level, the failed check sort, the worker commit check, the escalation
-      # screen, and the helper model pick.
+      # screen, the helper model pick, and intake routing.
       printf '%s\n' "__script__:fm-pr-state.test.sh"
       printf '%s\n' "__script__:fm-dispatch-resolve.test.sh"
       printf '%s\n' "__script__:fm-jev-wake-triage.test.sh"
@@ -1473,9 +1475,14 @@ families_for_changed_path() {
       printf '%s\n' "__script__:fm-commit-check.test.sh"
       printf '%s\n' "__script__:fm-escalation-screen.test.sh"
       printf '%s\n' "__script__:fm-helper-model.test.sh"
+      printf '%s\n' "__script__:fm-intake-route.test.sh"
       ;;
     bin/fm-escalation-screen.sh)
       printf '%s\n' "__script__:fm-escalation-screen.test.sh"
+      ;;
+    bin/fm-intake-route.sh)
+      # It reads the registries through bin/fm-project-mode.sh --list and bin/fm-secondmate-registry-lib.sh.
+      printf '%s\n' "__script__:fm-intake-route.test.sh"
       ;;
     bin/fm-finding-sort.sh)
       # It also reads the brief's intent through bin/fm-dod-lib.sh.
