@@ -1920,11 +1920,11 @@ captain_call_stale_bound() {  # <window-key> <task>
 # Sets STALE_WAIT_DECLARATION to the POLL's own scope - its canonical PR beside
 # the status signature - so a replacement PR armed for the same task starts its
 # own window instead of inheriting the silence of the one before it.
-merge_poll_stale_bound() {  # <window-key> <task> <status-line>
-  local key=$1 task=$2 last=$3
+merge_poll_stale_bound() {  # <window-key> <task>
+  local key=$1 task=$2
   STALE_WAIT_DECLARATION=
   [ -n "$task" ] || return 1
-  [ "$(status_line_verb "$last")" = "done" ] || return 1
+  [ "$(status_line_verb "$(last_status_line "$STATE/$task.status")")" = "done" ] || return 1
   fm_pr_poll_artifacts_valid "$STATE" "$task" "$SCRIPT_DIR/fm-pr-poll.sh" || return 1
   STALE_WAIT_DECLARATION="merge-poll:$FM_PR_DATA_URL:$(fm_wake_signal_sig "$STATE/$task.status" || true)"
   away_record_present && return 0
@@ -1939,10 +1939,10 @@ merge_poll_stale_bound() {  # <window-key> <task> <status-line>
 # the alarm would then record nothing and the very next hash would alarm again.
 # Returns 0 to absorb this sighting; 1 to alarm.
 STALE_BOUND_LABEL=
-terminal_stale_bound() {  # <window-key> <task> <status-line>
-  local key=$1 task=$2 last=$3
+terminal_stale_bound() {  # <window-key> <task>
+  local key=$1 task=$2
   STALE_BOUND_LABEL="delivered work whose PR merge poll is armed and watching it"
-  merge_poll_stale_bound "$key" "$task" "$last" && return 0
+  merge_poll_stale_bound "$key" "$task" && return 0
   [ -z "$STALE_WAIT_DECLARATION" ] || return 1
   STALE_BOUND_LABEL="open captain call already surfaced for this status"
   captain_call_stale_bound "$key" "$task"
@@ -3287,7 +3287,7 @@ EOF
               date +%s > "$ssf"
               clear_write_tracking "$key"
               triage_log "absorbed stale (provably working, overriding a stale captain-relevant status): $w"
-            elif terminal_stale_bound "$key" "$task" "$last"; then
+            elif terminal_stale_bound "$key" "$task"; then
               # The line is captain-relevant and stays so, but something else is
               # already holding or watching this work: the captain, per the
               # backlog, or the task's own armed PR merge poll. Further NEW pane

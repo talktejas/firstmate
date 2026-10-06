@@ -4232,8 +4232,15 @@ merge_poll_stale_wakes() {  # <state>
 make_merge_poll_home() {  # <name> <status-line> <arm|noarm>
   local name=$1 line=$2 arm=$3 dir state
   dir=$(make_case "$name"); state="$dir/state"
-  printf 'window=test:fm-merge-poll\nkind=ship\nharness=grok\nbackend=tmux\n' \
-    > "$state/merge-poll.meta"
+  # Arming refuses a delivery whose head it cannot find outside the worker copy
+  # (fm_dod_accept_ship_done), so the fixture's worktree carries a pushed head.
+  git -c init.defaultBranch=main init -q "$dir/wt" || return 1
+  GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -C "$dir/wt" \
+    -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' \
+    commit -q --allow-empty -m delivered || return 1
+  git -C "$dir/wt" update-ref refs/remotes/origin/fm/merge-poll HEAD || return 1
+  printf 'window=test:fm-merge-poll\nkind=ship\nharness=grok\nbackend=tmux\nworktree=%s\n' \
+    "$dir/wt" > "$state/merge-poll.meta"
   printf '%s\n' "$line" > "$state/merge-poll.status"
   printf '%s' "$(seen_sig "$state/merge-poll.status")" > "$state/.seen-merge-poll_status"
   if [ "$arm" = arm ]; then
