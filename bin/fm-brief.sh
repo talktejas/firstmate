@@ -384,6 +384,8 @@ IFS= read -r -d '' STUDY_SECTION <<'EOF' || true
 4. Reuse the project's existing patterns, helpers and configuration mechanism rather than inventing a parallel one.
 EOF
 STUDY_SECTION=${STUDY_SECTION%$'\n'}
+# Nothing is added unless the project is opted in to the advisory search.
+STUDY_SECTION+=$(fm_brief_exists_search_step "$FM_HOME" "$REPO" "$KIND")
 
 if [ "$KIND" = scout ]; then
 if "$SCRIPT_DIR/fm-bootstrap.sh" lavish-compatible >/dev/null 2>&1; then

@@ -477,6 +477,10 @@
       "audience": "maintainer-verification"
     },
     {
+      "path": "docs/verification/exists-search.md",
+      "audience": "maintainer-verification"
+    },
+    {
       "path": "docs/verification/failed-check-sort.md",
       "audience": "maintainer-verification"
     },

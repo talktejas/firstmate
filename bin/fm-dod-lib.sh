@@ -44,6 +44,10 @@
 # and TYPESAFE_API_KEY is present), every mode's block gains the advisory
 # house-rules step from fm_dod_house_rules_step; otherwise, and whenever either
 # argument is omitted, the block is byte-identical to the one without it.
+# fm_brief_exists_search_step owns the lines bin/fm-brief.sh adds under "Before
+# you write any code" when `bin/fm-exists-search.sh --enabled` succeeds for the
+# same home and project; otherwise it prints nothing and that section is
+# byte-identical to the one without it.
 
 _FM_DOD_LIB_DIR=${BASH_SOURCE[0]%/*}
 [ "$_FM_DOD_LIB_DIR" != "${BASH_SOURCE[0]}" ] || _FM_DOD_LIB_DIR=.
@@ -255,6 +259,24 @@ fm_dod_house_rules_step() {  # <home> <project>
   printf '\nOnce your work is committed, and before the next step below, run `FM_HOME=%q %q %q` in the worktree.\n' "$home" "$check" "$project"
   printf '%s\n' 'It prints advisory house-rule flags, one `file:line` per line, and never fails: read each flagged line, fix and commit a real rule break, and leave alone a flag you judge wrong.'
   printf '%s' 'No flag, or a check that could not run, changes nothing: carry on.'
+  }
+}
+
+# Print the advisory "does this already exist?" search lines, led by a newline
+# so they can follow the study section directly, or nothing when the search is
+# off for <project> in <home>. A project path is reduced to its name. A ship
+# brief also gets the line for the run over its own change.
+fm_brief_exists_search_step() {  # <home> <project> <kind>
+  local home=$1 project=${2%/} search
+  project=${project##*/}
+  [ -n "$home" ] && [ -n "$project" ] || return 0
+  search=$(cd "$_FM_DOD_LIB_DIR" 2>/dev/null && pwd)/fm-exists-search.sh
+  FM_HOME="$home" "$search" --enabled "$project" >/dev/null 2>&1 || return 0
+  # shellcheck disable=SC2016 # Backticks are literal Markdown in the brief.
+  {
+  printf '\nFor step 1 this project also has a search: `FM_HOME=%q %q %q "<yes/no question about one function>" [<path>...]`, run in the worktree, asks that question of the project'"'"'s functions and prints the likely ones, one `file:line` per line, best first.\n' "$home" "$search" "$project"
+  printf '%s' 'It is advice and it misses things: read each function it names, and search by hand as well. No match, or a search that could not run, changes nothing.'
+  [ "${3:-}" != ship ] || printf '\nOnce your work is committed, run `FM_HOME=%q %q %q --change`: it names each function your change adds that an existing one may already do; read each pair, reuse the existing function where it really is the same job, and leave alone a match you judge wrong.' "$home" "$search" "$project"
   }
 }
 

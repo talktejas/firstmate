@@ -142,8 +142,25 @@ house_rules_blocks() {  # <dir> <max-lines>
     END { flush() }'
 }
 
+# Set HOUSE_RULES_BASE and HOUSE_RULES_MERGE_BASE to the default-branch copy
+# whose merge base is closest to HEAD, or both empty when there is none.
+# bin/fm-exists-search.sh reads the same base for its --change run.
+house_rules_base() {
+  local default ref m d dist=0
+  HOUSE_RULES_BASE='' HOUSE_RULES_MERGE_BASE=''
+  default=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null) || default=''
+  for ref in "$default" origin/main origin/master main master; do
+    [ -n "$ref" ] || continue
+    m=$(git merge-base HEAD "$ref" 2>/dev/null) || continue
+    d=$(git rev-list --count "$m..HEAD" 2>/dev/null) || continue
+    if [ -z "$HOUSE_RULES_MERGE_BASE" ] || [ "$d" -lt "$dist" ]; then
+      HOUSE_RULES_BASE=$ref HOUSE_RULES_MERGE_BASE=$m dist=$d
+    fi
+  done
+}
+
 house_rules_main() {
-  local project='' base='' enabled=0 fm_root rules count tmp default ref mb='' m dist=0 d
+  local project='' base='' enabled=0 fm_root rules count tmp mb=''
   local id line file r asked=0 errors=0 flags=0 unasked=0 blocks=0 stop=''
   local rule_ids=() rule_questions=()
   while [ $# -gt 0 ]; do
@@ -176,15 +193,8 @@ house_rules_main() {
   rules=$(house_rules_load "$project") || return 0
   count=$(jq -r length <<<"$rules")
 
-  default=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null) || default=''
-  for ref in "$default" origin/main origin/master main master; do
-    [ -n "$ref" ] || continue
-    m=$(git merge-base HEAD "$ref" 2>/dev/null) || continue
-    d=$(git rev-list --count "$m..HEAD" 2>/dev/null) || continue
-    if [ -z "$mb" ] || [ "$d" -lt "$dist" ]; then
-      base=$ref mb=$m dist=$d
-    fi
-  done
+  house_rules_base
+  base=$HOUSE_RULES_BASE mb=$HOUSE_RULES_MERGE_BASE
   if [ -z "$mb" ]; then
     echo "house-rules-check: not run (no merge base with a default branch)" >&2
     return 0
