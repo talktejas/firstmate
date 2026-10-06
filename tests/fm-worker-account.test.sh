@@ -98,6 +98,9 @@ spawn_ship() {
   local id=$1
   shift
   fm_test_spawn_brief "$HOME_DIR" "$id"
+  # Every spawn of a case shares the one fixture copy, and a real pool never
+  # hands a copy to two live tasks, so the previous fixture task is retired.
+  rm -f "$HOME_DIR"/state/*.meta
   signed_in_claude_root "$CASE/ambient-claude"
   : > "$CASE/launch.log"
   FM_FAKE_LAUNCH_LOG="$CASE/launch.log" FM_TEST_CLAUDE_CONFIG_DIR="$CASE/ambient-claude" \

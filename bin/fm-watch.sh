@@ -1927,7 +1927,7 @@ merge_poll_stale_bound() {  # <window-key> <task> <status-line>
   [ "$(status_line_verb "$last")" = "done" ] || return 1
   fm_pr_poll_artifacts_valid "$STATE" "$task" "$SCRIPT_DIR/fm-pr-poll.sh" || return 1
   STALE_WAIT_DECLARATION="merge-poll:$FM_PR_DATA_URL:$(fm_wake_signal_sig "$STATE/$task.status" || true)"
-  afk_record_present && return 0
+  away_record_present && return 0
   stale_wait_throttled "$key" "$STALE_WAIT_DECLARATION"
 }
 
@@ -2096,7 +2096,7 @@ JEV_TRIAGE_TASK_EVIDENCE=
 
 jev_triage_enabled() {
   afk_present && return 1
-  afk_record_present && return 1
+  away_record_present && return 1
   fm_jev_key_load "$FM_HOME"
 }
 
