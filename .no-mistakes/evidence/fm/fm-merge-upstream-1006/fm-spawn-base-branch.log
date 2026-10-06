@@ -1,0 +1,20 @@
+ok - base= parses alongside the delivery mode without changing any existing line's mode
+ok - a cold slot for a develop-based project starts the worker on develop and records it
+ok - a project with no base record still starts from the repo default branch
+ok - a project whose default branch is the right base passes the assertion
+ok - an unregistered project falls back to the default branch and spawns as today
+ok - a base= record naming a branch the repo does not have is refused
+ok - a local-only task ignores the project's declared base
+ok - a scout on a local-only project ignores the project's declared base
+ok - a scout on a Gerrit project ignores the project's declared base
+ok - a task on a clone with no origin ignores the project's declared base
+ok - a brief that does not record the project's declared base is refused
+ok - a scaffolded brief records the project's declared base, except for local-only
+ok - a scout also starts from the project's recorded base branch
+ok - a declaration landed only on the development branch is still read by a clone on the default branch
+ok - the repository's own declaration wins over a home-private registry record
+ok - the private registry remains the fallback for a project that has not adopted the file
+ok - a malformed declaration is rejected rather than handed to git
+ok - the resolver reads a declaration from an unchecked-out branch under stock /bin/bash
+# all fm-spawn-base-branch tests passed
+exit=0

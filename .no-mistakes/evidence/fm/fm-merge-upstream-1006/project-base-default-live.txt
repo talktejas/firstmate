@@ -1,0 +1,36 @@
+### plain resolver
+$ /home/tds/.no-mistakes/worktrees/3605d2c32b02/01M481SHCZ981908NP0QSTB1Q6/bin/fm-project-base.sh /tmp/nm-live.tRWNoT/proj nm
+develop
+[exit 0]
+### --task-default: ship on no-mistakes project (expect develop)
+$ /home/tds/.no-mistakes/worktrees/3605d2c32b02/01M481SHCZ981908NP0QSTB1Q6/bin/fm-project-base.sh --task-default no-mistakes /tmp/nm-live.tRWNoT/proj nm
+develop
+[exit 0]
+### --task-default: local-only task (expect empty)
+$ /home/tds/.no-mistakes/worktrees/3605d2c32b02/01M481SHCZ981908NP0QSTB1Q6/bin/fm-project-base.sh --task-default local-only /tmp/nm-live.tRWNoT/proj nm
+[exit 0]
+### --task-default: scout (empty mode) on local-only project (expect empty)
+$ /home/tds/.no-mistakes/worktrees/3605d2c32b02/01M481SHCZ981908NP0QSTB1Q6/bin/fm-project-base.sh --task-default  /tmp/nm-live.tRWNoT/proj lo
+[exit 0]
+### --task-default: scout on no-mistakes project (expect develop)
+$ /home/tds/.no-mistakes/worktrees/3605d2c32b02/01M481SHCZ981908NP0QSTB1Q6/bin/fm-project-base.sh --task-default  /tmp/nm-live.tRWNoT/proj nm
+develop
+[exit 0]
+### --task-default: gerrit project, ship and scout (expect empty)
+$ /home/tds/.no-mistakes/worktrees/3605d2c32b02/01M481SHCZ981908NP0QSTB1Q6/bin/fm-project-base.sh --task-default no-mistakes /tmp/nm-live.tRWNoT/proj ger
+[exit 0]
+$ /home/tds/.no-mistakes/worktrees/3605d2c32b02/01M481SHCZ981908NP0QSTB1Q6/bin/fm-project-base.sh --task-default  /tmp/nm-live.tRWNoT/proj ger
+[exit 0]
+### --task-default: clone with no origin (expect empty)
+$ /home/tds/.no-mistakes/worktrees/3605d2c32b02/01M481SHCZ981908NP0QSTB1Q6/bin/fm-project-base.sh --task-default no-mistakes /tmp/nm-live.tRWNoT/noorigin noorg
+[exit 0]
+### project-mode readers
+$ /home/tds/.no-mistakes/worktrees/3605d2c32b02/01M481SHCZ981908NP0QSTB1Q6/bin/fm-project-mode.sh nm
+no-mistakes off
+[exit 0]
+$ /home/tds/.no-mistakes/worktrees/3605d2c32b02/01M481SHCZ981908NP0QSTB1Q6/bin/fm-project-mode.sh --forge ger
+gerrit
+[exit 0]
+$ /home/tds/.no-mistakes/worktrees/3605d2c32b02/01M481SHCZ981908NP0QSTB1Q6/bin/fm-project-mode.sh --base nm
+develop
+[exit 0]
