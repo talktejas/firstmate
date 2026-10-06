@@ -250,7 +250,7 @@ Each call sends the wake's class and reason line, the task id, its last six stat
 `TYPESAFE_API_KEY` alone lets a Jev check send routing text and status lines; a check that would send a project's code, file list, review findings, pull request text, or failure logs first requires that project to be named in the local, gitignored `config/jev-code-projects`.
 The file holds one entry per line, matched as a whole line, with blank lines and lines starting with `#` ignored; an absent or empty file names no project, and the file is not inherited by secondmate homes.
 An entry takes one of two forms, and neither matches the other.
-A bare project name, the last path component of the task's project, matches a check keyed by firstmate project: the [house-rules check](#house-rules-check-env-typesafe_api_key-confighouse-rulesjson), the [review finding sort](#review-finding-sort-env-typesafe_api_key-configjev-code-projects), the [pull request risk level](#pull-request-risk-level-env-typesafe_api_key), and the [commit check](#commit-check-env-typesafe_api_key-configjev-code-projects).
+A bare project name, the last path component of the task's project, matches a check keyed by firstmate project: the [house-rules check](#house-rules-check-env-typesafe_api_key-confighouse-rulesjson), the [review finding sort](#review-finding-sort-env-typesafe_api_key-configjev-code-projects), the [pull request risk level](#pull-request-risk-level-env-typesafe_api_key), the [commit check](#commit-check-env-typesafe_api_key-configjev-code-projects), and the [helper model pick](#helper-model-pick-env-typesafe_api_key-configjev-code-projects).
 `<owner>/<repo>` matches a check keyed by repository, the [failed check sort](#failed-check-sort-env-typesafe_api_key-configjev-code-projects), only when it equals the pull request's owner and repository exactly, so a same-named repository under another owner is not allowed and a bare name never allows a repository by its basename.
 This is the single opt-in list: naming a project here enables every code-sending Jev check for it at once, each still subject to its own other conditions, and no check keeps a project list of its own.
 `bin/fm-jev-lib.sh`'s `fm_jev_code_allowed` is the one read of this file, and every check above calls it; it reads the file from the same config directory as every other setting, so `FM_CONFIG_OVERRIDE` moves the list together with `config/house-rules.json`.
@@ -477,6 +477,30 @@ The script exits 0 on every outcome except a usage error (exit 2), asks and answ
 
 The script is one shell command firstmate runs in its own home on text it already holds, so it behaves the same on every supported primary harness and runtime backend and for a local or remote worker; it needs `jq`, `curl`, and outbound network, and a home that lacks any of them judges by hand.
 `bin/fm-escalation-screen.sh`'s header owns the exact rules, bound, question, and output, `bin/fm-jev-lib.sh` owns the request, the answer validation, the key handling, and the credential-line filter, and [`verification/escalation-screen.md`](verification/escalation-screen.md) records the live evidence.
+
+## Helper model pick (.env TYPESAFE_API_KEY, config/jev-code-projects)
+
+When a Claude worker hands a piece of work to a helper agent without naming a model, the helper normally runs on the worker's own model.
+With `TYPESAFE_API_KEY` available and the project named in [`config/jev-code-projects`](#jev-code-projects-configjev-code-projects), a ship or scout worker launched on Claude asks typesafe.ai's System One model one fixed-choice question before that hand-off runs: is the work `mechanical` or does it need `judgement`.
+A `mechanical` answer whose confidence and probability are both at or above the shared 0.6 floor runs that one helper on `sonnet`; nothing else in the hand-off changes.
+`judgement`, a low-confidence answer, a timeout, a transport or API error, and a malformed answer all leave the helper on the model the worker asked for.
+
+Code decides first, and then nothing is asked or sent: when the worker named a model for the helper, and when the helper type is not one that inherits the worker's model (only the general-purpose helper types do; every other type carries its own model, and a fork ignores the field).
+A worker launched on a sonnet or haiku model gets no hook at all, because there is nothing cheaper worth moving to.
+Without the key, or for a project that is not listed, the worker's settings file is written exactly as it is without this feature.
+A project taken off the list after a worker was launched is no longer asked about by that worker's hook.
+
+The request carries the hand-off's short description, its helper type, and its prompt (the last 4000 characters when longer), and nothing else.
+A hand-off prompt can quote code, which is why the project list applies; a line that looks like a credential is withheld like any other.
+The hook never states a permission decision, so the helper-agent tool is allowed, asked about, or refused exactly as without it, and the pick is never the thing that blocks or approves anything.
+
+Every hand-off that was asked about appends one JSON line to the private, mode-0600 `state/.helper-model.log`: the time, the task, the outcome (`cheaper`, `kept`, or `error`), the answer and its confidence, the helper type, the first 80 characters of the description, and the latency; the prompt is never written.
+`jq -r .outcome state/.helper-model.log | sort | uniq -c` reads how often the pick moved a helper; the file is size-capped by dropping its oldest lines and is safe to delete.
+
+This applies to Claude workers only: the hook is Claude Code's pre-tool hook for its helper-agent tool, which is the only supported harness where firstmate writes a per-tool hook and where a hand-off carries a model of its own.
+Every other harness, and every runtime backend, launches exactly as before.
+
+`bin/fm-helper-model.sh`'s header owns the exact gates and bounds, `bin/fm-jev-lib.sh` owns the request, the answer validation, the key handling, and the project list, and [`verification/helper-model-pick.md`](verification/helper-model-pick.md) records the live evidence.
 
 ## Gate defaults (.no-mistakes.yaml)
 
@@ -782,8 +806,8 @@ The tool never replaces firstmate's judgment, `quota-array-dispatch`, the captai
 By accepted design, a `clear` result does not enforce catalog/authentication, reasoning-class, or completion-runway gates.
 Firstmate passes its profile line unless it states a reason to override, such as the brief's reasoning class or an eligible-unranked-candidate note; every non-clear result returns to the full existing intake.
 
-The resolver, the watcher, the house-rules check, the finished check, the review finding sort, the pull request registration, the failed check sort, the commit check, the escalation screen, and bootstrap copy an environment-provided key into a non-exported private variable and unset `TYPESAFE_API_KEY` before launching child processes, so the secret is absent from child environments.
-`bin/fm-jev-lib.sh` is the single owner of the Jev request, the answer validation, and that key handling for the resolver, for [routine-wake triage](#routine-wake-triage-env-typesafe_api_key), for the [house-rules check](#house-rules-check-env-typesafe_api_key-confighouse-rulesjson), for the [finished check](#finished-check-env-typesafe_api_key), for the [review finding sort](#review-finding-sort-env-typesafe_api_key-configjev-code-projects), for the [pull request risk level](#pull-request-risk-level-env-typesafe_api_key), for the [failed check sort](#failed-check-sort-env-typesafe_api_key-configjev-code-projects), for the [commit check](#commit-check-env-typesafe_api_key-configjev-code-projects), and for the [escalation screen](#escalation-screen-env-typesafe_api_key); it sends the key to `curl` only as a header read from a file descriptor, never on argv, and nothing prints, logs, or writes it.
+The resolver, the watcher, the house-rules check, the finished check, the review finding sort, the pull request registration, the failed check sort, the commit check, the escalation screen, the helper model pick, and bootstrap copy an environment-provided key into a non-exported private variable and unset `TYPESAFE_API_KEY` before launching child processes, so the secret is absent from child environments.
+`bin/fm-jev-lib.sh` is the single owner of the Jev request, the answer validation, and that key handling for the resolver, for [routine-wake triage](#routine-wake-triage-env-typesafe_api_key), for the [house-rules check](#house-rules-check-env-typesafe_api_key-confighouse-rulesjson), for the [finished check](#finished-check-env-typesafe_api_key), for the [review finding sort](#review-finding-sort-env-typesafe_api_key-configjev-code-projects), for the [pull request risk level](#pull-request-risk-level-env-typesafe_api_key), for the [failed check sort](#failed-check-sort-env-typesafe_api_key-configjev-code-projects), for the [commit check](#commit-check-env-typesafe_api_key-configjev-code-projects), for the [escalation screen](#escalation-screen-env-typesafe_api_key), and for the [helper model pick](#helper-model-pick-env-typesafe_api_key-configjev-code-projects); it sends the key to `curl` only as a header read from a file descriptor, never on argv, and nothing prints, logs, or writes it.
 It fixes the endpoint at `https://api.typesafe.ai`, model at `jev-latest`, confidence floor at 0.6, and request timeout at 5 seconds; `TYPESAFE_API_KEY` is the resolver's only resolver-specific environment setting.
 The live rule-match evidence is recorded in [`verification/dispatch-resolve.md`](verification/dispatch-resolve.md).
 
@@ -1374,7 +1398,7 @@ FMX_RELAY_URL=https://myfirstmate.io   # optional Relay endpoint override, mainl
 FMX_ENV_FILE=           # optional alternate .env file for direct Relay client invocations; bootstrap still checks $FM_HOME/.env
 FMX_DRY_RUN=            # truthy previews Relay replies and dismissals to state/x-outbox/ without posting or requiring a token
 FMX_X_REPLY_MAX_CHARS=280   # X reply per-message split budget; values below 50 clamp to 50
-TYPESAFE_API_KEY=       # typed dispatch resolution opt-in, from the environment or .env; absent means bin/fm-dispatch-resolve.sh is off (docs/configuration.md "Typed dispatch resolution"), and so are routine-wake triage, the escalation screen, the finished check, the pull request risk level, the failed check sort, the house-rules check, the review finding sort, and the commit check, the last five sending a project's code or text only for a project listed in config/jev-code-projects
+TYPESAFE_API_KEY=       # typed dispatch resolution opt-in, from the environment or .env; absent means bin/fm-dispatch-resolve.sh is off (docs/configuration.md "Typed dispatch resolution"), and so are routine-wake triage, the escalation screen, the finished check, the pull request risk level, the failed check sort, the house-rules check, the review finding sort, the commit check, and the helper model pick, the last six sending a project's code or text only for a project listed in config/jev-code-projects
 FMX_DISCORD_REPLY_MAX_CHARS=1900   # Discord reply per-message split budget; values below 50 clamp to 50, values above 2000 reset to 1900
 FMX_X_THREAD_MAX=25     # maximum messages in one auto-split reply thread
 FMX_FOLLOWUP_MAX_AGE_SECS=604800   # local window for posting Relay completion follow-ups (7 days)

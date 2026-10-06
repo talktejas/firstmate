@@ -403,6 +403,7 @@ family_for_basename() {
     fm-dispatch-resolve.test.sh|fm-house-rules-check.test.sh|\
     fm-finished-check.test.sh|fm-finding-sort.test.sh|fm-commit-check.test.sh|\
     fm-escalation-screen.test.sh|\
+    fm-helper-model.test.sh|\
     fm-extension-binding.test.sh|fm-gitignore-config.test.sh|\
     fm-no-mistakes-required.test.sh|fm-peek-remote.test.sh|\
     fm-pending-reply.test.sh|fm-pi-branch-extension.test.sh|\
@@ -1460,7 +1461,8 @@ families_for_changed_path() {
       # The one Jev caller, sourced by bin/fm-dispatch-resolve.sh, the watcher's
       # routine-wake triage, bin/fm-house-rules-check.sh, the worker stop
       # hook's finished check, the review finding sort, the pull request risk
-      # level, the failed check sort, and the worker commit check.
+      # level, the failed check sort, the worker commit check, the escalation
+      # screen, and the helper model pick.
       printf '%s\n' "__script__:fm-pr-state.test.sh"
       printf '%s\n' "__script__:fm-dispatch-resolve.test.sh"
       printf '%s\n' "__script__:fm-jev-wake-triage.test.sh"
@@ -1470,6 +1472,7 @@ families_for_changed_path() {
       printf '%s\n' "__script__:fm-pr-risk.test.sh"
       printf '%s\n' "__script__:fm-commit-check.test.sh"
       printf '%s\n' "__script__:fm-escalation-screen.test.sh"
+      printf '%s\n' "__script__:fm-helper-model.test.sh"
       ;;
     bin/fm-escalation-screen.sh)
       printf '%s\n' "__script__:fm-escalation-screen.test.sh"
@@ -1487,6 +1490,9 @@ families_for_changed_path() {
       ;;
     bin/fm-commit-check.sh)
       printf '%s\n' "__script__:fm-commit-check.test.sh"
+      ;;
+    bin/fm-helper-model.sh)
+      printf '%s\n' "__script__:fm-helper-model.test.sh"
       ;;
     bin/fm-finished-check.sh)
       # The worker stop hook's finished check; the wiring suite runs the Stop
