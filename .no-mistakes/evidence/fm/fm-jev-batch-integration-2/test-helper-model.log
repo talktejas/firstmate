@@ -1,0 +1,8 @@
+ok - absent key or unlisted project: nothing asked or printed
+ok - confident mechanical: model lowered, input otherwise intact
+ok - judgement, low confidence, and a failed call: the helper keeps its model
+ok - code facts first: a named model or a non-inheriting helper type is never asked about
+ok - a long prompt is sent as its end and handed on whole
+ok - --enabled: key, listed project, and a worker model worth lowering from
+ok - spawn: the worker gets the hook only with a key, a listed project, and a strong model, and it works as written
+all fm-helper-model tests passed

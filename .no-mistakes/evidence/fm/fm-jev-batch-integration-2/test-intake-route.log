@@ -1,0 +1,7 @@
+ok - fm-project-mode.sh --list: unfinished entries only, read from the registry
+ok - off without the key: no call, nothing printed
+ok - one request; options read from the registries; confident answers advised by name
+ok - local-only, low confidence, none, off-list, and a failed call
+ok - an unusable request or an empty registry is by hand without asking
+ok - executable: one request of fixed-choice questions through the shared caller; credentials withheld; key on the fd header only
+# all fm-intake-route tests passed

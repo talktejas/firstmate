@@ -1,0 +1,13 @@
+Real Claude Code session (2.1.290 (Claude Code)), worker --model opus, PreToolUse hook = bin/fm-helper-model.sh --hook <home> proj
+(TypeSafe endpoint replaced by a stand-in answering mechanical 0.95; Claude Code and the hook script are real)
+
+hand-off the hook saw and sent to the endpoint:
+{"helper":{"description":"Find parse_rate callers","type":"general-purpose","prompt":"List every file under src/ that calls parse_rate and report file and line. Do not change anything."}}
+
+main session assistant-message models:
+      2 claude-opus-5-5
+helper (subagent) assistant-message models:
+      5 claude-sonnet-5-5
+
+session result:
+`parse_rate` is called in one file under `src/`: `src/b.sh:1` (`parse_rate 5`); `src/a.sh:1` only defines it.

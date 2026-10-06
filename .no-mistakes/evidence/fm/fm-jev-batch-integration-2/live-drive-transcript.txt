@@ -1,0 +1,454 @@
+=================== 1. ESCALATION SCREEN ===================
+
+### no key: off, by hand, nothing sent
+$ env FM_HOME=/tmp/fmdrive/off bin/fm-escalation-screen.sh Should dates show as DD/MM/YYYY or MM/DD/YYYY?
+  stdout| screen: by hand (off, TYPESAFE_API_KEY absent from the environment and /tmp/fmdrive/off/.env)
+  exit=0 requests-made=0
+  PASS: by hand (off), exit 0, 0 requests
+
+### code rule (key present, stand-in would say cheap-to-reverse 0.99)
+$ env FM_HOME=/tmp/fmdrive/home CHOICE=cheap-to-reverse CONF=0.99 bin/fm-escalation-screen.sh Should I merge the pull request now?
+  stdout| screen: captain's (names a merge, an approval, or a destructive, irreversible, or security-sensitive act; not asked)
+  exit=0 requests-made=0
+  PASS: captain's by code, 0 requests
+
+### code rule (key present, stand-in would say cheap-to-reverse 0.99)
+$ env FM_HOME=/tmp/fmdrive/home CHOICE=cheap-to-reverse CONF=0.99 bin/fm-escalation-screen.sh Has the captain approved shipping this?
+  stdout| screen: captain's (names a merge, an approval, or a destructive, irreversible, or security-sensitive act; not asked)
+  exit=0 requests-made=0
+  PASS: captain's by code, 0 requests
+
+### code rule (key present, stand-in would say cheap-to-reverse 0.99)
+$ env FM_HOME=/tmp/fmdrive/home CHOICE=cheap-to-reverse CONF=0.99 bin/fm-escalation-screen.sh Should the old rows be deleted?
+  stdout| screen: captain's (names a merge, an approval, or a destructive, irreversible, or security-sensitive act; not asked)
+  exit=0 requests-made=0
+  PASS: captain's by code, 0 requests
+
+### code rule (key present, stand-in would say cheap-to-reverse 0.99)
+$ env FM_HOME=/tmp/fmdrive/home CHOICE=cheap-to-reverse CONF=0.99 bin/fm-escalation-screen.sh Should the stale branch be dropped?
+  stdout| screen: captain's (names a merge, an approval, or a destructive, irreversible, or security-sensitive act; not asked)
+  exit=0 requests-made=0
+  PASS: captain's by code, 0 requests
+
+### code rule (key present, stand-in would say cheap-to-reverse 0.99)
+$ env FM_HOME=/tmp/fmdrive/home CHOICE=cheap-to-reverse CONF=0.99 bin/fm-escalation-screen.sh Should I remove the legacy table?
+  stdout| screen: captain's (names a merge, an approval, or a destructive, irreversible, or security-sensitive act; not asked)
+  exit=0 requests-made=0
+  PASS: captain's by code, 0 requests
+
+### code rule (key present, stand-in would say cheap-to-reverse 0.99)
+$ env FM_HOME=/tmp/fmdrive/home CHOICE=cheap-to-reverse CONF=0.99 bin/fm-escalation-screen.sh Rotate the API token now?
+  stdout| screen: captain's (names a merge, an approval, or a destructive, irreversible, or security-sensitive act; not asked)
+  exit=0 requests-made=0
+  PASS: captain's by code, 0 requests
+
+### code rule (key present, stand-in would say cheap-to-reverse 0.99)
+$ env FM_HOME=/tmp/fmdrive/home CHOICE=cheap-to-reverse CONF=0.99 bin/fm-escalation-screen.sh Is it OK to FORCE-PUSH over the branch?
+  stdout| screen: captain's (names a merge, an approval, or a destructive, irreversible, or security-sensitive act; not asked)
+  exit=0 requests-made=0
+  PASS: captain's by code, 0 requests
+
+### code rule (key present, stand-in would say cheap-to-reverse 0.99)
+$ env FM_HOME=/tmp/fmdrive/home CHOICE=cheap-to-reverse CONF=0.99 bin/fm-escalation-screen.sh Which password policy do we want?
+  stdout| screen: captain's (names a merge, an approval, or a destructive, irreversible, or security-sensitive act; not asked)
+  exit=0 requests-made=0
+  PASS: captain's by code, 0 requests
+
+### review-gate line is by hand, not asked
+$ env FM_HOME=/tmp/fmdrive/home CHOICE=cheap-to-reverse CONF=0.99 bin/fm-escalation-screen.sh ask-user findings=2 on the storefront change
+  stdout| screen: by hand (a review gate: bin/fm-finding-sort.sh and ask-user-authority own it)
+  exit=0 requests-made=0
+  PASS: by hand, 0 requests
+
+### over-long question is by hand, not cut and sent
+$ env FM_HOME=/tmp/fmdrive/home CHOICE=cheap-to-reverse CONF=0.99 bin/fm-escalation-screen.sh Which layout? Which layout? Which layout? Which layout? Which layout? Which layout? Which layout? Which layout? Which layout? Which layout? Which layout? Which layout? Which layout? Which layout? Which layout? Which layout? Which layout? Which layout? Which layout? Which layout? Which layout? Which layout?
+  stdout| screen: by hand (the question is over 4000 characters)
+  exit=0 requests-made=0
+  PASS: by hand, 0 requests
+
+### cheap-to-reverse at 0.95 -> yours
+$ env FM_HOME=/tmp/fmdrive/home CHOICE=cheap-to-reverse CONF=0.95 bin/fm-escalation-screen.sh Should the helper live in utils.py or a new export module?
+export GH_TOKEN=ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  stdout| screen: yours (cheap-to-reverse, confidence 0.95)
+  exit=0 requests-made=1
+  PASS: yours, one request
+  sent state: {"question":"Should the helper live in utils.py or a new export module?\n[line withheld: looks like a credential]"}
+  PASS: state holds only the question; credential line withheld
+  PASS: key only on the fd header: not on curl argv, not in child env
+
+### cheap-to-reverse below the floor (0.4) -> by hand
+$ env FM_HOME=/tmp/fmdrive/home CHOICE=cheap-to-reverse CONF=0.4 bin/fm-escalation-screen.sh Should the empty-state text say No members yet?
+  stdout| screen: by hand (cheap-to-reverse below the confidence floor, 0.4)
+  exit=0 requests-made=1
+  PASS: by hand
+
+### trade at low confidence (0.3) -> captain's (a small answer never removes the stop)
+$ env FM_HOME=/tmp/fmdrive/home CHOICE=trade CONF=0.3 bin/fm-escalation-screen.sh Is commission clawed back on returned stock?
+  stdout| screen: captain's (trade, confidence 0.3)
+  exit=0 requests-made=1
+  PASS: captain's
+
+### unclear -> by hand
+$ env FM_HOME=/tmp/fmdrive/home CHOICE=unclear CONF=0.95 bin/fm-escalation-screen.sh Which one do you prefer?
+  stdout| screen: by hand (unclear, confidence 0.95)
+  exit=0 requests-made=1
+  PASS: by hand
+
+### endpoint times out -> by hand, exit 0
+$ env FM_HOME=/tmp/fmdrive/home STANDIN_FAIL=1 CHOICE=x CONF=1 bin/fm-escalation-screen.sh Should the helper live in utils.py?
+  stdout| screen: by hand (no answer: http 000 after 12 ms: )
+  exit=0 requests-made=1
+  PASS: by hand, exit 0
+
+### answer outside the fixed kinds -> by hand
+$ env FM_HOME=/tmp/fmdrive/home CHOICE=approve-it CONF=0.99 bin/fm-escalation-screen.sh Should the helper live in utils.py?
+  stdout| screen: by hand (no answer: response is not a kind Choice answer)
+  exit=0 requests-made=1
+  PASS: by hand, never yours
+
+### no question -> usage error
+$ env FM_HOME=/tmp/fmdrive/home bin/fm-escalation-screen.sh
+  stderr| error: a question is required (see --help)
+  exit=2 requests-made=0
+  PASS: exit 2
+
+=================== 2. HELPER MODEL PICK ===================
+--enabled exit codes (0 = spawn adds the hook):
+  key + listed project + opus worker        : 0
+  no key                                    : 1
+  project not listed                        : 1
+  bare name 'widgets' vs listed acme/widgets: 1
+  worker already sonnet                     : 1
+  worker model not named                    : 1
+  PASS: --enabled gate
+
+### mechanical 0.95, listed project -> lowered to sonnet
+$ env CHOICE=mechanical CONF=0.95 bin/fm-helper-model.sh --hook /tmp/fmdrive/home proj
+  stdout| {"hookSpecificOutput":{"hookEventName":"PreToolUse","updatedInput":{"description":"Find callers","prompt":"List every file under src/ that calls parse_rate and report file and line.\nexport GH_TOKEN=ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","subagent_type":"general-purpose","run_in_background":true,"model":"sonnet"}}}
+  exit=0 requests-made=1
+  PASS: prints updatedInput with model sonnet, other fields intact, no permission decision
+  PASS: prompt handed on whole (credential line still in the worker's own hand-off)
+  sent state: {"helper":{"description":"Find callers","type":"general-purpose","prompt":"List every file under src/ that calls parse_rate and report file and line.\n[line withheld: looks like a credential]"}}
+  PASS: request holds only description, type, prompt; credential line withheld
+  PASS: key only on the fd header: not on curl argv, not in child env
+
+### judgement -> prints nothing
+$ env CHOICE=judgement CONF=0.99 bin/fm-helper-model.sh --hook /tmp/fmdrive/home proj
+  exit=0 requests-made=1
+  PASS: empty output, exit 0
+
+### mechanical below floor (0.5) -> prints nothing
+$ env CHOICE=mechanical CONF=0.5 bin/fm-helper-model.sh --hook /tmp/fmdrive/home proj
+  exit=0 requests-made=1
+  PASS: empty output
+
+### hand-off already names a model (opus) -> never asked, never raised or lowered
+$ env CHOICE=mechanical CONF=0.99 bin/fm-helper-model.sh --hook /tmp/fmdrive/home proj
+  exit=0 requests-made=0
+  PASS: empty, 0 requests
+
+### helper type Explore (carries its own model) -> never asked
+$ env CHOICE=mechanical CONF=0.99 bin/fm-helper-model.sh --hook /tmp/fmdrive/home proj
+  exit=0 requests-made=0
+  PASS: empty, 0 requests
+
+### project not in jev-code-projects -> nothing sent
+$ env CHOICE=mechanical CONF=0.99 bin/fm-helper-model.sh --hook /tmp/fmdrive/home otherproj
+  exit=0 requests-made=0
+  PASS: empty, 0 requests
+
+### bare name vs owner/repo entry -> nothing sent
+$ env CHOICE=mechanical CONF=0.99 bin/fm-helper-model.sh --hook /tmp/fmdrive/home widgets
+  exit=0 requests-made=0
+  PASS: empty, 0 requests
+
+### no key -> nothing sent
+$ env CHOICE=mechanical CONF=0.99 bin/fm-helper-model.sh --hook /tmp/fmdrive/off proj
+  exit=0 requests-made=0
+  PASS: empty, 0 requests
+
+### endpoint fails -> prints nothing, exit 0
+$ env STANDIN_FAIL=1 CHOICE=mechanical CONF=0.99 bin/fm-helper-model.sh --hook /tmp/fmdrive/home proj
+  exit=0 requests-made=1
+  PASS: empty, exit 0
+
+### garbage on stdin -> prints nothing, exit 0
+$ env CHOICE=mechanical CONF=0.99 bin/fm-helper-model.sh --hook /tmp/fmdrive/home proj
+  exit=0 requests-made=0
+  PASS: empty, exit 0, 0 requests
+
+=================== 3. INTAKE ROUTING ===================
+
+### registry listing leaves the finished project out
+$ env FM_HOME=/tmp/fmdrive/home bin/fm-project-mode.sh --list
+  stdout| storefront	direct-PR	Online shop: checkout, cart and catalogue pages (added 2026-01-01)
+  stdout| ledger	no-mistakes	Accounting service: invoices, tax reports, credit notes (added 2026-01-02)
+  stdout| catalogue-scrape	local-only	One-off scraper collecting exhibitor lists (added 2026-01-03)
+  exit=0 requests-made=0
+  PASS: three unfinished entries, no oldblog, no prose bullet
+
+### finished keeps the project's registered posture
+$ env FM_HOME=/tmp/fmdrive/home bin/fm-project-mode.sh oldblog
+  stdout| direct-PR off
+  exit=0 requests-made=0
+  PASS: oldblog still resolves direct-PR
+
+### no key: off
+$ env FM_HOME=/tmp/fmdrive/off bin/fm-intake-route.sh
+  stderr| intake-route: off (TYPESAFE_API_KEY absent from the environment and /tmp/fmdrive/off/.env)
+  exit=0 requests-made=0
+  PASS: nothing on stdout, off on stderr, 0 requests
+
+### storefront request -> project and second mate advised
+$ env FM_HOME=/tmp/fmdrive/home CHOICE_project=p1 CHOICE_secondmate=s1 CONF=0.97 bin/fm-intake-route.sh
+  stdout| project: storefront (confidence 0.97)
+  stdout| secondmate: shop (confidence 0.97)
+  stderr| intake-route: advice only, from one request; firstmate resolves the project and owner itself
+  exit=0 requests-made=1
+  PASS: two advisory lines, one request
+  sent state: {"request":"Checkout fails with a 500 when the cart holds more than twenty items.\n[line withheld: looks like a credential]\n","projects":{"p1":{"name":"storefront","about":"Online shop: checkout, cart and catalogue pages (added 2026-01-01)"},"p2":{"name":"ledger","about":"Accounting service: invoices, tax reports, credit notes (added 2026-01-02)"},"p3":{"name":"catalogue-scrape","about":"One-off scraper collecting exhibitor lists (added 2026-01-03)"}},"secondmates":{"s1":{"id":"shop","scope":"storefront, checkout and cart work"},"s2":{"id":"books","scope":"accounting and tax reports"}}}
+  project options: ["none","p1","p2","p3"]  secondmate options: ["main","s1","s2"]
+  PASS: finished project never offered or sent; no credential; state is request + registry text only
+  PASS: key only on the fd header: not on curl argv, not in child env
+
+### local-only project -> second mate forced to main by code
+$ env FM_HOME=/tmp/fmdrive/home CHOICE_project=p3 CHOICE_secondmate=s1 CONF=0.97 bin/fm-intake-route.sh
+  stdout| project: catalogue-scrape (confidence 0.97)
+  stdout| secondmate: main (catalogue-scrape is local-only)
+  stderr| intake-route: advice only, from one request; firstmate resolves the project and owner itself
+  exit=0 requests-made=1
+  PASS: main (local-only)
+
+### low confidence -> by hand
+$ env FM_HOME=/tmp/fmdrive/home CHOICE_project=p1 CHOICE_secondmate=s1 CONF=0.4 bin/fm-intake-route.sh
+  stdout| project: by hand (storefront below the confidence floor, 0.4)
+  stdout| secondmate: by hand (shop below the confidence floor, 0.4)
+  stderr| intake-route: advice only, from one request; firstmate resolves the project and owner itself
+  exit=0 requests-made=1
+  PASS: both by hand
+
+### answer names a project that is not offered -> by hand
+$ env FM_HOME=/tmp/fmdrive/home CHOICE_project=p4 CHOICE_secondmate=main CONF=0.99 bin/fm-intake-route.sh
+  stdout| project: by hand (no answer: response is not a project Choice answer)
+  stdout| secondmate: by hand (no answer: response is not a project Choice answer)
+  stderr| intake-route: by hand; no answer: response is not a project Choice answer
+  exit=0 requests-made=1
+  PASS: project by hand
+
+### empty request -> by hand, not asked
+$ env FM_HOME=/tmp/fmdrive/home CHOICE=p1 CONF=1 bin/fm-intake-route.sh
+  stdout| project: by hand (the request is empty)
+  stdout| secondmate: by hand (the request is empty)
+  stderr| intake-route: by hand; the request is empty
+  exit=0 requests-made=0
+  PASS: by hand, 0 requests
+
+### oversized request -> by hand, not cut and sent
+$ env FM_HOME=/tmp/fmdrive/home CHOICE=p1 CONF=1 bin/fm-intake-route.sh
+  stdout| project: by hand (the request is over 20000 bytes)
+  stdout| secondmate: by hand (the request is over 20000 bytes)
+  stderr| intake-route: by hand; the request is over 20000 bytes
+  exit=0 requests-made=0
+  PASS: by hand, 0 requests
+
+### endpoint fails -> by hand, exit 0
+$ env FM_HOME=/tmp/fmdrive/home STANDIN_FAIL=1 CHOICE=p1 CONF=1 bin/fm-intake-route.sh
+  stdout| project: by hand (no answer: http 000 after 11 ms: )
+  stdout| secondmate: by hand (no answer: http 000 after 11 ms: )
+  stderr| intake-route: by hand; no answer: http 000 after 11 ms: 
+  exit=0 requests-made=1
+  PASS: by hand, exit 0
+
+=================== 4. WORKER HEALTH ===================
+  real pane content right now: $ export SHELL_TYPED=PANE-TYPED-MARKER-zz91  
+
+### real crew-state read of the fixture task (idle harness, status log)
+$ env FM_HOME=/tmp/fmdrive/home bin/fm-crew-state.sh t1
+  stdout| state: working · source: status-log · note GH_TOKEN="ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  exit=0 requests-made=0
+
+### no key: the crew-state line alone
+$ env FM_HOME=/tmp/fmdrive/off FM_STATE_OVERRIDE=/tmp/fmdrive/home/state CHOICE=stuck CONF=0.99 bin/fm-worker-health.sh t1
+  stdout| state: working · source: status-log · note GH_TOKEN="ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  stderr| worker-health: no advice; off, TYPESAFE_API_KEY absent from the environment and /tmp/fmdrive/off/.env
+  exit=0 requests-made=0
+  PASS: stdout is exactly the crew-state line, 0 requests
+
+### key present, stuck 0.9 -> advisory health line added
+$ env FM_HOME=/tmp/fmdrive/home CHOICE=stuck CONF=0.9 bin/fm-worker-health.sh t1
+  stdout| state: working · source: status-log · note GH_TOKEN="ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  stdout| health: stuck (confidence 0.9, advice only)
+  stderr| worker-health: stuck from one question in one request (finished=0.033333333333333326 stuck=0.9 waiting=0.033333333333333326 working=0.033333333333333326, 14 ms); advice only
+  exit=0 requests-made=1
+  PASS: crew-state line unchanged first, then health line
+  sent state: {"worker":{"kind":"ship","current_state":"[line withheld: looks like a credential]","now":"2026-10-06T01:08:02Z","status_events":["working: [2026-10-06T10:00:00Z] setup done, starting on the fix","[line withheld: looks like a credential]"],"minutes_since_last_status_event":0,"minutes_since_turn_ended":null,"minutes_since_activity":null,"unread_instructions":1,"oldest_unread_instruction_minutes":0}}
+  PASS: never the pane, never typed shell text, never an inbox message's text, credential status line withheld
+  PASS: key only on the fd header: not on curl argv, not in child env
+
+### working 0.8 -> health line
+$ env FM_HOME=/tmp/fmdrive/home CHOICE=working CONF=0.8 bin/fm-worker-health.sh t1
+  stdout| state: working · source: status-log · note GH_TOKEN="ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  stdout| health: working (confidence 0.8, advice only)
+  stderr| worker-health: working from one question in one request (finished=0.06666666666666665 stuck=0.06666666666666665 waiting=0.06666666666666665 working=0.8, 14 ms); advice only
+  exit=0 requests-made=1
+  PASS: health: working
+
+### waiting 0.8 -> health line
+$ env FM_HOME=/tmp/fmdrive/home CHOICE=waiting CONF=0.8 bin/fm-worker-health.sh t1
+  stdout| state: working · source: status-log · note GH_TOKEN="ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  stdout| health: waiting (confidence 0.8, advice only)
+  stderr| worker-health: waiting from one question in one request (finished=0.06666666666666665 stuck=0.06666666666666665 waiting=0.8 working=0.06666666666666665, 15 ms); advice only
+  exit=0 requests-made=1
+  PASS: health: waiting
+
+### finished 0.8 -> health line
+$ env FM_HOME=/tmp/fmdrive/home CHOICE=finished CONF=0.8 bin/fm-worker-health.sh t1
+  stdout| state: working · source: status-log · note GH_TOKEN="ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  stdout| health: finished (confidence 0.8, advice only)
+  stderr| worker-health: finished from one question in one request (finished=0.8 stuck=0.06666666666666665 waiting=0.06666666666666665 working=0.06666666666666665, 27 ms); advice only
+  exit=0 requests-made=1
+  PASS: health: finished
+
+### low confidence (0.5) -> no health line
+$ env FM_HOME=/tmp/fmdrive/home CHOICE=stuck CONF=0.5 bin/fm-worker-health.sh t1
+  stdout| state: working · source: status-log · note GH_TOKEN="ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  stderr| worker-health: no advice; stuck is below the confidence floor (0.5 < 0.6)
+  exit=0 requests-made=1
+  PASS: crew-state line alone
+
+### answer outside the four kinds -> no health line
+$ env FM_HOME=/tmp/fmdrive/home CHOICE=kill-it CONF=0.99 bin/fm-worker-health.sh t1
+  stdout| state: working · source: status-log · note GH_TOKEN="ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  stderr| worker-health: no advice; no answer: response is not a health Choice answer
+  exit=0 requests-made=1
+  PASS: crew-state line alone
+
+### endpoint fails -> no health line, exit 0
+$ env FM_HOME=/tmp/fmdrive/home STANDIN_FAIL=1 CHOICE=stuck CONF=0.9 bin/fm-worker-health.sh t1
+  stdout| state: working · source: status-log · note GH_TOKEN="ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  stderr| worker-health: no advice; no answer: http 000 after 13 ms: 
+  exit=0 requests-made=1
+  PASS: crew-state line alone
+
+### harness busy (real pane read) -> still asked, working
+$ env FM_HOME=/tmp/fmdrive/home CHOICE=working CONF=0.95 bin/fm-worker-health.sh t1
+  stdout| state: working · source: pane · harness busy (claude-hook)
+  stdout| health: working (confidence 0.95, advice only)
+  stderr| worker-health: working from one question in one request (finished=0.01666666666666668 stuck=0.01666666666666668 waiting=0.01666666666666668 working=0.95, 20 ms); advice only
+  exit=0 requests-made=1
+  PASS: source: pane line then health: working
+
+### worktree gone (source: none) -> code decides, never asked
+$ env FM_HOME=/tmp/fmdrive/home CHOICE=stuck CONF=0.99 bin/fm-worker-health.sh t2
+  stdout| state: unknown · source: none · worktree gone (torn down?)
+  stderr| worker-health: no advice; code decided (source: none)
+  exit=0 requests-made=0
+  PASS: one line, 0 requests
+
+### secondmate -> never asked
+$ env FM_HOME=/tmp/fmdrive/home CHOICE=stuck CONF=0.99 bin/fm-worker-health.sh t3
+  stdout| state: working · source: status-log · note GH_TOKEN="ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  stderr| worker-health: no advice; code decided (kind=secondmate is never asked about)
+  exit=0 requests-made=0
+  PASS: 0 requests, no health line
+
+### bad task id -> usage error
+$ env FM_HOME=/tmp/fmdrive/home bin/fm-worker-health.sh ../etc
+  stderr| error: a task id is required (see --help)
+  exit=2 requests-made=0
+  PASS: exit 2
+
+=================== 5. ALREADY-EXISTS SEARCH ===================
+
+### no key: off
+$ env FM_HOME=/tmp/fmdrive/off YES_RE=rate CONF=0.9 bin/fm-exists-search.sh proj Does this function parse a rate string into a number?
+  stderr| exists-search: off (TYPESAFE_API_KEY absent from the environment and /tmp/fmdrive/off/.env); search by hand
+  exit=0 requests-made=0
+  PASS: off line, nothing printed, 0 requests
+
+### project not opted in: off, no code leaves
+$ env FM_HOME=/tmp/fmdrive/home YES_RE=rate CONF=0.9 bin/fm-exists-search.sh otherproj Does this function parse a rate string into a number?
+  stderr| exists-search: off (project "otherproj" is not a line of /tmp/fmdrive/home/config/jev-code-projects); search by hand
+  exit=0 requests-made=0
+  PASS: off, 0 requests
+
+### bare name 'widgets' does not match the owner/repo entry acme/widgets
+$ env FM_HOME=/tmp/fmdrive/home YES_RE=rate CONF=0.9 bin/fm-exists-search.sh widgets Does this function parse a rate string into a number?
+  stderr| exists-search: off (project "widgets" is not a line of /tmp/fmdrive/home/config/jev-code-projects); search by hand
+  exit=0 requests-made=0
+  PASS: off, 0 requests
+
+### opted-in project, a question
+$ env FM_HOME=/tmp/fmdrive/home YES_RE=rate string CONF=0.93 bin/fm-exists-search.sh proj Does this function parse a rate string into a number?
+  stdout| lib/new.sh:1: yes 0.93: rate_from_string() {
+  stdout| lib/rates.sh:1: yes 0.93: parse_rate() {
+  stderr| exists-search: 2 advisory match(es) from 4 of 4 function(s) asked; a match is a place to read, and no match is not proof
+  exit=0 requests-made=1
+  PASS: prints the two functions that do it, as file:line
+  files sent: lib/new.sh lib/rates.sh lib/util.py 
+  PASS: secret-named file never offered; credential line inside a function withheld
+  PASS: key only on the fd header: not on curl argv, not in child env
+
+### path limit
+$ env FM_HOME=/tmp/fmdrive/home YES_RE=. CONF=0.9 bin/fm-exists-search.sh proj Does this function parse a rate string into a number? lib/util.py
+  stdout| lib/util.py:1: yes 0.9: def slugify(name):
+  stderr| exists-search: 1 advisory match(es) from 1 of 1 function(s) asked; a match is a place to read, and no match is not proof
+  exit=0 requests-made=1
+  PASS: only lib/util.py asked about
+
+### yes below the floor -> no match
+$ env FM_HOME=/tmp/fmdrive/home YES_RE=rate string CONF=0.5 bin/fm-exists-search.sh proj Does this function parse a rate string into a number?
+  stderr| exists-search: 0 advisory match(es) from 4 of 4 function(s) asked; a match is a place to read, and no match is not proof
+  exit=0 requests-made=1
+  PASS: nothing printed, exit 0
+
+### endpoint fails -> no match, exit 0, says how many went unasked
+$ env FM_HOME=/tmp/fmdrive/home STANDIN_FAIL=1 YES_RE=rate CONF=0.9 bin/fm-exists-search.sh proj Does this function parse a rate string into a number?
+  stderr| exists-search: 0 advisory match(es) from 0 of 4 function(s) asked; 4 not asked because 1 request(s) failed, last: http 000 after 14 ms: ; a match is a place to read, and no match is not proof
+  exit=0 requests-made=1
+  PASS: exit 0, nothing printed
+
+### --change on the feat branch (adds rate_from_string)
+$ env FM_HOME=/tmp/fmdrive/home YES_RE=rate string CONF=0.96 bin/fm-exists-search.sh proj --change
+  stdout| lib/new.sh:1: may repeat lib/rates.sh:1 (yes 0.96): parse_rate() {
+  stderr| exists-search: 1 advisory match(es) for 1 function(s) added since main, from 3 comparison(s); a match is a place to read, and no match is not proof
+  exit=0 requests-made=1
+  PASS: names the existing function the new one may repeat
+
+### --enabled gate
+$ env FM_HOME=/tmp/fmdrive/home bin/fm-exists-search.sh --enabled proj
+  exit=0 requests-made=0
+  PASS: exit 0 opted in; 1 when not
+
+### no question -> usage error
+$ env FM_HOME=/tmp/fmdrive/home bin/fm-exists-search.sh proj
+  stderr| error: a yes/no question or --change is required (see --help)
+  exit=2 requests-made=0
+  PASS: exit 2
+
+### ship brief gains the search lines only when opted in
+$ bash -c . bin/fm-dod-lib.sh; fm_brief_exists_search_step /tmp/fmdrive/home /tmp/fmdrive/proj ship
+  stdout| 
+  stdout| For step 1 this project also has a search: `FM_HOME=/tmp/fmdrive/home /home/tds/.no-mistakes/worktrees/3605d2c32b02/01M47BDF651PPA16VFF4HRAYP1/bin/fm-exists-search.sh proj "<yes/no question about one function>" [<path>...]`, run in the worktree, asks that question of the project's functions and prints the likely ones, one `file:line` per line, best first.
+  stdout| It is advice and it misses things: read each function it names, and search by hand as well. No match, or a search that could not run, changes nothing.
+  stdout| Once your work is committed, run `FM_HOME=/tmp/fmdrive/home /home/tds/.no-mistakes/worktrees/3605d2c32b02/01M47BDF651PPA16VFF4HRAYP1/bin/fm-exists-search.sh proj --change`: it names each function your change adds that an existing one may already do; read each pair, reuse the existing function where it really is the same job, and leave alone a match you judge wrong.  exit=0 requests-made=0
+  PASS: brief lines name the command and --change
+
+### brief for a project not opted in
+$ bash -c . bin/fm-dod-lib.sh; fm_brief_exists_search_step /tmp/fmdrive/home /x/otherproj ship
+  exit=0 requests-made=0
+  PASS: adds nothing
+
+=================== HOME UNTOUCHED ===================
+files in the home after every run above:
+  ./.env
+  ./config/jev-code-projects
+  ./data/projects.md
+  ./data/secondmates.md
+  ./state/t1.busy-gen
+  ./state/t1.busy-state
+  ./state/t1.meta
+  ./state/t1.status
+  PASS: no command wrote a record into the home (only the fixture's own busy-state changed)
+
+TOTAL: 75 passed, 0 failed

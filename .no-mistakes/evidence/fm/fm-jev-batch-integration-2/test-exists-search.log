@@ -1,0 +1,10 @@
+ok - off without the key: no request, no match, exit 0
+ok - the key alone sends nothing: only a project named in config/jev-code-projects is searched
+ok - code finds and orders the functions; a confident yes becomes a file:line match
+ok - ranked output, path limits, the confidence floor, and an empty search
+ok - bounds: the function cap and the stop after three failed requests
+ok - --change compares each added function with the existing ones closest to it
+ok - bad usage exits 2 and asks nothing
+ok - executable: yes/no questions through the shared caller; credential lines withheld; key on the fd header only
+ok - brief: the search is offered only for an opted-in project in a home with the key
+# all fm-exists-search tests passed
