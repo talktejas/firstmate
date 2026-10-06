@@ -400,8 +400,12 @@ family_for_basename() {
     fm-branch-supervision.test.sh|fm-busy-adapter-wiring.test.sh|\
     fm-busy-state.test.sh|fm-classify-corr-token.test.sh|\
     fm-claude-stop-autoarm.test.sh|fm-cursor-harness.test.sh|\
-    fm-dispatch-resolve.test.sh|fm-house-rules-check.test.sh|\
+    fm-dispatch-resolve.test.sh|fm-house-rules-check.test.sh|fm-exists-search.test.sh|\
     fm-finished-check.test.sh|fm-finding-sort.test.sh|fm-commit-check.test.sh|\
+    fm-escalation-screen.test.sh|\
+    fm-helper-model.test.sh|\
+    fm-intake-route.test.sh|\
+    fm-worker-health.test.sh|\
     fm-extension-binding.test.sh|fm-gitignore-config.test.sh|\
     fm-no-mistakes-required.test.sh|fm-peek-remote.test.sh|\
     fm-pending-reply.test.sh|fm-pi-branch-extension.test.sh|\
@@ -740,6 +744,7 @@ tests/fm-herdr-submit-confirm-live-e2e.test.sh 46
 tests/fm-herdr-version-floor-live-e2e.test.sh 72
 tests/fm-home-summary-refresh.test.sh 37264
 tests/fm-inactive-reconcile.test.sh 53178
+tests/fm-intake-route.test.sh 2500
 tests/fm-kimi-harness.test.sh 19151
 tests/fm-lint-workflows.test.sh 785
 tests/fm-live-gate.test.sh 1755
@@ -845,6 +850,7 @@ tests/fm-watch-checkpoint.test.sh 6076
 tests/fm-watch-recovery-loop.test.sh 58946
 tests/fm-watch-triage.test.sh 697969
 tests/fm-watcher-lock.test.sh 108940
+tests/fm-worker-health.test.sh 2500
 EOF
 }
 
@@ -1459,7 +1465,9 @@ families_for_changed_path() {
       # The one Jev caller, sourced by bin/fm-dispatch-resolve.sh, the watcher's
       # routine-wake triage, bin/fm-house-rules-check.sh, the worker stop
       # hook's finished check, the review finding sort, the pull request risk
-      # level, the failed check sort, and the worker commit check.
+      # level, the failed check sort, the worker commit check, the escalation
+      # screen, the helper model pick, intake routing, the worker health line,
+      # and bin/fm-exists-search.sh.
       printf '%s\n' "__script__:fm-pr-state.test.sh"
       printf '%s\n' "__script__:fm-dispatch-resolve.test.sh"
       printf '%s\n' "__script__:fm-jev-wake-triage.test.sh"
@@ -1468,6 +1476,18 @@ families_for_changed_path() {
       printf '%s\n' "__script__:fm-finding-sort.test.sh"
       printf '%s\n' "__script__:fm-pr-risk.test.sh"
       printf '%s\n' "__script__:fm-commit-check.test.sh"
+      printf '%s\n' "__script__:fm-escalation-screen.test.sh"
+      printf '%s\n' "__script__:fm-helper-model.test.sh"
+      printf '%s\n' "__script__:fm-intake-route.test.sh"
+      printf '%s\n' "__script__:fm-worker-health.test.sh"
+      printf '%s\n' "__script__:fm-exists-search.test.sh"
+      ;;
+    bin/fm-escalation-screen.sh)
+      printf '%s\n' "__script__:fm-escalation-screen.test.sh"
+      ;;
+    bin/fm-intake-route.sh)
+      # It reads the registries through bin/fm-project-mode.sh --list and bin/fm-secondmate-registry-lib.sh.
+      printf '%s\n' "__script__:fm-intake-route.test.sh"
       ;;
     bin/fm-finding-sort.sh)
       # It also reads the brief's intent through bin/fm-dod-lib.sh.
@@ -1478,10 +1498,21 @@ families_for_changed_path() {
       printf '%s\n' "__script__:fm-pr-state.test.sh"
       ;;
     bin/fm-house-rules-check.sh)
+      # bin/fm-exists-search.sh sources it for the skipped paths and the base.
       printf '%s\n' "__script__:fm-house-rules-check.test.sh"
+      printf '%s\n' "__script__:fm-exists-search.test.sh"
+      ;;
+    bin/fm-exists-search.sh)
+      printf '%s\n' "__script__:fm-exists-search.test.sh"
+      ;;
+    bin/fm-worker-health.sh)
+      printf '%s\n' "__script__:fm-worker-health.test.sh"
       ;;
     bin/fm-commit-check.sh)
       printf '%s\n' "__script__:fm-commit-check.test.sh"
+      ;;
+    bin/fm-helper-model.sh)
+      printf '%s\n' "__script__:fm-helper-model.test.sh"
       ;;
     bin/fm-finished-check.sh)
       # The worker stop hook's finished check; the wiring suite runs the Stop

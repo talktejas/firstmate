@@ -465,7 +465,19 @@
       "audience": "maintainer-verification"
     },
     {
+      "path": "docs/verification/helper-model-pick.md",
+      "audience": "maintainer-verification"
+    },
+    {
       "path": "docs/verification/dispatch-resolve.md",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "docs/verification/escalation-screen.md",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "docs/verification/exists-search.md",
       "audience": "maintainer-verification"
     },
     {
@@ -478,6 +490,10 @@
     },
     {
       "path": "docs/verification/finished-check.md",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "docs/verification/intake-route.md",
       "audience": "maintainer-verification"
     },
     {
@@ -530,6 +546,10 @@
     },
     {
       "path": "docs/verification/trace-context.md",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "docs/verification/worker-health.md",
       "audience": "maintainer-verification"
     },
     {

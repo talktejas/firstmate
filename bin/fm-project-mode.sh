@@ -19,8 +19,9 @@
 #   - <name> [<mode>] - <desc> (added <date>)          -> <mode> off
 #   - <name> [<mode> +yolo] - <desc> (added <date>)    -> <mode> on
 #   - <name> [<mode> base=<branch>] - <desc> ...       -> <mode> off, base <branch>
-# The bracket holds unordered tokens, so +yolo and base=<branch> may appear in
-# either order and either may be omitted.
+#   - <name> [<mode> finished] - <desc> ...             -> <mode> off, left out of --list
+# The bracket holds unordered tokens, so +yolo, base=<branch>, and finished may
+# appear in any order and any may be omitted.
 #
 # Registered modes:
 #   no-mistakes            full pipeline -> PR -> configured merge authority (default)
@@ -46,7 +47,14 @@
 #   bin/fm-project-base.sh owns the resolution across both and is what callers
 #   ask, not this --base tier directly.
 #
+# --list takes no project and prints one "<name><TAB><raw-mode><TAB><desc>" line
+#   per "- <name> [..] - <desc>" entry whose bracket does not hold `finished`,
+#   in registry order, and nothing when the registry is absent. `finished` marks a project
+#   whose work is complete: it keeps its entry and its posture but is no longer
+#   offered as a choice by bin/fm-intake-route.sh, the one --list consumer.
+#
 # Usage: fm-project-mode.sh [--raw|--base] <project-name>
+#        fm-project-mode.sh --list
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -60,7 +68,30 @@ case "${1:-}" in
   --raw)  RAW=1; shift ;;
   --base) WANT_BASE=yes; shift ;;
 esac
-NAME=${1:?usage: fm-project-mode.sh [--raw|--base] <project-name>}
+if [ "${1:-}" = --list ]; then
+  [ -f "$REG" ] || exit 0
+  awk '
+    $1=="-" && $2!="" {
+      mode="no-mistakes"; done=0; line=$0;
+      sub(/^-[ \t]+[^ \t]+[ \t]*/, "", line);
+      if (line ~ /^\[[^]]*\]/) {
+        s=line; sub(/\].*$/, "", s); sub(/^\[/, "", s);
+        k = split(s, a, " ");
+        for (j=1; j<=k; j++) {
+          if (a[j]=="finished") done=1;
+          else if (j==1 && a[j]!="+yolo" && a[j] !~ /^base=/) mode=a[j];
+        }
+        sub(/^\[[^]]*\][ \t]*/, "", line);
+      }
+      # Only "- <name> [..] - <desc>" is an entry; other bullets in the file are prose.
+      if (done || line !~ /^-[ \t]/) next;
+      sub(/^-[ \t]+/, "", line); gsub(/\t/, " ", line);
+      print $2 "\t" mode "\t" line;
+    }
+  ' "$REG"
+  exit 0
+fi
+NAME=${1:?usage: fm-project-mode.sh [--raw|--base|--list] [<project-name>]}
 
 # A base query is advisory: an absent registry, project, or base= record all mean
 # "no recorded base", and the caller falls back to the repo default branch.
@@ -81,7 +112,7 @@ parsed=$(awk -v n="$NAME" '
       for (i=3; i<=NF; i++) { s = s (s==""?"":" ") $i; if ($i ~ /\]$/) break }
       gsub(/^\[|\]$/, "", s);           # strip the surrounding brackets
       k = split(s, a, " ");
-      if (a[1] != "" && a[1] != "+yolo" && a[1] !~ /^base=/) mode = a[1];
+      if (a[1] != "" && a[1] != "+yolo" && a[1] != "finished" && a[1] !~ /^base=/) mode = a[1];
       for (j=1; j<=k; j++) {
         if (a[j]=="+yolo") yolo="on";
         if (a[j] ~ /^base=/) base = substr(a[j], 6);
