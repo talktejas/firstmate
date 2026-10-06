@@ -36,7 +36,8 @@ Do not overwrite or repurpose an existing path.
 
 ## Delivery posture
 
-The registry records the project's standing posture, which is the captain's default for the work rather than any task's answer; `AGENTS.md` section 7 owns how each task's concrete mode and yolo are resolved at intake and passed explicitly to the brief, the spawn, and any promotion.
+The registry records the project's standing delivery posture and optional ship-branch prefix, which are the captain's defaults rather than any task's answer.
+`AGENTS.md` section 7 owns how each task's concrete mode, yolo, and branch prefix are resolved at intake and passed explicitly to the brief, the spawn, and any promotion.
 Choose that posture when adding or creating the project:
 
 - `no-mistakes` runs the full validation pipeline before a PR.
@@ -53,27 +54,13 @@ The optional `+yolo` posture changes merge authority only and does not change th
 Default it off for every project and every posture, and enable it only on the captain's explicit instruction.
 `AGENTS.md` section 7 owns the merge-authority contract.
 
-## Development branch
-
-Ask the captain which branch the project is developed on at every add and every create, before the clone is registered.
-The remote's default branch is a proposal, not the answer: most of the captain's projects develop off it, and inferring silently is how a project ends up with no branch recorded at all.
-State the inferred default as the proposed answer and take his correction.
-
-Store the answer IN THE PROJECT REPOSITORY, in a `.firstmate-base` file at its root holding that one branch name:
-
-```sh
-echo develop > .firstmate-base
-```
-
-A value kept only in this home's `data/projects.md` tells no other home anything, which is exactly how a second mate that owns a project found its base unset.
-The committed file is read by every home that clones the project, including one with no registry entry for it yet.
-`bin/fm-project-base.sh` owns the resolution order and reads the file from whichever branch carries it.
-
-Firstmate never writes that file itself, because `AGENTS.md` hard rule 1 forbids writing to a project.
-For a project firstmate creates, write and commit it as part of that project's initial local content, which the captain's creation request authorizes.
-For a project firstmate clones, record the branch as `base=` in the registry entry so dispatch is correct immediately, and land `.firstmate-base` through the project's own delivery path as its own small task.
-
-The resolved branch is the project's standing base, so never redirect one effort by editing it: `bin/fm-spawn.sh --base <branch>` names the base for a single spawn, which is how an effort accumulating on one integration branch leaves shared state untouched.
+The optional `forge=` token records which forge the project's remote actually is; its one value is `forge=gerrit`.
+It is orthogonal to the mode and to `+yolo`, so it is never derived from either, and it is never inferred at use time from a remote name, host, port, or push target.
+At add or create intake, run `bin/fm-forge-detect.sh projects/<name>` once the clone exists and propose its answer alongside the posture; the captain's confirmation is what binds it, and the registry token is the durable record of that confirmation.
+Never register the binding from detection alone, and never re-derive it later from the clone.
+A forge composes with `no-mistakes`, `direct-PR`, and `no-mistakes-prod-only`, and the registry refuses it on `local-only`, which publishes nothing; a Gerrit-hosted project kept local registers `local-only` with no forge token.
+`yolo` is inactive on a `forge=gerrit` project, so never propose `+yolo` alongside it.
+`bin/fm-project-mode.sh`'s header owns the binding and `bin/fm-dod-lib.sh` owns what it changes for a worker.
 
 ## Add or clone an existing project
 
