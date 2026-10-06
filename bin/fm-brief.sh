@@ -303,10 +303,10 @@ elif [ "$FORGE_SET" -eq 1 ] || [ "$SHAPE_SET" -eq 1 ]; then
   echo "error: --forge and --shape apply only to ship briefs; a scout delivers a report and a secondmate charter is not a delivery contract" >&2
   exit 1
 fi
-# A project's standing development branch (bin/fm-project-base.sh) is the
-# default --base-branch; local-only takes no named base.
-if [ "$BASE_BRANCH_SET" -eq 0 ] && [ "$KIND" != secondmate ] && [ "$MODE" != local-only ] && [ -n "${POS[1]:-}" ]; then
-  BASE_BRANCH=$("$FM_ROOT/bin/fm-project-base.sh" "${FM_PROJECTS_OVERRIDE:-$FM_HOME/projects}/${POS[1]}" "${POS[1]}" 2>/dev/null || true)
+# A project's standing development branch is the default --base-branch
+# wherever bin/fm-project-base.sh --task-default says a task can take it.
+if [ "$BASE_BRANCH_SET" -eq 0 ] && [ "$KIND" != secondmate ] && [ "$FORGE" = none ] && [ -n "${POS[1]:-}" ]; then
+  BASE_BRANCH=$("$FM_ROOT/bin/fm-project-base.sh" --task-default "$MODE" "${FM_PROJECTS_OVERRIDE:-$FM_HOME/projects}/${POS[1]}" "${POS[1]}" 2>/dev/null || true)
   [ -z "$BASE_BRANCH" ] || BASE_BRANCH_SET=1
 fi
 if [ "$BASE_BRANCH_SET" -eq 1 ]; then

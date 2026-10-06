@@ -4,7 +4,16 @@
 # Prints the branch name, or nothing when the project declares none (callers then
 # fall back to the repository's own default branch).
 #
-# Usage: fm-project-base.sh <clone-or-worktree-dir> [<project-name>]
+# Usage: fm-project-base.sh [--task-default <task-mode>] <clone-or-worktree-dir> [<project-name>]
+#
+# --task-default prints the branch only where a task could take it as its
+# --base-branch, and nothing otherwise, so the declaration is a default and
+# never a refusal: bin/fm-brief.sh and bin/fm-spawn.sh ask this when no
+# --base-branch is passed. <task-mode> is the task's delivery mode, empty for a
+# scout, which is then judged by the project's registered posture. Nothing is
+# printed when bin/fm-dod-lib.sh's fm_base_branch_valid would refuse the branch
+# for that mode and the project's registered forge, or when the clone has no
+# origin to fetch it from.
 #
 # Resolution order, first hit wins:
 #   1. .firstmate-base in the given working tree.
@@ -33,12 +42,31 @@
 # project is created. A malformed value is ignored rather than passed to git.
 set -eu
 
-DIR=${1:?usage: fm-project-base.sh <clone-or-worktree-dir> [<project-name>]}
+TASK_DEFAULT=0
+if [ "${1:-}" = --task-default ]; then
+  TASK_DEFAULT=1
+  TASK_MODE=${2-}
+  shift 2
+fi
+DIR=${1:?usage: fm-project-base.sh [--task-default <task-mode>] <clone-or-worktree-dir> [<project-name>]}
 NAME=${2:-}
 FILE=.firstmate-base
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+
+if [ "$TASK_DEFAULT" -eq 1 ]; then
+  declared=$("${BASH_SOURCE[0]}" "$DIR" "$NAME") || exit 0
+  [ -n "$declared" ] || exit 0
+  git -C "$DIR" config --get-regexp '^remote\.origin\.' >/dev/null 2>&1 || exit 0
+  forge=$("$FM_ROOT/bin/fm-project-mode.sh" --forge "$NAME" 2>/dev/null) || exit 0
+  [ -n "$TASK_MODE" ] || TASK_MODE=$("$FM_ROOT/bin/fm-project-mode.sh" "$NAME" 2>/dev/null | awk '{print $1}')
+  # shellcheck source=bin/fm-dod-lib.sh
+  . "$SCRIPT_DIR/fm-dod-lib.sh"
+  fm_base_branch_valid "$declared" "$TASK_MODE" "${forge:-none}" fm-project-base.sh 2>/dev/null || exit 0
+  printf '%s\n' "$declared"
+  exit 0
+fi
 
 # A branch name reaching git from a repository file is a trust boundary: reject
 # anything that is not one plain ref path, so no value can become an option or a

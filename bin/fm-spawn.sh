@@ -3126,10 +3126,10 @@ if [ "$KIND" = ship ] || [ "$KIND" = scout ]; then
       fi
     fi
   fi
-  # A project's standing development branch (bin/fm-project-base.sh) is the
-  # default --base-branch; local-only takes no named base.
-  if [ "$RELAUNCH" -eq 0 ] && [ "$BASE_BRANCH_SET" -eq 0 ] && [ "$MODE" != local-only ]; then
-    BASE_BRANCH=$("$FM_ROOT/bin/fm-project-base.sh" "$PROJ_ABS" "$(basename "$PROJ_ABS")" 2>/dev/null || true)
+  # A project's standing development branch is the default --base-branch
+  # wherever bin/fm-project-base.sh --task-default says a task can take it.
+  if [ "$RELAUNCH" -eq 0 ] && [ "$BASE_BRANCH_SET" -eq 0 ]; then
+    BASE_BRANCH=$("$FM_ROOT/bin/fm-project-base.sh" --task-default "$MODE" "$PROJ_ABS" "$(basename "$PROJ_ABS")" 2>/dev/null || true)
     [ -z "$BASE_BRANCH" ] || BASE_BRANCH_SET=1
   fi
   if [ "$RELAUNCH" -eq 1 ]; then

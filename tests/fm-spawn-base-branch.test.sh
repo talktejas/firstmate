@@ -244,6 +244,44 @@ test_local_only_ignores_the_declared_base() {
   pass "a local-only task ignores the project's declared base"
 }
 
+# The declaration is only a default: wherever a named base would be refused the
+# task starts from the default branch and records no base, with no refusal.
+expect_declared_base_skipped() {  # <id> <what>
+  local id=$1 what=$2 out status
+  out=$(run_base_spawn "$id" "${3:-no-mistakes}" "${4:-ship}")
+  status=$?
+  expect_code 0 "$status" "$what must still spawn: $out"
+  [ "$(head_sha "$WT_DIR")" = "$(git -C "$PROJ_DIR" rev-parse main)" ] \
+    || fail "$what did not start from the default branch (HEAD $(head_sha "$WT_DIR"))"
+  assert_no_grep "base_branch=" "$HOME_DIR/state/$id.meta" "$what recorded a base branch"
+  pass "$what ignores the project's declared base"
+}
+
+test_scout_on_local_only_project_ignores_the_declared_base() {
+  local rec id=base-scoutlocal-b11
+  rec=$(make_base_case base-scoutlocal "$id" main \
+    '- base-scoutlocal [local-only base=develop] - merged locally (added 2026-10-06)')
+  read_base_record "$rec"
+  expect_declared_base_skipped "$id" "a scout on a local-only project" no-mistakes scout
+}
+
+test_gerrit_project_ignores_the_declared_base() {
+  local rec id=base-gerrit-b12
+  rec=$(make_base_case base-gerrit "$id" main \
+    '- base-gerrit [no-mistakes forge=gerrit base=develop] - review server (added 2026-10-06)')
+  read_base_record "$rec"
+  expect_declared_base_skipped "$id" "a scout on a Gerrit project" no-mistakes scout
+}
+
+test_clone_without_origin_ignores_the_declared_base() {
+  local rec id=base-noorigin-b13
+  rec=$(make_base_case base-noorigin "$id" main \
+    '- base-noorigin [no-mistakes base=develop] - no remote (added 2026-10-06)')
+  read_base_record "$rec"
+  git -C "$PROJ_DIR" remote remove origin
+  expect_declared_base_skipped "$id" "a task on a clone with no origin"
+}
+
 # A brief that does not record the declared base is refused, exactly as one
 # that disagrees with an explicit --base-branch is.
 test_brief_without_the_declared_base_is_refused() {
@@ -267,6 +305,8 @@ test_brief_scaffold_records_the_declared_base() {
   home="$TMP_ROOT/brief/home"
   mkdir -p "$home/data" "$home/state" "$home/config" "$home/projects/brief-proj"
   printf '# Projects\n- brief-proj [no-mistakes base=develop] - x (added 2026-07-28)\n' > "$home/data/projects.md"
+  git init -q "$home/projects/brief-proj"
+  git -C "$home/projects/brief-proj" remote add origin "$TMP_ROOT/brief/remote.git"
 
   out=$(FM_ROOT_OVERRIDE='' FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-b9 brief-proj --mode no-mistakes 2>&1) \
     || fail "scaffolding a brief for a declared-base project failed: $out"
@@ -468,6 +508,9 @@ test_default_base_passes_assertion
 test_unregistered_project_spawns_as_today
 test_missing_base_branch_is_refused
 test_local_only_ignores_the_declared_base
+test_scout_on_local_only_project_ignores_the_declared_base
+test_gerrit_project_ignores_the_declared_base
+test_clone_without_origin_ignores_the_declared_base
 test_brief_without_the_declared_base_is_refused
 test_brief_scaffold_records_the_declared_base
 test_scout_also_starts_from_the_recorded_base
