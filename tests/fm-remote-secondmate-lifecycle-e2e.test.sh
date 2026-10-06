@@ -1063,14 +1063,10 @@ remote_env "$ROOT/bin/fm-bootstrap.sh" > "$TMP_ROOT/config-partial-retry.out" \
 [ "$(cat "$REMOTE_HOME/config/crew-harness")" = grok ] \
   || fail "bootstrap did not apply the remaining inherited file"
 assert_absent "$NUDGE_MARKER" "bootstrap cleared no remote reread marker after convergence"
-PARTIAL_CONFIG_CORR=$(newest_remote_inbox_corr)
-[ -n "$PARTIAL_CONFIG_CORR" ] || fail "bootstrap config reread did not carry a correlation token"
-printf 'done [corr=%s]: converged inherited config re-read\n' "$PARTIAL_CONFIG_CORR" >> "$REMOTE_HOME/state/parent-replies.status"
-await_reply_result "$PARENT/state/procevent-inbox/$SID.2.result" \
-  || fail "remote reply source did not capture the converged config acknowledgment"
-PARTIAL_CONFIG_RESULT="$PARENT/state/procevent-inbox/$SID.2.result"
-remote_env "$ROOT/bin/fm-procevent-remote-reply.sh" handle ios 2 "$PARTIAL_CONFIG_RESULT" >/dev/null \
-  || fail "converged remote config acknowledgment was not ingested"
+PARTIAL_CONFIG_RECORD=$(newest_remote_inbox_record)
+[ -n "$PARTIAL_CONFIG_RECORD" ] || fail "bootstrap config reread wrote no remote inbox record"
+assert_grep 'delivery=' "$PARTIAL_CONFIG_RECORD" "bootstrap config reread did not ride the fire-and-forget plane"
+assert_no_grep 'corr=' "$PARTIAL_CONFIG_RECORD" "bootstrap config reread opened an unanswerable correlation"
 pass "partial remote inheritance retains reread intent through bootstrap convergence"
 
 rm -f "$TMP_ROOT/inherit.entered" "$TMP_ROOT/inherit.release" "$TMP_ROOT/inherit.payload"
@@ -1132,14 +1128,10 @@ remote_env "$ROOT/bin/fm-config-push.sh" > "$TMP_ROOT/config-push-retry.out" \
   || fail "unchanged remote config push did not retry its pending reread"
 assert_absent "$NUDGE_MARKER" "successful remote config reread left its retry marker"
 assert_grep 'config-reread: sent' "$TMP_ROOT/config-push-retry.out" "remote config reread retry was not reported"
-CONFIG_CORR=$(newest_remote_inbox_corr)
-[ -n "$CONFIG_CORR" ] || fail "remote config reread did not carry a correlation token"
-printf 'done [corr=%s]: inherited config re-read\n' "$CONFIG_CORR" >> "$REMOTE_HOME/state/parent-replies.status"
-await_reply_result "$PARENT/state/procevent-inbox/$SID.3.result" \
-  || fail "remote reply source did not capture the config reread acknowledgement"
-CONFIG_RESULT="$PARENT/state/procevent-inbox/$SID.3.result"
-remote_env "$ROOT/bin/fm-procevent-remote-reply.sh" handle ios 3 "$CONFIG_RESULT" >/dev/null \
-  || fail "remote config reread acknowledgement was not ingested"
+CONFIG_RECORD=$(newest_remote_inbox_record)
+[ -n "$CONFIG_RECORD" ] || fail "remote config reread wrote no remote inbox record"
+assert_grep 'delivery=' "$CONFIG_RECORD" "remote config reread did not ride the fire-and-forget plane"
+assert_no_grep 'corr=' "$CONFIG_RECORD" "remote config reread opened an unanswerable correlation"
 pass "remote inherited config retains and retries a failed live reread nudge"
 
 resolve_ios_pending() {

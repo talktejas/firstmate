@@ -470,6 +470,8 @@ A backend spawn refusal from a missing dependency, version gate, or unauthentica
 Task meta records `backend=` only for a non-default backend; an absent `backend=` means `tmux`, preserving existing default-path meta files.
 
 - Every new task records `endpoint_task_id=` as the cleanup binding between the metadata filename and its opaque runtime endpoint.
+A ship or scout task in a Treehouse pool worktree also records `worktree_lease=fm:<task-id>@<state-dir>`, the holder label of the durable pool claim `fm-spawn.sh` takes on that copy so it is never handed to another spawn; ordinary teardown's return releases it, and a claim that outlives its task is released with `(cd '<project>' && treehouse return --force --if-lease-holder '<worktree_lease>' '<worktree>')`.
+That release is for a claim whose task is gone: running it while the task is still live returns that copy to the pool, and the next spawn offered it refuses by name rather than launching into a copy another record still holds.
 
 - A herdr task additionally records `herdr_session=`, `herdr_workspace_id=`, `herdr_tab_id=`, and `herdr_pane_id=`.
 
@@ -615,6 +617,369 @@ With the flag absent the wedge timer spends no fold or current-state read for it
 The flag is a home-local supervision-noise preference and is not inherited by secondmate homes, which supervise their own crew and own that trade separately.
 
 [`architecture.md`](architecture.md) owns the wait-evidence contract and which records may take the ladder away; `bin/fm-watch.sh`'s `wedge_wait_evidence` owns the exact derivation and its fail-closed boundaries.
+
+## Routine-wake triage (.env TYPESAFE_API_KEY)
+
+The watcher asks typesafe.ai's System One model (Jev) whether a routine monitoring wake needs firstmate at all.
+It is off unless `TYPESAFE_API_KEY` is available under the same environment-then-`.env` contract as [typed dispatch resolution](#typed-dispatch-resolution-env-typesafe_api_key); with the key absent the watcher makes no call and delivers every wake exactly as it does without the feature.
+
+The watcher asks one fixed-choice question, `needs_firstmate` or `routine`, over the wake's own evidence, and absorbs the wake the way it absorbs any other benign wake, with one line in `state/.watch-triage.log`, only when the answer is `routine` with both its confidence and its `routine` probability at or above the shared 0.6 floor.
+A timeout, a transport or API error, a malformed answer, low confidence, and any other choice all deliver the wake unchanged, and the log line names which.
+Only one enumerated wake class is ever offered, wired at its own points in the watcher: a stale recheck or stale sight of a worker whose latest status event is a `paused:` external wait and whose task has a recorded pull request that is still open with no blocker reported.
+
+No signal is ever offered, so every new status event and every bare turn-end surfaces as it does without the feature.
+A paused task is eligible only when a pull request is recorded for the task (`pr=` in its metadata) and is still open with no blocker reported; a paused task with no recorded pull request is never offered and surfaces exactly as it does without the feature.
+The question asks what the declared wait is for: an open pull request that only awaits its merge word, whoever gives it, or a wait on an automatic external event may read as routine, while a worker waiting on a person for anything else or stopped after a failure is delivered.
+
+Everything else is refused in code before any call and never depends on the model's answer.
+That covers captain notes, every new status event, every turn-end, merge and PR-ready outcomes, process-event and Relay wakes, every other check, any task with an open keyed decision, a secondmate, a declared clearing time that has passed, and every wake while the away-mode daemon or the away-posture record exists.
+An endpoint whose agent state cannot be established is never routine, so a missing, ambiguous, unreadable, or unverified endpoint is always delivered.
+A worker whose agent is running, or has exited while its endpoint remains, is offered, and the model is told which; for an exited agent the question keeps only a pull request awaiting its merge routine, since that worker cannot resume any other wait by itself.
+The watcher first reads the recorded pull request through `bin/fm-pr-state.sh` and offers the wake only while that read reports the pull request open with no blocker, which is all the model is told about it; a merged, closed, blocked, or unreadable pull request delivers the wake without asking, so an absorbed pause recheck is still presented on its normal cadence once the wait has actually changed.
+A repository that reports no checks at all is not a blocker, while a draft, a conflict, a requested change, and a required check that is failing or pending each are.
+A routine answer advances the same recheck cadence a delivered wake would, so the wait is read again every `FM_PAUSE_RESURFACE_SECS` rather than silenced.
+One task may receive six routine answers in a row before the next wake is delivered unasked and the count restarts, so the model can never mute a wait indefinitely.
+
+Each call sends the wake's class and reason line, the task id, its last six status lines cut to 400 characters each, its pull request read, and whether its agent is running or has exited; it sends no brief, pane content, or quota.
+`bin/fm-jev-lib.sh` owns the request, the answer validation, and the key handling shared with typed dispatch resolution, `bin/fm-watch.sh`'s `jev_triage_routine` header owns the exact eligibility gates, and [`verification/jev-wake-triage.md`](verification/jev-wake-triage.md) records the live evidence.
+
+## Jev code projects (config/jev-code-projects)
+
+`TYPESAFE_API_KEY` alone lets a Jev check send routing text and status lines; a check that would send a project's code, file list, review findings, pull request text, or failure logs first requires that project to be named in the local, gitignored `config/jev-code-projects`.
+The file holds one entry per line, matched as a whole line, with blank lines and lines starting with `#` ignored; an absent or empty file names no project, and the file is not inherited by secondmate homes.
+An entry takes one of two forms, and neither matches the other.
+A bare project name, the last path component of the task's project, matches a check keyed by firstmate project: the [house-rules check](#house-rules-check-env-typesafe_api_key-confighouse-rulesjson), the [review finding sort](#review-finding-sort-env-typesafe_api_key-configjev-code-projects), the [pull request risk level](#pull-request-risk-level-env-typesafe_api_key), the [commit check](#commit-check-env-typesafe_api_key-configjev-code-projects), the [helper model pick](#helper-model-pick-env-typesafe_api_key-configjev-code-projects), and the [already-exists search](#already-exists-search-env-typesafe_api_key-configjev-code-projects).
+`<owner>/<repo>` matches a check keyed by repository, the [failed check sort](#failed-check-sort-env-typesafe_api_key-configjev-code-projects), only when it equals the pull request's owner and repository exactly, so a same-named repository under another owner is not allowed and a bare name never allows a repository by its basename.
+This is the single opt-in list: naming a project here enables every code-sending Jev check for it at once, each still subject to its own other conditions, and no check keeps a project list of its own.
+`bin/fm-jev-lib.sh`'s `fm_jev_code_allowed` is the one read of this file, and every check above calls it; it reads the file from the same config directory as every other setting, so `FM_CONFIG_OVERRIDE` moves the list together with `config/house-rules.json`.
+
+A line that looks like a credential is never sent, by any Jev check, listed project or not.
+Before `bin/fm-jev-lib.sh` builds a request, every piece of text a check hands it as state - a brief, a status line, a closing message, a commit message, a diff, a findings file, a failure log - has each line that matches a recognised credential format (a private key block's first line, or an AWS, GitHub, Slack, Google, or `sk-` style key) or that assigns a quoted literal to a password, secret, token, or API-key name replaced by the fixed text `[line withheld: looks like a credential]`.
+A private key block is replaced whole by that one line, through its `END` line or, when the text was cut short, the end of the text.
+Text cut so that it holds a block's `END` line without its first line has everything up to and including that `END` line replaced the same way.
+The library holds the one copy of those patterns, which the [commit check](#commit-check-env-typesafe_api_key-configjev-code-projects) also uses for its commit-time stop; the list is fixed, so a credential shape it does not name is not caught.
+This file replaces the `projects` list of `config/house-rules.json`; a `projects` key in that file is ignored.
+
+## House-rules check (.env TYPESAFE_API_KEY, config/house-rules.json)
+
+`bin/fm-house-rules-check.sh` asks typesafe.ai's System One model (Jev) whether each changed block of a task's own work breaks a standing rule that a text search cannot catch, and prints each suspected break as a `file:line` flag before the work is handed over.
+It is off for every project by default, and it runs for a project only when both of these hold:
+
+- the project's name is a line of [`config/jev-code-projects`](#jev-code-projects-configjev-code-projects);
+- `TYPESAFE_API_KEY` is available under the same environment-then-`.env` contract as [typed dispatch resolution](#typed-dispatch-resolution-env-typesafe_api_key).
+
+The key alone never turns the check on: a home that holds it for typed dispatch resolution or routine-wake triage sends no source until a project is named in the list.
+With no list or a project that is not in it, the generated ship brief is byte-identical to the one without the feature, and the script, if run anyway, makes no call.
+No project is opted in by default.
+
+**An opted-in project's changed source lines are sent to typesafe.ai.**
+Files are left out by name, as listed below, and a line that looks like a credential is withheld as [Jev code projects](#jev-code-projects-configjev-code-projects) describes; a secret in a shape that fixed list does not name, written in an ordinary source file, is sent with the lines around it.
+
+The project name is the repository name `bin/fm-brief.sh` is given, or for `bin/fm-promote.sh` the last path component of the task's recorded project.
+For an opted-in project, the definition of done in every ship brief and in a promoted scout's ship instructions gains one step, in all three delivery modes: run `bin/fm-house-rules-check.sh <project>` once the work is committed, read each flagged line, fix a real break, and leave a wrong flag alone.
+The script checks the list again itself, so running it by hand for a project that is not opted in makes no call.
+The check is advice only.
+A run exits 0 on every outcome except a usage error (exit 2), so a project that is not opted in, a missing key, an unknown base, an invalid rules file, a timeout, a transport or API error, a malformed answer, and low confidence all leave the change exactly where it was, with no flag.
+It never blocks, approves, merges, or discards anything, and nothing reads its output except the worker that ran it.
+
+Code decides every fact before any call.
+The script diffs the worktree against its merge base with the default branch and keeps only added or modified text files.
+Of origin's copy of the default branch and the local one, it uses whichever has the merge base closest to the worktree's `HEAD`, so a copy that lags behind does not pull other tasks' merged work into the check.
+It drops prose (`.md`, `.markdown`, `.txt`, `.rst`, `.adoc`), lockfiles, minified, mapped, snapshot and SVG files, anything under `vendor/`, `node_modules/` or `dist/`, files whose name says they hold secrets (`.env*`, `*.pem`, `*.key`, `*.p12`, `*.pfx`, `*secret*`, `*credential*`, in any letter case), and files whose path git has to quote, then cuts each remaining hunk into blocks of at most 80 lines and drops a block that adds nothing.
+Each remaining block is asked each rule as its own yes-or-no question, and it is flagged only for a `yes` whose confidence and `yes` probability both reach the shared 0.6 floor.
+Asking stops after 60 questions, 120 seconds, or three failed calls, and the summary line on stderr says how many questions went unasked.
+
+Each call sends the file path, one block of the diff with three lines of context and each line cut to 400 characters, and one rule's question and criteria.
+
+Two rules are built in: `hardcoded-choice` (the added lines hard-code a behaviour choice that should be a setting) and `own-compat-layer` (the added lines add a redirect or compatibility layer for one of the project's own old decisions).
+The optional `config/house-rules.json` holds rules that replace the built-in two for every opted-in project in the home:
+
+```json
+{
+  "rules": [
+    {
+      "id": "hardcoded-choice",
+      "question": "Do the added lines hard-code a behaviour choice that should be a setting?",
+      "yes": "What the added lines must visibly do for the answer to be yes.",
+      "no": "What makes the answer no, including the unclear case."
+    }
+  ]
+}
+```
+
+The file and its `rules` array are both optional: absent or empty means the two built-in rules.
+Every rule needs a unique lowercase-dash `id` and non-empty `question`, `yes`, and `no` strings; invalid rules mean no check runs and no step is added to new briefs.
+The file is read from the home that wrote the brief and is not inherited by secondmate homes.
+
+The step is plain brief text and one shell command, so it reaches every supported harness and runtime backend the same way; it needs `git`, `jq`, `curl`, outbound network, and read access to the home's `.env` from the worker, and a worker that lacks any of them carries on unflagged.
+`bin/fm-house-rules-check.sh`'s header owns the exact bounds and output, `bin/fm-dod-lib.sh` owns the brief step, `bin/fm-jev-lib.sh` owns the request, the answer validation, the key handling, and the `fm_jev_code_allowed` project list read, and [`verification/house-rules-check.md`](verification/house-rules-check.md) records the live evidence.
+
+## Already-exists search (.env TYPESAFE_API_KEY, config/jev-code-projects)
+
+`bin/fm-exists-search.sh` asks typesafe.ai's System One model (Jev) one yes-or-no question of a project's functions and prints the ones it answers `yes` for as a ranked `file:line` list, so a worker can find what the project already has before writing a second copy.
+It is off for every project by default, and it runs for a project only when the project's name is a line of [`config/jev-code-projects`](#jev-code-projects-configjev-code-projects) and `TYPESAFE_API_KEY` is available under the same environment-then-`.env` contract as [typed dispatch resolution](#typed-dispatch-resolution-env-typesafe_api_key).
+The key alone never turns it on.
+With either half absent, every generated brief is byte-identical to the one without the feature, and the script, if run anyway, makes no call.
+
+**An opted-in project's function source and the worker's question are sent to typesafe.ai.**
+Files are left out by name exactly as the [house-rules check](#house-rules-check-env-typesafe_api_key-confighouse-rulesjson) leaves them out, and a line that looks like a credential is withheld as [Jev code projects](#jev-code-projects-configjev-code-projects) describes, in the question as well as in the code.
+
+For an opted-in project, the "Before you write any code" section of every ship and scout brief gains lines offering the search for step 1, and a ship brief also gains the run over its own change once the work is committed.
+There are two runs:
+
+- `bin/fm-exists-search.sh <project> "<yes/no question>" [<path>...]` asks the question of the project's functions, limited to the given paths when any are named, and prints `<file>:<line>: yes <p>: <opening line>` for each match, most probable first.
+- `bin/fm-exists-search.sh <project> --change` takes each function the worktree adds since its merge base with the default branch, compares it with the existing functions closest to it, and prints `<new-file>:<line>: may repeat <file>:<line> (yes <p>): <opening line>` for each existing function that may already do its job.
+
+Code decides every fact before any call.
+A function is a line of a tracked text file that opens one in shell, Python, Ruby, PHP, JavaScript, TypeScript, Go, Rust, Java, C#, or Kotlin, found by one fixed pattern rather than a parser, with the text up to the next function, at most 60 lines, each cut to 200 characters, so a long function keeps its start.
+Functions are ordered by the words they share with the question or the new function, and a question is asked of the first 200 in that order, eight to a request, each function as its own yes-or-no question; a new function is compared with the 16 closest existing ones, and at most 25 new functions are compared.
+A function is a match only for a `yes` whose confidence and `yes` probability both reach the shared 0.6 floor.
+Asking stops after 120 seconds or three failed requests, and the summary line on stderr says how many functions went unasked and why.
+In a project with more functions than the bound, a function that does the job in words the question does not use can go unasked, so name a path to narrow the search.
+
+The search is advice only.
+A run exits 0 on every outcome except a usage error (exit 2), so a project that is not opted in, a missing key, no function found, a timeout, a transport or API error, a malformed answer, and low confidence all mean no match and nothing else.
+It never blocks, approves, merges, or discards anything, nothing reads its output except the worker that ran it, and no match is not proof that nothing exists: the search by hand that step 1 asks for is still owed.
+
+The lines are plain brief text and one shell command, so they reach every supported harness and runtime backend the same way; the command needs `git`, `jq`, `curl`, outbound network, and read access to the home's `.env` from the worker, and a worker that lacks any of them searches by hand as before.
+`bin/fm-exists-search.sh`'s header owns the exact bounds and output, `bin/fm-dod-lib.sh` owns the brief lines, `bin/fm-jev-lib.sh` owns the request, the answer validation, the key handling, and the `fm_jev_code_allowed` project list read, and [`verification/exists-search.md`](verification/exists-search.md) records the live evidence.
+
+## Finished check (.env TYPESAFE_API_KEY)
+
+When a Claude worker stops its turn, its stop hook asks typesafe.ai's System One model (Jev) whether the closing message matches what the worker actually reported, and sends the worker back once with one line naming what is missing.
+It is off unless `TYPESAFE_API_KEY` is available under the same environment-then-`.env` contract as [typed dispatch resolution](#typed-dispatch-resolution-env-typesafe_api_key); with the key absent no call is made and the turn ends exactly as it does without the feature.
+It catches claims and never runs a test itself.
+
+Code decides the facts first: whether the worker appended a status line this turn and which state it reported, whether files changed this turn, and which shell commands ran this turn.
+Jev then answers up to four yes/no questions about the closing message: does it claim the work is finished, does it claim checks passed, is it asking a question, and is the work partial or blocked.
+A send-back needs both a code fact and a `yes` whose confidence and `yes` probability are at or above the shared 0.6 floor, so the model alone never holds a worker:
+
+- a `done:` line reported this turn while the message says work is partial or blocked;
+- a claim that checks passed in a turn where no check-like command ran;
+- a question, or partial or blocked work, with no state reported this turn;
+- a finished claim over changed files with no state reported this turn.
+
+The turn ends without any call when the worker reported `needs-decision:`, `blocked:`, `paused:`, or `failed:` this turn, when background tasks are still running, when there is no closing message, or when the stop already follows a send-back, so one stop is sent back at most once.
+A timeout, a transport or API error, a malformed answer, and a low-confidence answer all end the turn exactly as it does without the feature.
+A sent-back turn has not ended, so it raises no turn-end notification and the worker stays recorded busy.
+
+Each call sends the closing message and nothing else, keeping only its last 4000 characters when it is longer, because the claim, the open question, and what remains are stated last; the turn's shell commands are read on this machine only and never sent, and neither are instructions, file content, or a diff.
+
+Only the Claude worker stop hook runs the check, on every runtime backend, because the hook runs inside the worker's own process.
+Gemini's turn-end hook is the same kind of surface but its send-back reply is not verified here; Pi, omp, and OpenCode report a turn's end through an extension or plugin event that carries no closing message; Codex, Grok, and Kimi only notify that a turn ended; and Muse, Cursor, Rovo, and AGY expose no turn-end hook, so a worker on any of them ends its turn exactly as it does without the feature.
+Second mates carry no worker stop hook and are never checked.
+
+`bin/fm-finished-check.sh`'s header owns the exact fact gates and question order, `bin/fm-jev-lib.sh` owns the request, the answer validation, and the key handling, and [`verification/finished-check.md`](verification/finished-check.md) records the live evidence.
+
+## Review finding sort (.env TYPESAFE_API_KEY, config/jev-code-projects)
+
+`bin/fm-finding-sort.sh <task-id>` asks typesafe.ai's System One model (Jev) what kind of finding each review finding in a task's reported decision gate is, so firstmate can settle the clear ones without stopping to weigh an escalation.
+It is off for every project by default, and it asks about a task only when both of these hold:
+
+- `TYPESAFE_API_KEY` is available under the same environment-then-`.env` contract as [typed dispatch resolution](#typed-dispatch-resolution-env-typesafe_api_key);
+- the task's project is a line of [`config/jev-code-projects`](#jev-code-projects-configjev-code-projects).
+
+The key alone never turns the sort on, because a review finding names the project's files and may quote its code.
+
+Each finding is sorted into one of four fixed kinds: `inside-task` (fixing it corrects the work that was asked for), `grows-task` (fixing it adds something that was not asked for), `style-only`, or `destructive`.
+The script prints `settle` only for an `inside-task` or `style-only` answer whose confidence reaches the shared 0.6 floor, and `by hand` for everything else: `grows-task`, `destructive`, low confidence, a finding with no usable answer, a timeout, a transport or API error, a missing key, and a project that is not listed.
+The sort never says whether a finding is a real defect; that still takes a reading of the code.
+
+The sort is advice only.
+Firstmate runs it at the start of [`ask-user-authority`](../.agents/skills/ask-user-authority/SKILL.md), which owns what a printed line means for the decision, reads every finding itself, and sends every decision itself; the worker that reported the gate never runs it.
+The script exits 0 on every outcome except a usage error (exit 2), answers no gate, steers no worker, and writes no record, so a failure leaves every finding decided by hand exactly as without the feature.
+
+Code decides every fact before the call.
+It takes the task's newest `ask-user findings=<ids> file=<path>` status line and requires the file to be a regular `nm-*-findings.txt` directly inside the task's own `data/<task-id>/` directory.
+A findings file over 20000 bytes, a brief with no `## Captain's intent`, or an intent over 20000 characters is left by hand whole rather than cut to fit.
+One request then carries one question per named finding.
+
+That request sends the brief's `## Captain's intent` and the findings file, both whole, and nothing else: no other part of the brief, no status lines, no diff, no file content beyond what a finding itself quotes, and nothing a worker typed in its shell.
+
+The script is one shell command firstmate runs in its own home, so it behaves the same on every supported primary harness and runtime backend and for a local or remote worker; it needs `jq`, `curl`, and outbound network, and a home that lacks any of them decides by hand.
+`bin/fm-finding-sort.sh`'s header owns the exact bounds, questions, and output, `bin/fm-jev-lib.sh` owns the request, the answer validation, the key handling, and the `fm_jev_code_allowed` project list read, and [`verification/finding-sort.md`](verification/finding-sort.md) records the live evidence.
+
+## Pull request risk level (.env TYPESAFE_API_KEY)
+
+`bin/fm-pr-check.sh` prints one advisory line beside a pull request it has just recorded: `risk: low`, `risk: medium`, `risk: high`, or `risk: not rated`, each followed by the reasons.
+It is off unless `TYPESAFE_API_KEY` is available under the same environment-then-`.env` contract as [typed dispatch resolution](#typed-dispatch-resolution-env-typesafe_api_key); with the key absent the script reads nothing extra, makes no call, and prints exactly what it prints without the feature.
+The line is advice for whoever reviews the merge request, on every delivery mode.
+Nothing reads it to block, merge, approve, or discard anything, and the pull request is recorded, its merge poll armed, a second mate's ready line published, and `armed:` printed before the rating starts, so no failure of the rating changes the registration or its exit status.
+
+Code sets the level first, from the change `bin/fm-review-diff.sh` reads for the task, which is the same read for GitHub and GitLab.
+A path that looks like a database migration, login or permissions, or payments, or 1500 or more changed lines, is high; a deleted file, 400 or more changed lines, or 20 or more files is medium.
+The model is then asked only the judgement that remains, as up to three separate yes/no questions: behaviour changed with no test, the description does not match the change, and something hard to undo.
+Code answers the first one itself when a test file changed or no code file did, and never asks the second when the forge returned no title or description.
+An answer counts only when its confidence and the chosen option's probability are both at or above the shared 0.6 floor.
+A counted yes can only raise the level, to high for something hard to undo and to medium for the other two, and no answer lowers the level the facts set.
+`risk: low` is printed only when all three questions were settled; when any is unanswered because of a timeout, an API error, a malformed answer, low confidence, or an unreadable description, and nothing else raised the level, the line is `risk: not rated`, and an unanswered question is always named on the line.
+A change that cannot be read at all is `risk: not rated`.
+
+The key alone sends nothing about any project.
+[`config/jev-code-projects`](#jev-code-projects-configjev-code-projects) lists the projects whose changes the model may see.
+For a listed project each call sends the pull request's title and description, its file list with line counts, the facts above, and the first 30000 bytes of its diff, leaving out every file whose name says it holds secrets (`.env*`, `*.pem`, `*.key`, `*.p12`, `*.pfx`, or a name containing `secret` or `credential`), to `https://api.typesafe.ai`; that text is written by the pull request's author, so it can sway an answer, which is why an answer may raise the level and nothing more.
+For a project that is not listed the model is asked nothing and the forge is not read for a description: the level comes from the facts alone, every question code could not settle is named as unanswered with `project not listed`, and the line is `risk: not rated` when no fact raised the level, never `risk: low`.
+The rating adds at most one change read (60 seconds), one forge read (20 seconds), and three model calls to a registration made with `bin/fm-pr-check.sh <id> <PR url>`, and stops calling the model after the first call that fails outright.
+The level is rated only then: the re-registration `bin/fm-pr-merge.sh` performs passes `--no-risk`, so a merge reads no change, sends nothing, waits on nothing, and prints no `risk:` line.
+`bin/fm-pr-risk-lib.sh`'s header owns the exact facts, thresholds, and questions, `bin/fm-jev-lib.sh` owns the request, the key handling, and the `fm_jev_code_allowed` project list read, and [`verification/jev-pr-risk.md`](verification/jev-pr-risk.md) records the live evidence.
+
+## Failed check sort (.env TYPESAFE_API_KEY, config/jev-code-projects)
+
+`bin/fm-pr-state.sh --sort-failed-checks <pr-url>` adds one advisory line under each failed required check it reports, labelling the failure a code bug, flaky, environment, or unknown, so a worker is not sent to fix a failure that is not in its code.
+The sort runs only when the caller passes that option: firstmate passes it when it reads a pull request's failed checks by hand, and the watcher's routine-wake triage never does, so its recheck reads and prints what it does without the feature and sends nothing.
+With the option it is still off unless `TYPESAFE_API_KEY` is available under the same environment-then-`.env` contract as [typed dispatch resolution](#typed-dispatch-resolution-env-typesafe_api_key); with the key absent the command reads and prints exactly what it does without the feature.
+The label never re-runs a check, never changes what a check reported, and never changes the command's blocker lines or exit status, so nothing merges, blocks, or discards on it.
+
+Fixed rules decide first from GitHub reads alone: a check that another attempt of the same workflow run passed is flaky, which a same-named job passing in the same attempt is not, and a check whose failed steps log a connection error while the same check also fails on the base branch is environment.
+Only a failure neither rule decides is put to typesafe.ai's System One model (Jev) as one fixed-choice question, `code_bug`, `flaky`, `environment`, or `unclear`.
+A `code_bug` answer needs the shared 0.6 confidence floor, and a `flaky` or `environment` answer needs 0.8, because those two point a worker away from the failure.
+A timeout, a transport or API error, a malformed answer, an `unclear` choice, an answer under its floor, a check with no GitHub Actions job log, and an unreadable GitHub read all print `unknown`, and the worker investigates as it does without the label.
+
+The question carries the check's name and the failure-naming lines of the job's failed steps, cut to their last 4000 characters.
+A failure log quotes the project's code, so it is sent only for a repository that [`config/jev-code-projects`](#jev-code-projects-configjev-code-projects) lists as its exact `<owner>/<repo>`.
+Only the first three failed required checks are sorted, and each one after them is printed as `unknown (not sorted)` with nothing read.
+An unlisted repository still gets the two fixed rules, and its undecided failures are `unknown` with no call.
+
+The sort covers GitHub pull requests only, which is all `bin/fm-pr-state.sh` reads, and it is the same on every harness and runtime backend because the command reads the forge and no worker surface.
+`bin/fm-check-sort-lib.sh`'s header owns the exact rules, bounds, and output, `bin/fm-jev-lib.sh` owns the request, the answer validation, the key handling, and the `fm_jev_code_allowed` project list read, and [`verification/failed-check-sort.md`](verification/failed-check-sort.md) records the live evidence.
+
+## Commit check (.env TYPESAFE_API_KEY, config/jev-code-projects)
+
+Before each commit a worker makes, a git hook stops an added line that looks like a credential and asks typesafe.ai's System One model (Jev) whether the commit message matches the staged file names, printing each mismatch as one advisory line the worker sees in the commit's own output.
+It is off unless `TYPESAFE_API_KEY` is available under the same environment-then-`.env` contract as [typed dispatch resolution](#typed-dispatch-resolution-env-typesafe_api_key) and the worker's project is a line of [`config/jev-code-projects`](#jev-code-projects-configjev-code-projects).
+With the key absent, or for a project that is not listed, a worker is launched and commits exactly as it does without the feature: no hooks setting, no hook, no credential check, and nothing sent.
+
+With both, `bin/fm-spawn.sh` writes a hooks directory under that ship or scout task's own temporary directory and exports one git setting, `GIT_CONFIG_PARAMETERS`, into that worker's terminal before the worker starts.
+The hooks therefore exist only for that worker's own git commands: nothing is written into the project, its git directory, or its git configuration, no other copy of the repository sees them, and cleanup removes the directory with the task's other temporary files.
+The directory forwards every other hook to the repository's own, so a project's existing hooks keep running, and the repository's own commit-message hook runs first with its refusal standing.
+The check acts only on a commit to the task's own worktree, recorded at launch by its top-level and common git directory: a commit the worker's commands make in any other repository - a test fixture, a temporary repository, a clone, another worktree - is not stopped, is told nothing, and has nothing sent about it.
+Second mates are never given the hooks.
+
+That setting overrides `core.hooksPath` for every git command the worker runs, so a tool that installs git hooks sees the task's temporary hooks directory in place of the repository's own.
+`pre-commit install` refuses to install while `core.hooksPath` is set.
+`lefthook install` and `git lfs install` write their hook into the temporary directory, where it replaces the forwarder of that name or, for `commit-msg`, the check itself: the hook then runs only for that worker and is removed with the task, and the repository's own hooks directory is not updated.
+A listed project whose setup step installs hooks should have them installed in the repository before a worker is launched on it, or stay off the list.
+
+Code decides first, on the worker's machine:
+
+- An added line matching a recognised credential format - the list `bin/fm-jev-lib.sh` holds for [every Jev request](#jev-code-projects-configjev-code-projects): a private key block, or an AWS, GitHub, Slack, Google, or `sk-` style key - stops the commit, names the file, the line, and the kind, never the value, and tells the worker to remove the credential from the change.
+  This is the only thing that stops a commit, and Jev has no part in it.
+- An added line that assigns a quoted literal to a password, secret, token, or API-key name is often ordinary code, so it only prints one advisory line naming the file and the line, and the commit goes through.
+- Merges, rebases, cherry-picks, reverts, `fixup!`, `squash!`, and `amend!` commits, and commits with nothing staged are not checked at all.
+
+The hook then makes one request carrying up to three yes/no questions, each answerable from the message and the file names alone: is the message filler, does it contradict the staged file names (for example it says only tests changed while other files are staged), and is a staged file unaccounted for by the message.
+The last is left out when only one file is staged.
+That request carries the commit message (its last 4000 characters when longer) and the staged file names (the first 200), and nothing else: no diff and no line of any staged file's content ever leaves the machine.
+A message line that looks like a credential is withheld from the request like any other, and does not stop the commit.
+Debug leftovers are therefore not judged, because they cannot be told without the content.
+The credential patterns above are matched byte-wise, so a byte that is not valid in the worker's locale cannot hide a line from them.
+A project taken off the list after a worker was launched is no longer checked by that worker's hook.
+A `yes` whose confidence and `yes` probability are both at or above the shared 0.6 floor prints one advisory line; a `no`, a low-confidence answer, a timeout, a transport or API error, and a malformed answer print nothing, and in every one of those cases the commit goes through.
+
+The setting reaches the worker on the same channel as the task marker, on every runtime backend, and applies wherever a harness runs the worker's git commands with the terminal's environment, which is the same inheritance the task marker already relies on for every supported harness.
+A harness or sandbox that withholds that one variable from its shell leaves commits exactly as they are without the feature, and one that blocks network access leaves the credential stop and the secret-literal advisory working while the request fails and the commit goes through.
+The pipeline's own fix commits are made outside the worker's terminal and are not checked.
+
+`bin/fm-commit-check.sh`'s header owns the exact gates and bounds, `bin/fm-jev-lib.sh` owns the credential patterns, the request, the answer validation, the key handling, and the project list, and [`verification/commit-check.md`](verification/commit-check.md) records the live evidence.
+
+## Escalation screen (.env TYPESAFE_API_KEY)
+
+`bin/fm-escalation-screen.sh <question text>` asks typesafe.ai's System One model (Jev) what kind of question firstmate is about to put to the captain, so a question that is really a setting with a default, or a choice that is cheap to change later, is noticed before it reaches him.
+It is off unless `TYPESAFE_API_KEY` is available under the same environment-then-`.env` contract as [typed dispatch resolution](#typed-dispatch-resolution-env-typesafe_api_key).
+The key alone turns it on, because only the question's own words are sent; firstmate passes no code or diff in them, and a line that looks like a credential is withheld as [Jev code projects](#jev-code-projects-configjev-code-projects) describes.
+
+Code decides what it can before the call.
+A question that names a merge, an approval, a destructive or irreversible act, or a security-sensitive one is printed as `captain's` without a request, a review-gate line is left to the [review finding sort](#review-finding-sort-env-typesafe_api_key-configjev-code-projects), and a question over 4000 characters is left by hand whole rather than cut to fit.
+One request then sorts the question into one of five fixed kinds: `trade` (how the business works, or a wrong answer misprices a deal or pays the wrong party), `costly-to-undo` (cannot be renamed once shipped, makes the work bigger, destructive, security-sensitive, or a merge), `setting-with-default` (different customers or countries could want different behaviour), `cheap-to-reverse`, or `unclear`.
+
+The script prints exactly one line.
+`screen: yours` is printed only for a `setting-with-default` or `cheap-to-reverse` answer whose confidence reaches the shared 0.6 floor.
+`screen: captain's` is printed for the code rule above and for a `trade` or `costly-to-undo` answer at any confidence.
+`screen: by hand` is printed for everything else: `unclear`, low confidence, a timeout, a transport or API error, a malformed answer, and a missing key.
+
+The screen is advice only.
+`yours` means the question looks like one firstmate already decides under the captain's standing guidance - ship the setting with a default that works, or make the cheap choice - and firstmate's own reading of the question wins whenever it disagrees.
+`captain's` and `by hand` change nothing: firstmate judges the question exactly as without the feature.
+No printed line adds or removes a stop for the captain's approval: merge authority, ask-user findings, destructive, irreversible, and security-sensitive acts keep their own owners in `AGENTS.md`.
+The script exits 0 on every outcome except a usage error (exit 2), asks and answers nothing, holds no task, steers no worker, and writes no record.
+
+The script is one shell command firstmate runs in its own home on text it already holds, so it behaves the same on every supported primary harness and runtime backend and for a local or remote worker; it needs `jq`, `curl`, and outbound network, and a home that lacks any of them judges by hand.
+`bin/fm-escalation-screen.sh`'s header owns the exact rules, bound, question, and output, `bin/fm-jev-lib.sh` owns the request, the answer validation, the key handling, and the credential-line filter, and [`verification/escalation-screen.md`](verification/escalation-screen.md) records the live evidence.
+
+## Helper model pick (.env TYPESAFE_API_KEY, config/jev-code-projects)
+
+When a Claude worker hands a piece of work to a helper agent without naming a model, the helper normally runs on the worker's own model.
+With `TYPESAFE_API_KEY` available and the project named in [`config/jev-code-projects`](#jev-code-projects-configjev-code-projects), a ship or scout worker launched on Claude asks typesafe.ai's System One model one fixed-choice question before that hand-off runs: is the work `mechanical` or does it need `judgement`.
+A `mechanical` answer whose confidence and probability are both at or above the shared 0.6 floor runs that one helper on `sonnet`; nothing else in the hand-off changes.
+`judgement`, a low-confidence answer, a timeout, a transport or API error, and a malformed answer all leave the helper on the model the worker asked for.
+
+Code decides first, and then nothing is asked or sent: when the worker named a model for the helper, and when the helper type is not one that inherits the worker's model (only the general-purpose helper types do; every other type carries its own model, and a fork ignores the field).
+A worker launched on a sonnet or haiku model gets no hook at all, because there is nothing cheaper worth moving to.
+A worker launched with no model named gets none either, because the account's default model is not known to be a stronger one, so the pick only ever lowers a helper's model and never raises it.
+Without the key, or for a project that is not listed, the worker's settings file is written exactly as it is without this feature.
+A project taken off the list after a worker was launched is no longer asked about by that worker's hook.
+
+The request carries the hand-off's short description, its helper type, and its prompt (the last 4000 characters when longer), and nothing else.
+A hand-off prompt can quote code, which is why the project list applies; a line that looks like a credential is withheld like any other.
+The hook never states a permission decision, so the helper-agent tool is allowed, asked about, or refused exactly as without it, and the pick is never the thing that blocks or approves anything; it writes no record.
+
+This applies to Claude workers only: the hook is Claude Code's pre-tool hook for its helper-agent tool, which is the only supported harness where firstmate writes a per-tool hook and where a hand-off carries a model of its own.
+Every other harness, and every runtime backend, launches exactly as before.
+
+`bin/fm-helper-model.sh`'s header owns the exact gates and bounds, `bin/fm-jev-lib.sh` owns the request, the answer validation, the key handling, and the project list, and [`verification/helper-model-pick.md`](verification/helper-model-pick.md) records the live evidence.
+
+## Intake routing (.env TYPESAFE_API_KEY)
+
+`bin/fm-intake-route.sh [<request-file>]` asks typesafe.ai's System One model (Jev) which registered project an incoming request or bug report is about and which second mate's scope covers it, so firstmate can hand a clear request to the right worker without first reading both registries against it.
+It is off unless `TYPESAFE_API_KEY` is available under the same environment-then-`.env` contract as [typed dispatch resolution](#typed-dispatch-resolution-env-typesafe_api_key); off means one `intake-route: off` line on stderr, nothing on stdout, exit 0, and no network call.
+It reads no project's code, so [`config/jev-code-projects`](#jev-code-projects-configjev-code-projects) is not consulted.
+
+The choices are read from the two maintained registries on every run and are never written into the script.
+The project choices are the entries of `data/projects.md` that `bin/fm-project-mode.sh --list` prints, which leaves out any entry whose bracket holds `finished`.
+Add an entry when a project is added, and add `finished` inside its bracket, as in `[direct-PR finished]`, when its work is complete: the entry keeps its registered posture and simply stops being offered.
+The second-mate choices are the records of [`data/secondmates.md`](#secondmate-routes-datasecondmatesmd).
+
+Code decides every fact before and after the call.
+An empty request, a request over 20000 bytes, and a registry with no unfinished project are left by hand without a request, and nothing is cut to fit.
+With no second mate registered the second-mate question is not asked and the answer is `main`.
+A project registered `local-only` stays in the main home, so when the advised project is one the second-mate line is `main` whatever the model answered.
+
+One request then carries the request text, each offered project's name and registry description, and each second mate's id and registered scope, and nothing else: no code, no diff, no backlog, no status lines, no home paths, and nothing a worker typed in its shell.
+Registry descriptions and scopes are local text, so keep out of them anything that must not leave the machine; a line that looks like a credential is withheld like in every other Jev request.
+
+The script prints one `project:` line and one `secondmate:` line.
+A line names a project, a second mate, or `main` only when that answer's confidence reaches the shared 0.6 floor, and says `by hand` for everything else: no single project fits, low confidence, a missing or malformed answer, a timeout, and a transport or API error.
+
+The routing is advice only.
+Firstmate runs it at intake and still resolves the project and the owner itself under `AGENTS.md` section 7, including asking one question when the match is not confident; a printed name never dispatches, steers, files, or records anything, and the script exits 0 on every outcome except a usage error (exit 2).
+
+The script is one shell command firstmate runs in its own home, so it behaves the same on every supported primary harness and runtime backend and for local or remote second mates; it needs `jq`, `curl`, and outbound network, and a home that lacks any of them resolves by hand.
+`bin/fm-intake-route.sh`'s header owns the exact bounds, questions, and output, `bin/fm-project-mode.sh`'s header owns the registry format, `bin/fm-jev-lib.sh` owns the request, the answer validation, and the key handling, and [`verification/intake-route.md`](verification/intake-route.md) records the live evidence.
+
+## Worker health (.env TYPESAFE_API_KEY)
+
+`bin/fm-worker-health.sh <task-id>` prints a task's deterministic current state and, when that read alone cannot tell, asks typesafe.ai's System One model (Jev) whether the worker is working, stuck, waiting, or finished, so a worker that has stopped is noticed at the first look instead of after a reading of its terminal.
+It is on when `TYPESAFE_API_KEY` is available under the same environment-then-`.env` contract as [typed dispatch resolution](#typed-dispatch-resolution-env-typesafe_api_key), and off otherwise.
+The key alone is the whole opt-in, because no project code, file list, or diff is sent and [`config/jev-code-projects`](#jev-code-projects-configjev-code-projects) is therefore not consulted.
+
+Code decides every fact before the call.
+The script runs `bin/fm-crew-state.sh <task-id>` and prints that one line unchanged on every run, so without the key its output is that line alone.
+The model is asked only when that line's source is `pane` or `status-log`, the two fallbacks used when no validation run speaks for the task, and only for a local ship or scout task.
+A read that comes from a validation run, a gone or unreachable endpoint, a remote endpoint, and a secondmate, whose idle endpoint is healthy, are never asked about.
+
+One request then carries one question with four fixed choices: `working`, `stuck`, `waiting`, or `finished`.
+An answer whose confidence reaches the shared 0.6 floor adds one line, `health: <choice> (confidence <c>, advice only)`; a low-confidence answer, a timeout, a transport or API error, a malformed answer, and a missing key add nothing.
+
+That request sends the crew-state line, the task's kind, the newest six lines of the task's status log, how many whole minutes ago the status log, the turn-end marker, and the progress marker last changed, and the count and oldest age of unacknowledged steering messages, and nothing else: no terminal content, nothing a worker typed in its shell, no steering message text, no part of the brief, and no file of the project.
+A status line over 400 characters keeps its head and its end.
+
+The health line is advice only.
+Firstmate runs the script at the start of the live-endpoint escalation in [`stuck-crewmate-recovery`](../.agents/skills/stuck-crewmate-recovery/SKILL.md), which owns what a printed line means; a worker never runs it.
+The script exits 0 on every outcome except a usage error (exit 2), steers, interrupts, and relaunches nothing, and writes no record, so a failure leaves the recovery exactly as it is without the feature.
+Nothing runs it automatically: the watcher, the fleet view, and `bin/fm-crew-state.sh` itself are unchanged.
+
+The script is one shell command firstmate runs in its own home over `bin/fm-crew-state.sh`, which already covers every supported worker harness and runtime backend, so it behaves the same on each of them and on every supported primary harness; it needs `jq`, `curl`, and outbound network, and a home that lacks any of them gets the crew-state line alone.
+`bin/fm-worker-health.sh`'s header owns the exact gates, bounds, question, and output, `bin/fm-jev-lib.sh` owns the request, the answer validation, the key handling, and the credential-line filter, and [`verification/worker-health.md`](verification/worker-health.md) records the live evidence.
 
 ## Gate defaults (.no-mistakes.yaml)
 
@@ -948,7 +1313,7 @@ SSH_AUTH_SOCK
 
 ### Variables retained and where values come from
 
-Firstmate retains basic home, executable search, terminal, locale, temporary-directory, and backend routing variables, plus its explicit launch assignments, its ship and scout task marker, the compact-adviser kill switch described below, and enabled task trace.
+Firstmate retains basic home, executable search, terminal, locale, temporary-directory, and backend routing variables, plus its explicit launch assignments, its ship and scout task marker, the compact-adviser kill switch described below, the [commit check](#commit-check-env-typesafe_api_key-configjev-code-projects)'s git setting for a worker it was exported to, and enabled task trace.
 [`fm-spawn.sh --help`](../bin/fm-spawn.sh) owns the exact retained names and parsing mechanics.
 
 Other ambient names must be listed explicitly, including custom credential-store locations, proxy settings, and certificate overrides when required by the selected tools.
@@ -1223,6 +1588,7 @@ Firstmate passes its profile line unless it states a reason to override, such as
 - The resolver and bootstrap copy an environment-provided key into a non-exported private variable and unset `TYPESAFE_API_KEY` before launching child processes, so the secret is absent from child environments.
 - The resolver sends the key to `curl` only as a header read from a file descriptor, never on argv, and nothing prints, logs, or writes it.
 - The resolver fixes the endpoint at `https://api.typesafe.ai`, model at `jev-latest`, default confidence floor at 0.6, and request timeout at 5 seconds; `TYPESAFE_API_KEY` is its only resolver-specific environment setting.
+- `bin/fm-jev-lib.sh` is the single owner of the Jev request, the answer validation, and the same key handling for [routine-wake triage](#routine-wake-triage-env-typesafe_api_key), for the [house-rules check](#house-rules-check-env-typesafe_api_key-confighouse-rulesjson), for the [finished check](#finished-check-env-typesafe_api_key), for the [review finding sort](#review-finding-sort-env-typesafe_api_key-configjev-code-projects), for the [pull request risk level](#pull-request-risk-level-env-typesafe_api_key), for the [failed check sort](#failed-check-sort-env-typesafe_api_key-configjev-code-projects), for the [commit check](#commit-check-env-typesafe_api_key-configjev-code-projects), for the [escalation screen](#escalation-screen-env-typesafe_api_key), for the [helper model pick](#helper-model-pick-env-typesafe_api_key-configjev-code-projects), for [intake routing](#intake-routing-env-typesafe_api_key), for the [worker health line](#worker-health-env-typesafe_api_key), and for the [already-exists search](#already-exists-search-env-typesafe_api_key-configjev-code-projects); it sends the key to `curl` only as a header read from a file descriptor, never on argv, and nothing prints, logs, or writes it.
 
 The live rule-match evidence is recorded in [`verification/dispatch-resolve.md`](verification/dispatch-resolve.md).
 
@@ -1323,7 +1689,7 @@ For a mid-session inherited local-material edit where tracked-file sync is not n
 It uses the same live secondmate discovery and propagation helper as bootstrap; its [help](../bin/fm-config-push.sh) owns reporting and exit semantics, and [`fm_config_inherit_items`](../bin/fm-config-inherit-lib.sh) declares the inherited items.
 
 - When an allowlisted config item changes for an already-running local home, it sends the literal-content reread pointer described in [`secondmate-provisioning`](../.agents/skills/secondmate-provisioning/SKILL.md); unchanged allowlisted config sends no pointer unless a previous delivery is pending.
-- A changed remote home instead receives one durably recorded marked re-read instruction after the allowlisted bytes have transferred because primary-local generation paths are not meaningful on another host.
+- A changed remote home instead receives one durably recorded fire-and-forget re-read instruction after the allowlisted bytes have transferred because primary-local generation paths are not meaningful on another host.
 - The locked bootstrap inheritance pass uses the same placement-specific behavior; see `secondmate-provisioning` for the single contract owner.
 - That live discovery starts from `state/*.meta` records with `kind=secondmate`; `data/secondmates.md` only backfills `home=` for older or incomplete meta records.
 - Skipped items, such as a destination checkout that does not yet gitignore the item, are visible warnings but not hard failures.

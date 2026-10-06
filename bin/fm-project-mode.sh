@@ -93,7 +93,22 @@
 # to the forge binding, so it prints even when the forge token is malformed;
 # every path that reads the forge binding (default, --forge, and spawn's
 # forge-agreement check) still refuses.
-# Usage: fm-project-mode.sh [--raw|--branch-prefix|--forge] <project-name>
+#
+# --base prints the registry's `base=<branch>` token for the project, or nothing
+# when it records none. It is the FALLBACK record of the project's development
+# branch, for a project that has not yet adopted the committed .firstmate-base
+# file; bin/fm-project-base.sh owns the resolution across both and is what
+# callers ask, not this tier directly. An absent registry or project also
+# prints nothing.
+#
+# --list takes no project and prints one "<name><TAB><raw-mode><TAB><desc>" line
+# per "- <name> [..] - <desc>" entry whose bracket does not hold `finished`,
+# in registry order, and nothing when the registry is absent. `finished` marks a
+# project whose work is complete: it keeps its entry and its posture but is no
+# longer offered as a choice by bin/fm-intake-route.sh, the one --list consumer.
+#
+# Usage: fm-project-mode.sh [--raw|--branch-prefix|--forge|--base] <project-name>
+#        fm-project-mode.sh --list
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -104,17 +119,55 @@ REG="$DATA/projects.md"
 RAW=0
 BRANCH_PREFIX_QUERY=0
 WANT_FORGE=0
+WANT_BASE=no
 case "${1:-}" in
   --raw) RAW=1; shift ;;
   --branch-prefix) BRANCH_PREFIX_QUERY=1; shift ;;
   --forge) WANT_FORGE=1; shift ;;
+  --base) WANT_BASE=yes; shift ;;
 esac
-NAME=${1:?usage: fm-project-mode.sh [--raw|--branch-prefix|--forge] <project-name>}
+if [ "${1:-}" = --list ]; then
+  [ -f "$REG" ] || exit 0
+  awk '
+    $1=="-" && $2!="" {
+      mode="no-mistakes"; done=0; line=$0;
+      sub(/^-[ \t]+[^ \t]+[ \t]*/, "", line);
+      if (line ~ /^\[[^]]*\]/) {
+        s=line; sub(/\].*$/, "", s); sub(/^\[/, "", s);
+        k = split(s, a, " ");
+        for (j=1; j<=k; j++) {
+          if (a[j]=="finished") done=1;
+          else if (j==1 && a[j]!="+yolo" && a[j] !~ /^base=/) mode=a[j];
+        }
+        sub(/^\[[^]]*\][ \t]*/, "", line);
+      }
+      # Only "- <name> [..] - <desc>" is an entry; other bullets in the file are prose.
+      if (done || line !~ /^-[ \t]/) next;
+      sub(/^-[ \t]+/, "", line); gsub(/\t/, " ", line);
+      print $2 "\t" mode "\t" line;
+    }
+  ' "$REG"
+  exit 0
+fi
+NAME=${1:?usage: fm-project-mode.sh [--raw|--branch-prefix|--forge|--base|--list] [<project-name>]}
+if [ "$WANT_BASE" = yes ]; then
+  [ -f "$REG" ] || exit 0
+  awk -v n="$NAME" '
+    {
+      prefix = "- " n; plen = length(prefix);
+      if (substr($0, 1, plen) != prefix) next
+      after = substr($0, plen + 1);
+      if (substr(after, 1, 2) != " [") { if (after == "" || substr(after, 1, 3) == " - ") exit; next }
+      s = substr(after, 3); sub(/\].*$/, "", s);
+      k = split(s, a, " ");
+      for (j=1; j<=k; j++) if (a[j] ~ /^base=./) { print substr(a[j], 6); exit }
+      exit
+    }
+  ' "$REG"
+  exit 0
+fi
 
-# A base query is advisory: an absent registry, project, or base= record all mean
-# "no recorded base", and the caller falls back to the repo default branch.
 if [ ! -f "$REG" ]; then
-  [ "$WANT_BASE" = yes ] && exit 0
   echo "warn: no registry at $REG; defaulting $NAME to no-mistakes off" >&2
   if [ "$BRANCH_PREFIX_QUERY" -eq 1 ]; then
     echo "fm/"
@@ -168,6 +221,7 @@ parsed=$(awk -v n="$NAME" '
         if (a[j]=="+yolo") { yolo="on"; continue }
         if (a[j] ~ /^branch=/) { branch = substr(a[j], 8); continue }
         if (a[j] ~ /^forge=/) { forge = a[j]; continue }
+        if (a[j] ~ /^base=/ || a[j] == "finished") continue
         if (a[j] ~ /^[^=]+=/) {
           key = substr(a[j], 1, index(a[j], "=") - 1);
           e = dist(key, "forge");
@@ -185,7 +239,6 @@ parsed=$(awk -v n="$NAME" '
 ' "$REG")
 
 if [ -z "$parsed" ]; then
-  [ "$WANT_BASE" = yes ] && exit 0
   echo "warn: project \"$NAME\" not in registry; defaulting to no-mistakes off" >&2
   if [ "$BRANCH_PREFIX_QUERY" -eq 1 ]; then
     echo "fm/"

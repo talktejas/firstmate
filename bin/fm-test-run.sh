@@ -399,7 +399,7 @@ family_for_basename() {
       printf '%s\n' backend-dispatch
       ;;
     fm-check-unregister.test.sh|fm-pipeline-spend.test.sh|fm-pr-check-security.test.sh|\
-    fm-pr-merge.test.sh|fm-pr-reviewers.test.sh|fm-pr-state.test.sh|\
+    fm-pr-merge.test.sh|fm-pr-reviewers.test.sh|fm-pr-risk.test.sh|fm-pr-state.test.sh|\
     fm-review-diff.test.sh|fm-teardown.test.sh|fm-x-mode.test.sh)
       printf '%s\n' pr-forge
       ;;
@@ -1535,14 +1535,13 @@ families_for_changed_path() {
       printf '%s\n' "__script__:fm-dispatch-resolve.test.sh"
       ;;
     bin/fm-jev-lib.sh)
-      # The one Jev caller, sourced by bin/fm-dispatch-resolve.sh, the watcher's
-      # routine-wake triage, bin/fm-house-rules-check.sh, the worker stop
+      # The one Jev caller, sourced by the watcher's routine-wake triage,
+      # bin/fm-house-rules-check.sh, the worker stop
       # hook's finished check, the review finding sort, the pull request risk
       # level, the failed check sort, the worker commit check, the escalation
       # screen, the helper model pick, intake routing, the worker health line,
       # and bin/fm-exists-search.sh.
       printf '%s\n' "__script__:fm-pr-state.test.sh"
-      printf '%s\n' "__script__:fm-dispatch-resolve.test.sh"
       printf '%s\n' "__script__:fm-jev-wake-triage.test.sh"
       printf '%s\n' "__script__:fm-house-rules-check.test.sh"
       printf '%s\n' "__script__:fm-finished-check.test.sh"
@@ -1596,7 +1595,7 @@ families_for_changed_path() {
       ;;
     bin/fm-env-lib.sh)
       # The one .env accessor, sourced by bin/fm-x-lib.sh (Relay token) and
-      # bin/fm-jev-lib.sh (TYPESAFE_API_KEY).
+      # bin/fm-dispatch-resolve.sh and bin/fm-jev-lib.sh (TYPESAFE_API_KEY).
       printf '%s\n' pr-forge
       printf '%s\n' "__script__:fm-dispatch-resolve.test.sh"
       printf '%s\n' "__script__:fm-jev-wake-triage.test.sh"

@@ -117,20 +117,6 @@
 #   A backend spawn refusal (missing dependency, version gate, unauthenticated
 #   socket, or unsupported secondmate mode) is terminal for that selected backend;
 #   callers must surface it instead of silently retrying another backend.
-#   --base <branch> is the explicit base branch for this exact ship or scout
-#   spawn. It governs that spawn alone and is never written back to
-#   data/projects.md, so an effort that must accumulate on one integration
-#   branch never edits the shared registry and never depends on remembering to
-#   restore it. Precedence is --base, then the project's registry base= record,
-#   then the repository default branch, unchanged from before this flag. It
-#   resolves exactly as a registry base= does: origin/<branch> for a shared
-#   clone, the local branch in local-only mode or when no origin is configured.
-#   A base that does not resolve refuses the spawn naming the branch rather than
-#   quietly falling back to the registry value or the default, so a worker never
-#   launches on a base other than the one it was dispatched for. The resolved
-#   base is recorded as base= in state/<id>.meta; --relaunch reuses that record
-#   like every other identity axis and refuses --base alongside it. --secondmate
-#   has no task worktree and refuses the flag too.
 #   A herdr crewmate or scout is placed in the exact workspace of the firstmate
 #   or secondmate process launching it, resolved from that process's own herdr
 #   pane rather than from a workspace label (herdr enforces no label uniqueness,
@@ -337,7 +323,9 @@
 #   marker FM_TASK_ID that ship and scout panes receive above, plus the
 #   compact-adviser kill switch COMPACT_ADVISER_DISABLE, which the floor also
 #   pins to 1 with a literal assignment so it survives the cleared environment
-#   even on a host that never had it set.
+#   even on a host that never had it set, and, only for a pane the commit
+#   check (bin/fm-commit-check.sh) exported it into, the GIT_CONFIG_PARAMETERS
+#   setting.
 #   An enabled task trace also retains TRACEPARENT. Explicit Firstmate launch
 #   assignments still apply inside the filtered environment, including the
 #   FM_TASK_INBOX export every launch carries (the absolute state/<id>.inbox
@@ -685,7 +673,6 @@ HARNESS_ARG=
 MODEL=
 EFFORT=
 BACKEND_ARG=
-BASE_ARG=
 MODE=
 YOLO=
 BRANCH_PREFIX=fm/
@@ -694,7 +681,6 @@ HARNESS_SET=0
 MODEL_SET=0
 EFFORT_SET=0
 BACKEND_SET=0
-BASE_SET=0
 MODE_SET=0
 YOLO_SET=0
 BRANCH_PREFIX_SET=0
@@ -728,10 +714,6 @@ for a in "$@"; do
     backend)
       BACKEND_ARG=$a
       BACKEND_SET=1
-      ;;
-    base)
-      BASE_ARG=$a
-      BASE_SET=1
       ;;
     mode)
       MODE=$a
@@ -791,11 +773,6 @@ for a in "$@"; do
     BACKEND_ARG=${a#--backend=}
     BACKEND_SET=1
     ;;
-  --base) want_value=base ;;
-  --base=*)
-    BASE_ARG=${a#--base=}
-    BASE_SET=1
-    ;;
   --mode) want_value=mode ;;
   --mode=*)
     MODE=${a#--mode=}
@@ -844,10 +821,6 @@ done
   echo "error: --backend requires a non-empty value" >&2
   exit 1
 }
-[ "$BASE_SET" -eq 0 ] || [ -n "$BASE_ARG" ] || {
-  echo "error: --base requires a non-empty value" >&2
-  exit 1
-}
 [ "$MODE_SET" -eq 0 ] || [ -n "$MODE" ] || {
   echo "error: --mode requires a non-empty value" >&2
   exit 1
@@ -888,10 +861,6 @@ esac
 if [ "$RELAUNCH" -eq 1 ]; then
   [ "$BACKEND_SET" -eq 0 ] || {
     echo "error: --relaunch reuses the task's recorded backend; --backend cannot override it" >&2
-    exit 1
-  }
-  [ "$BASE_SET" -eq 0 ] || {
-    echo "error: --relaunch reuses the task's recorded base branch; --base cannot override it" >&2
     exit 1
   }
   [ "$KIND_SET" -eq 0 ] || {
@@ -964,12 +933,6 @@ else
       exit 1
     }
   fi
-  # A secondmate launches in its own firstmate home rather than a task worktree
-  # of some project, so it has no base branch to be dispatched against.
-  [ "$KIND" != secondmate ] || [ "$BASE_SET" -eq 0 ] || {
-    echo "error: --base applies only to ship and scout spawns; a secondmate launches in its own home, not a task worktree" >&2
-    exit 1
-  }
 fi
 
 spawn_remote_secondmate() {
@@ -1566,7 +1529,6 @@ if [ "${#POS[@]}" -gt 0 ] && [ "${POS[0]}" != "$idpart" ] && case "$idpart" in *
   [ -z "$MODEL" ] || shared_args+=(--model "$MODEL")
   [ -z "$EFFORT" ] || shared_args+=(--effort "$EFFORT")
   [ -z "$BACKEND_ARG" ] || shared_args+=(--backend "$BACKEND_ARG")
-  [ -z "$BASE_ARG" ] || shared_args+=(--base "$BASE_ARG")
   # One delivery contract applies to every pair in a batch, exactly like the shared
   # harness. Each pair still re-validates it against its own brief, so a batch
   # spanning several modes is two invocations rather than a silent mixed dispatch.
@@ -3465,7 +3427,7 @@ spawn_worktree_has_origin_config() { # <worktree>
 }
 
 freshen_spawn_worktree_base() { # <worktree> [<base-branch>]
-  local worktree=$1 base=${2:-} default target expected actual status
+  local worktree=$1 base=${2:-} default target expected actual status base_source=explicit
   status=$(git -C "$worktree" -c core.quotePath=false status --porcelain) || {
     echo "error: could not inspect pooled worktree '$worktree' before refreshing its base" >&2
     return 1
@@ -3485,45 +3447,44 @@ freshen_spawn_worktree_base() { # <worktree> [<base-branch>]
     }
     return 0
   fi
-  # A freshly allocated pool slot lands on the repo's DEFAULT branch, which is
-  # silently the wrong base for a project that develops elsewhere: a task once
-  # audited a tree 1036 commits behind origin/develop and correctly reported
-  # that nothing in its brief existed. An explicit --base names the branch THIS
-  # task was dispatched against and governs this spawn alone, which is what lets
-  # an effort accumulate on one integration branch without editing shared state
-  # and having to remember to put it back. Absent that, bin/fm-project-base.sh
-  # owns which branch the project declares; absent a declaration, the default
-  # stands.
-  if [ -n "$BASE_ARG" ]; then
-    default=$BASE_ARG
-    base_source=explicit
+  if ! git -C "$worktree" fetch --quiet origin; then
+    echo "error: could not fetch origin for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
+    return 1
+  fi
+  if [ -n "$base" ]; then
+    default=$base
   else
-    default=$("$FM_ROOT/bin/fm-project-base.sh" "$worktree" "$PROJ_NAME" 2>/dev/null || true)
+    # A freshly allocated pool slot lands on the repo's DEFAULT branch, which is
+    # silently the wrong base for a project that develops elsewhere: a task once
+    # audited a tree 1036 commits behind origin/develop and correctly reported
+    # that nothing in its brief existed. Absent an explicit --base-branch,
+    # bin/fm-project-base.sh owns which branch the project declares; absent a
+    # declaration, the default stands.
+    default=$("$FM_ROOT/bin/fm-project-base.sh" "$worktree" "$(basename "$PROJ_ABS")" 2>/dev/null || true)
     base_source=recorded
     if [ -z "$default" ]; then
       base_source=default
+      if ! git -C "$worktree" remote set-head origin --auto >/dev/null 2>&1; then
+        echo "error: could not resolve origin's current default branch for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
+        return 1
+      fi
       default=$(default_branch "$worktree") || {
         echo "error: could not determine origin's default branch for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
         return 1
       }
     fi
   fi
-  if [ -n "$base" ]; then
-    default=$base
+  # origin/<branch> is the fetched truth for a shared clone. A local-only project
+  # inverts that: it lands with bin/fm-merge-local.sh, which fast-forwards the
+  # LOCAL branch and never pushes, so there origin/<branch> is the stale one.
+  if [ "$MODE" = local-only ]; then
+    target=$default
   else
-    if ! git -C "$worktree" remote set-head origin --auto >/dev/null 2>&1; then
-      echo "error: could not resolve origin's current default branch for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
+    target="origin/$default"
+    if ! git -C "$worktree" fetch --quiet origin "+refs/heads/$default:refs/remotes/origin/$default"; then
+      echo "error: could not fetch $base_source base '$target' for pooled worktree '$worktree'; refusing to launch rather than falling back to another base" >&2
       return 1
     fi
-    default=$(default_branch "$worktree") || {
-      echo "error: could not determine origin's default branch for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
-      return 1
-    }
-  fi
-  target="origin/$default"
-  if ! git -C "$worktree" fetch --quiet origin "+refs/heads/$default:refs/remotes/origin/$default"; then
-    echo "error: could not fetch '$target' for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
-    return 1
   fi
   expected=$(git -C "$worktree" rev-parse --verify --quiet "$target^{commit}" 2>/dev/null) || {
     echo "error: $base_source base '$target' is not a commit for pooled worktree '$worktree'; refusing to launch rather than falling back to another base" >&2
@@ -3537,15 +3498,6 @@ freshen_spawn_worktree_base() { # <worktree> [<base-branch>]
   if [ "$actual" != "$expected" ]; then
     echo "error: pooled worktree '$worktree' is at '${actual:-unknown}', not current $base_source base '$target' ('$expected'); refusing to launch" >&2
     return 1
-  fi
-  # Only a base this spawn was explicitly dispatched against is recorded below
-  # as base=, so the task record names the branch it was created against rather
-  # than a record that may have moved on since; a relaunch carries the line
-  # forward unchanged with the reused worktree. A spawn that named no base owns
-  # no base: its landing and cleanup keep resolving the project's standing
-  # declaration, which is free to change under an in-flight task.
-  if [ "$base_source" = explicit ]; then
-    SPAWN_RESOLVED_BASE=$default
   fi
 }
 
@@ -4435,17 +4387,17 @@ elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
   # Allocation runs under the shared Treehouse project lock, and it creates a
   # slot by fetching and adding a git worktree, so a stalled fetch would hold
   # that lock - and every other spawn for this project - open ended. Bound it
-  # the way the backlog commit is bounded (fm_run_bounded), with the deadline
+  # the way the backlog commit is bounded (bin/fm-timeout-lib.sh), with the deadline
   # the pane's discovery poll used to give this step. A timed-out allocation
   # refuses: the EXIT trap releases the project lock, and the refusal names the
   # holder label a half-created slot would carry, because a slot that may hold
   # work is the operator's to inspect rather than this script's to tidy away.
   SPAWN_TREEHOUSE_GET_STATUS=0
-  WT=$(cd "$PROJ_ABS" && fm_run_bounded "${FM_TREEHOUSE_GET_TIMEOUT:-60}" \
+  WT=$(cd "$PROJ_ABS" && fm_run_timed "${FM_TREEHOUSE_GET_TIMEOUT:-60}" \
     treehouse get --lease --lease-holder "$SPAWN_TREEHOUSE_LEASE_HOLDER") ||
     SPAWN_TREEHOUSE_GET_STATUS=$?
   if [ "$SPAWN_TREEHOUSE_GET_STATUS" -ne 0 ]; then
-    if fm_run_bounded_timed_out "$SPAWN_TREEHOUSE_GET_STATUS"; then
+    if fm_timed_out "$SPAWN_TREEHOUSE_GET_STATUS"; then
       echo "error: treehouse get --lease did not allocate a worktree for project '$PROJ_ABS' within ${FM_TREEHOUSE_GET_TIMEOUT:-60}s; nothing was launched" >&2
       echo "A slot may have been half created under holder '$SPAWN_TREEHOUSE_LEASE_HOLDER'; inspect it with: (cd '$PROJ_ABS' && treehouse status --json), and release it once you are satisfied it holds no work with: (cd '$PROJ_ABS' && treehouse return --force --if-lease-holder '$SPAWN_TREEHOUSE_LEASE_HOLDER' <path>)" >&2
     else
@@ -5510,6 +5462,15 @@ spawn_send_text_line "$T" "export COMPACT_ADVISER_DISABLE=1"
 if [ "$LAVISH_AXI_HOST_CONFIG_PRESENT" = 1 ]; then
   spawn_send_text_line "$T" "export LAVISH_AXI_HOST=$(shell_quote "$LAVISH_AXI_HOST")"
 fi
+# A pane inherits the environment of the server that created it, and that
+# server keeps whatever scope it was started from. Every launch - ship, scout,
+# secondmate, raw command, and relaunch, on every backend and harness - therefore
+# first drops the command-scoped settings FM_LAUNCH_SCRUB_ENV names
+# (bin/fm-launch-env-lib.sh) from the pane shell, so no agent starts with another
+# command's overrides or with Claude Code's nested-session marker, which turns
+# conversation saving off. It rides the GOTMPDIR channel so the launch command
+# itself stays unchanged; only a failed send moves it onto that command.
+spawn_send_text_line "$T" "unset $FM_LAUNCH_SCRUB_ENV" || LAUNCH="unset $FM_LAUNCH_SCRUB_ENV; $LAUNCH"
 # Mark the pane as a task worker so bin/fm-test-run.sh can refuse to run the
 # suite in the repository's primary checkout. Ship and scout workers are the
 # ones assigned an isolated worktree; a secondmate runs its own home instead.
@@ -5556,7 +5517,7 @@ if [ "$LAUNCH_ENV_ENABLED" = 1 ]; then
     TMPDIR TMP TEMP GOTMPDIR TMUX TMUX_PANE HERDR_ENV HERDR_SESSION HERDR_SOCKET_PATH \
     HERDR_PANE_ID CMUX_WORKSPACE_ID CMUX_SURFACE_ID CMUX_TAB_ID CMUX_PANEL_ID \
     CMUX_SOCKET_PATH ZELLIJ ZELLIJ_SESSION_NAME ZELLIJ_PANE_ID FM_ZELLIJ_SESSION \
-    FM_TASK_ID COMPACT_ADVISER_DISABLE LAVISH_AXI_HOST \
+    FM_TASK_ID COMPACT_ADVISER_DISABLE LAVISH_AXI_HOST ${COMMIT_CHECK_GIT:+GIT_CONFIG_PARAMETERS} \
     $LAUNCH_ENV_NAMES; do
     # Only validated names enter shell syntax. Values expand once, quoted, in
     # the pane shell and never become source text or spawn-process snapshots.

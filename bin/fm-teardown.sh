@@ -297,6 +297,13 @@
 #     root still exists, so the account's healthy LaunchAgent worker and every
 #     live remote secondmate worker are out of scope. Best effort: a sweep
 #     failure never blocks this teardown.
+# Every cleanup step that runs AFTER the destructive half (endpoint kill,
+# worktree reset and return) names itself and what it leaves behind on stderr
+# before exiting non-zero. Those steps are past the point of no return, so a
+# silent exit strands a task whose real cleanup is finished: state/<id>.meta
+# survives, the task reads as in flight forever, and nothing on screen says
+# which step failed or what it left behind.
+# tests/fm-teardown.test.sh's test_teardown_names_a_failed_cleanup_step pins it.
 # After Fix 1 and Fix 2, when config/pipeline-spend opts this home in, a ship
 # task whose local copy this teardown owns has its no-mistakes pipeline spend
 # recorded by bin/fm-pipeline-spend.sh, which owns the attribution and the
@@ -1075,8 +1082,10 @@ remote_secondmate_teardown() {
   grep -vE "^- $ID( |$)" "$SECONDMATE_REG" > "$tmp" || true
   mv -f -- "$tmp" "$SECONDMATE_REG"
   [ ! -e "$CONFIG/fleet-ledger" ] || FM_HOME=$FM_HOME FM_STATE_OVERRIDE=$STATE FM_CONFIG_OVERRIDE=$CONFIG "$SCRIPT_DIR/fm-fleet-ledger.sh" cleaned_up "$ID" || true
-  status_retire_presentation_task "$STATE" "$ID" || return 1
-  fm_backlog_atomic_transition remove "$STATE/$ID.meta" "task record" "$STATE" || return 1
+  status_retire_presentation_task "$STATE" "$ID" \
+    || { echo "error: presentation-cursor retirement failed for $ID; $STATE/$ID.meta was not removed and it will still read as in flight" >&2; return 1; }
+  fm_backlog_atomic_transition remove "$STATE/$ID.meta" "task record" "$STATE" \
+    || { echo "error: $ID's task record at $STATE/$ID.meta could not be removed; the remote home is retired but $ID will still read as in flight" >&2; return 1; }
   rm -f -- "$STATE/$ID.turn-ended" "$STATE/$ID.progress" \
     "$(fm_wake_signal_seen_path "$STATE" "$STATE/$ID.turn-ended")" \
     "$STATE/.secondmate-relaunch-$ID" "$STATE/.secondmate-relaunch-bound-$ID"
@@ -1923,18 +1932,10 @@ validate_worktree_teardown_safety() {
   unpushed=$(printf '%s\n' "$unpushed_raw" | head -5)
 
   if [ -n "$unpushed" ] && [ "$MODE" = local-only ]; then
-    # Landed means merged into the branch this task was dispatched against.
-    # A task created with an explicit --base lands on that branch (see
-    # bin/fm-merge-local.sh), so measuring its work against the project's
-    # standing base would report already-merged commits as unmerged and refuse
-    # cleanup. A recorded base this copy cannot resolve falls back to the
-    # standing one, which only ever refuses more.
-    DEFAULT=$(meta_value "$META" base)
-    if [ -n "$DEFAULT" ] \
-       && ! git -C "$WT" rev-parse --verify --quiet "refs/heads/$DEFAULT^{commit}" >/dev/null 2>&1; then
-      DEFAULT=
-    fi
-    [ -n "$DEFAULT" ] || DEFAULT=$("$FM_ROOT/bin/fm-project-base.sh" "$PROJ" "$(basename "$PROJ")" 2>/dev/null || true)
+    # Landed means merged into the project's declared development branch
+    # (bin/fm-project-base.sh), which is where bin/fm-merge-local.sh lands it;
+    # absent a declaration, the repository default.
+    DEFAULT=$("$FM_ROOT/bin/fm-project-base.sh" "$PROJ" "$(basename "$PROJ")" 2>/dev/null || true)
     [ -n "$DEFAULT" ] || DEFAULT=$(default_branch) || { echo "REFUSED: cannot determine default branch for $PROJ; expected origin/HEAD, main, or master." >&2; return 1; }
     if ! unmerged_raw=$(git -C "$WT" log --oneline HEAD --not "$DEFAULT" -- 2>/dev/null); then
       if worktree_safety_blocked_by_lock "commits not on $DEFAULT"; then
@@ -2366,7 +2367,10 @@ require_exclusive_worktree_slot_record() {
   # block the claimant's own teardown behind it.
   fm_treehouse_slot_owner_state "$slot" "$record_id"
   [ "$FM_TREEHOUSE_SLOT_OWNER" != other ] || return 0
-  collect_local_firstmate_states "$record_state" || return 1
+  collect_local_firstmate_states "$record_state" || {
+    echo "REFUSED: $FM_LOCAL_STATES_ERROR; nothing was changed" >&2
+    return 1
+  }
   for state_dir in "${TREEHOUSE_OWNER_STATES[@]}"; do
     for other in "$state_dir"/*.meta; do
       [ -f "$other" ] && [ ! -L "$other" ] || continue
@@ -2381,20 +2385,6 @@ require_exclusive_worktree_slot_record() {
         [ -n "$other_path" ] || continue
         other_slot=$(canonical_existing_dir "$other_path") || continue
         [ "$other_slot" = "$slot" ] || continue
-        # Two records naming one slot refuse each other in both directions, so
-        # neither can be retired and the pair deadlocks until one record is
-        # removed by hand (observed 2026-09-20). The slot's own claim breaks
-        # that tie when it can: it names the task that actually took the slot,
-        # so a claim naming SOMEONE ELSE proves this record is not the owner.
-        # That record is then retirable through the ordinary reassigned path -
-        # require_owned_worktree_slot_record warns, every step that touches the
-        # slot is skipped, and only this record's own cleanup runs - which
-        # leaves the collision with exactly one record and frees the owner's
-        # own teardown. Refuse only while this record could still be the owner.
-        fm_treehouse_slot_owner_state "$slot" "$record_id"
-        if [ "$FM_TREEHOUSE_SLOT_OWNER" = other ]; then
-          return 0
-        fi
         echo "REFUSED: task $record_id's recorded worktree $slot is also task $other_id's recorded $field." >&2
         echo "Returning that pool slot would kill $other_id's processes and reset its copy, so nothing was changed - not even with --force." >&2
         echo "Reconcile whichever record is wrong (bin/fm-crew-state.sh $record_id; bin/fm-crew-state.sh $other_id), then re-run teardown." >&2
@@ -3317,10 +3307,13 @@ cleanup_firstmate_home_children() {
     if [ -z "$child_busy_gen" ]; then
       child_busy_gen=$(cat "$sub_state/$child_id.busy-gen" 2>/dev/null || true)
     fi
-    retire_busy_state "$sub_state" "$child_id" "$child_busy_gen" || return 1
-    status_retire_presentation_task "$sub_state" "$child_id" || return 1
+    retire_busy_state "$sub_state" "$child_id" "$child_busy_gen" \
+      || { echo "error: busy-state retirement failed for child $child_id; its busy-state record under $sub_state was left behind" >&2; return 1; }
+    status_retire_presentation_task "$sub_state" "$child_id" \
+      || { echo "error: presentation-cursor retirement failed for child $child_id; $sub_state/$child_id.meta was not removed and it will still read as in flight" >&2; return 1; }
     fm_wake_queue_prune_task "$sub_state" "$child_id" "$child_t" 2>/dev/null || true
-    fm_backlog_atomic_transition remove "$sub_state/$child_id.meta" "task record" "$sub_state" || return 1
+    fm_backlog_atomic_transition remove "$sub_state/$child_id.meta" "task record" "$sub_state" \
+      || { echo "error: child $child_id's task record at $sub_state/$child_id.meta could not be removed; it will still read as in flight" >&2; return 1; }
     rm -f "$sub_state/$child_id.turn-ended" "$sub_state/$child_id.progress" \
       "$(fm_wake_signal_seen_path "$sub_state" "$sub_state/$child_id.turn-ended")" \
       "$sub_state/$child_id.pi-ext.ts" "$sub_state/$child_id.omp-ext.ts" \
@@ -3793,12 +3786,15 @@ LAUNCH_HOME_TOKEN=$(teardown_launch_home_token "$FM_HOME") || LAUNCH_HOME_TOKEN=
 if [ -n "$LAUNCH_HOME_TOKEN" ]; then
   rm -rf "/tmp/fm-$ID+$LAUNCH_HOME_TOKEN"
 fi
-remove_pr_poll_artifacts "$STATE" "$ID" || exit 1
-retire_busy_state "$STATE" "$ID" "$BUSY_GEN" || exit 1
+remove_pr_poll_artifacts "$STATE" "$ID" \
+  || { echo "error: PR-poll artifact cleanup failed for $ID; its PR-poll records under $STATE were left behind" >&2; exit 1; }
+retire_busy_state "$STATE" "$ID" "$BUSY_GEN" \
+  || { echo "error: busy-state retirement failed for $ID; its busy-state record under $STATE was left behind" >&2; exit 1; }
 # Opt-in fleet activity ledger (docs/fleet-ledger.md), before the status log is
 # retired so its last lines are captured; off costs one file test.
 [ ! -e "$CONFIG/fleet-ledger" ] || FM_HOME=$FM_HOME FM_STATE_OVERRIDE=$STATE FM_CONFIG_OVERRIDE=$CONFIG "$SCRIPT_DIR/fm-fleet-ledger.sh" cleaned_up "$ID" || true
-status_retire_presentation_task "$STATE" "$ID" || exit 1
+status_retire_presentation_task "$STATE" "$ID" \
+  || { echo "error: presentation-cursor retirement failed for $ID; $STATE/$ID.meta was not removed and $ID will still read as in flight" >&2; exit 1; }
 fm_wake_queue_prune_task "$STATE" "$ID" "$T" 2>/dev/null || true
 rm -f "$STATE/$ID.turn-ended" "$STATE/$ID.progress" \
   "$(fm_wake_signal_seen_path "$STATE" "$STATE/$ID.turn-ended")" \
@@ -3808,7 +3804,7 @@ rm -f "$STATE/$ID.turn-ended" "$STATE/$ID.progress" \
   "$STATE/$ID.control-relaunch" "$STATE/$ID.control-relaunch.meta-prior" \
   "$STATE/$ID.control-relaunch.brief-prior" "$STATE/$ID.control-relaunch.note" \
   "$STATE/$ID.reconcile-nudged" "$STATE/$ID.gemini-settings.json" "$STATE/$ID.devin-config.json" \
-  "$STATE/.$ID.branch-outcome-index" \
+  "$STATE/.$ID.branch-outcome-index" "$STATE/.jev-triage-streak-$ID" \
   "$STATE/.secondmate-relaunch-$ID" "$STATE/.secondmate-relaunch-bound-$ID"
 # The steering inbox (bin/fm-task-inbox-lib.sh) is runtime state for the
 # retired endpoint; teardown only runs after landing is confirmed, so any

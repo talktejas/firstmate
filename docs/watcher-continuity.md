@@ -313,6 +313,10 @@ Failing the whole drain would strand the usable rows too.
 A main acknowledgement first claims every unreserved row at or below its cutoff, so none is stranded.
 It leaves a row above the cutoff that arrived after presentation unowned, so an away-session grant can still take it rather than handing every later wake back to main.
 
+A main acknowledgement never deletes a `check` row keyed `inbox:<id>` while `bin/fm-inbox.sh pending` still reports that captain note waiting, and keeps every such row when the inbox cannot be read, because an acknowledgement proves only that the caller ran the printed command, not that it read a note the captain wrote.
+It reads the notes under the queue lock, which every note's wake append also takes after the note is published, so no row it sees can belong to a note it has not seen.
+Its last line names every note still waiting, including one with no row at all; the kept rows leave the episode pending, so the next presentation shows them again, and only `bin/fm-inbox.sh drain --ack <id>` releases one.
+
 Every settled branch prompt releases any residual grant.
 So an omitted or failed acknowledgement leaves the durable row available to a later main drain.
 A successful acknowledgement has already removed it.

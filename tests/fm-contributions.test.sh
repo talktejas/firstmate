@@ -149,7 +149,7 @@ with_home() {
   PATH="$home/fakebin:$PATH" FORGE="$home/forge" HEAD_A="$HEAD_A" \
     FM_HOME="$home" FM_ROOT_OVERRIDE="$home/root" FM_STATE_OVERRIDE="$home/state" \
     FM_DATA_OVERRIDE="$home/data" FM_CONFIG_OVERRIDE="$home/config" \
-    FM_CONTRIBUTIONS_NOW="$NOW" FM_CONTRIBUTIONS_MAX_AGE="${FM_CONTRIBUTIONS_MAX_AGE:-0}" "$@"
+    FM_CONTRIBUTIONS_NOW="$NOW" "$@"
 }
 
 registered_checks() {
@@ -671,230 +671,25 @@ test_budget_exhaustion_keeps_prior_record() { # exhaust|hang
   home=$(new_home "budget-$mode")
   forge_home "$home"
   wrap_forge "$home"
-  # A healthy issue is observed first and spends a second of the budget, so
-  # the PR the budget cuts short is not the URL that consumed the budget.
-  printf -- '- [ ] filed - Measured defect https://github.com/o/r/issues/9 (repo: sample) (kind: ship)\n' \
-    >> "$home/data/backlog.md"
   mutate_record "$home" delivery '.records[0].checked_at="2026-09-15T08:00:00Z"'
   cp "$home/data/delivery/contributions.json" "$home/prior.json"
   # Both modes freeze the clock: an unfrozen one can tick past a one-second
   # budget before the first forge call, so nothing is ever observed.
   /bin/date +%s > "$home/forge/clock"
   printf '%s\n' "$mode" > "$home/forge/fault"
-  out=$(with_home "$home" env FM_CONTRIBUTIONS_BUDGET=2 "$ROOT/bin/fm-contributions.sh" poll) \
+  out=$(with_home "$home" env FM_CONTRIBUTIONS_BUDGET=1 "$ROOT/bin/fm-contributions.sh" poll) \
     || fail "poll failed when its budget ran out ($mode)"
   [ -z "$out" ] || fail "budget exhaustion ($mode) printed a wake line: $out"
-  jq -e --arg now "$NOW" '.records[0].checked_at == $now and .records[0].error == null' \
-    "$home/data/filed/contributions.json" >/dev/null \
-    || fail "budget exhaustion ($mode) lost the earlier URL's observation"
   grep -F 'api repos/o/r/pulls/8' "$home/forge/calls" >/dev/null \
     || fail "budget exhaustion ($mode) never started the observation"
   cmp -s "$home/prior.json" "$home/data/delivery/contributions.json" \
     || fail "budget exhaustion ($mode) rewrote the prior record: $(cat "$home/data/delivery/contributions.json")"
   [ ! -s "$home/state/.wake-queue" ] || fail "budget exhaustion ($mode) enqueued a wake"
-  pass "budget exhausted after earlier URLs ($mode) keeps the prior record and stays silent"
-}
-
-test_budget_too_small_for_one_observation_is_reported() {
-  local home out expected
-  home=$(new_home budget-too-small)
-  forge_home "$home"
-  wrap_forge "$home"
-  mutate_record "$home" delivery '.records[0].checked_at="2026-09-15T08:00:00Z"'
-  /bin/date +%s > "$home/forge/clock"
-  printf 'exhaust\n' > "$home/forge/fault"
-  expected='contributions: observation needs more than the 2s poll budget for https://github.com/o/r/pull/8; raise FM_CONTRIBUTIONS_BUDGET to at least 270s'
-  out=$(with_home "$home" env FM_CONTRIBUTIONS_BUDGET=2 "$ROOT/bin/fm-contributions.sh" poll) \
-    || fail 'poll failed when its whole budget went to one observation'
-  [ "$out" = "$expected" ] || fail "a budget too small for one observation was not reported: $out"
-  jq -e --arg now "$NOW" --arg error 'forge observation needs more than the 2s poll budget; raise FM_CONTRIBUTIONS_BUDGET to at least 270s' '
-    .records[0].checked_at == $now and .records[0].error == $error' \
-    "$home/data/delivery/contributions.json" >/dev/null \
-    || fail 'a budget too small for one observation left no actionable evidence'
-  out=$(with_home "$home" env FM_CONTRIBUTIONS_BUDGET=2 "$ROOT/bin/fm-contributions.sh" poll) \
-    || fail 'second poll failed'
-  [ -z "$out" ] || fail "a budget too small for one observation reported twice: $out"
-  pass 'a budget that cannot finish one observation is reported once with the bound it needs'
-}
-
-test_default_bound_observes_a_slow_pull_request() {
-  local home out
-  home=$(new_home unset-budget)
-  forge_home "$home"
-  wrap_forge "$home"
-  mutate_record "$home" delivery '.records[0].checked_at="2026-09-15T08:00:00Z"'
-  # Every forge read costs five seconds of the poll's clock, so one PR's eight
-  # calls need forty seconds of budget - more than any sweep-wide bound.
-  /bin/date +%s > "$home/forge/clock"
-  printf 'slow\n' > "$home/forge/fault"
-  out=$(with_home "$home" env FM_CONTRIBUTIONS_CHECK_TIMEOUT=30 "$ROOT/bin/fm-contributions.sh" poll) \
-    || fail 'poll failed on a slow link'
-  [ "$out" = 'contributions: observation needs more than the 27s poll budget for https://github.com/o/r/pull/8; raise FM_CONTRIBUTIONS_CHECK_TIMEOUT to at least 273s' ] \
-    || fail "an unset budget did not take the whole check bound: $out"
-  /bin/date +%s > "$home/forge/clock"
-  out=$(with_home "$home" "$ROOT/bin/fm-contributions.sh" poll) || fail 'poll failed at the default bound'
-  jq -e --arg now "$NOW" '.records[0].checked_at == $now and .records[0].error == null
-    and .records[0].observation != null' "$home/data/delivery/contributions.json" >/dev/null \
-    || fail "the default bound did not observe a slow pull request: $out"
-  pass 'the default contributions bound observes a slow PR with nothing configured'
-}
-
-test_starved_issue_asks_for_an_issue_sized_budget() {
-  local home out
-  home=$(new_home starved-issue)
-  forge_home "$home"
-  wrap_forge "$home"
-  printf -- '- [ ] filed - Measured defect https://github.com/o/r/issues/9 (repo: sample) (kind: ship)\n' \
-    >> "$home/data/backlog.md"
-  /bin/date +%s > "$home/forge/clock"
-  printf 'exhaust-issue\n' > "$home/forge/fault"
-  out=$(with_home "$home" env FM_CONTRIBUTIONS_BUDGET=2 "$ROOT/bin/fm-contributions.sh" poll) \
-    || fail 'poll failed when an issue consumed its whole budget'
-  [ "$out" = 'contributions: observation needs more than the 2s poll budget for https://github.com/o/r/issues/9; raise FM_CONTRIBUTIONS_BUDGET to at least 120s' ] \
-    || fail "a starved issue was told to buy a pull request's budget: $out"
-  jq -e --arg now "$NOW" --arg error 'forge observation needs more than the 2s poll budget; raise FM_CONTRIBUTIONS_BUDGET to at least 120s' '
-    .records[0].checked_at == $now and .records[0].error == $error' \
-    "$home/data/filed/contributions.json" >/dev/null \
-    || fail 'a starved issue recorded the wrong required budget'
-  pass 'a starved issue asks for the three reads it costs, not the eight a pull request costs'
-}
-
-test_contributions_check_keeps_its_own_kill_bound() {
-  local home rc
-  home=$(new_home own-kill-bound)
-  forge_home "$home"
-  wrap_forge "$home"
-  mutate_record "$home" delivery '.records[0].checked_at="2026-09-15T08:00:00Z"'
-  # Two forge reads sleep a second each, so a one-second sweep-wide bound
-  # would kill this poll before it records anything.
-  printf 'crawl\n' > "$home/forge/fault"
-  with_home "$home" "$ROOT/bin/fm-contributions.sh" arm >/dev/null || fail 'could not arm the contributions check'
-  rc=0
-  with_home "$home" env FM_POLL=1 FM_SIGNAL_GRACE=0 FM_CHECK_INTERVAL=0 FM_HEARTBEAT=999999 FM_CHECK_TIMEOUT=1 \
-    "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 20 > "$home/own-bound.out" 2> "$home/own-bound.err" || rc=$?
-  # A checkpoint with nothing actionable to surface exits 124; both outcomes
-  # mean the sweep ran.
-  [ "$rc" -eq 0 ] || [ "$rc" -eq 124 ] || fail "watcher run failed: $(cat "$home/own-bound.err")"
-  jq -e --arg now "$NOW" '.records[0].checked_at == $now and .records[0].error == null' \
-    "$home/data/delivery/contributions.json" >/dev/null \
-    || fail 'the sweep-wide check timeout killed the contributions poll'
-  pass 'the contributions check is bounded by its own timeout, not the sweep-wide one'
-}
-
-test_watcher_beats_before_each_check() {
-  local home rc age
-  home=$(new_home beat-per-check)
-  forge_home "$home"
-  wrap_forge "$home"
-  mutate_record "$home" delivery '.records[0].checked_at="2026-09-15T08:00:00Z"'
-  # The contributions poll holds the sweep for about two seconds; the check
-  # after it records how old the liveness beacon is when it starts.
-  printf 'crawl\n' > "$home/forge/fault"
-  with_home "$home" "$ROOT/bin/fm-contributions.sh" arm >/dev/null || fail 'could not arm the contributions check'
-  cat > "$home/state/zz-beacon.check.sh" <<SH
-#!/usr/bin/env bash
-perl -e 'print time - (stat shift)[9], "\\n"' "$home/state/.last-watcher-beat" >> "$home/beacon-age"
-SH
-  chmod 700 "$home/state/zz-beacon.check.sh"
-  with_home "$home" "$ROOT/bin/fm-check-register.sh" zz-beacon >/dev/null || fail 'could not register the beacon probe'
-  rc=0
-  with_home "$home" env FM_POLL=1 FM_SIGNAL_GRACE=0 FM_CHECK_INTERVAL=0 FM_HEARTBEAT=999999 \
-    "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 20 > "$home/beat.out" 2> "$home/beat.err" || rc=$?
-  [ "$rc" -eq 0 ] || [ "$rc" -eq 124 ] || fail "watcher run failed: $(cat "$home/beat.err")"
-  [ -s "$home/beacon-age" ] || fail 'the beacon probe never ran'
-  age=$(head -n 1 "$home/beacon-age")
-  [ "$age" -le 1 ] || fail "a check started with a ${age}s-old beacon after a slow sibling check"
-  pass 'the watcher beats before each check, so a slow check cannot age the beacon for the next'
-}
-
-test_fresh_observation_is_not_reread() {
-  local home out
-  home=$(new_home fresh-skip)
-  forge_home "$home"
-  wrap_forge "$home"
-  # The PR was observed at NOW; the issue's last read at NOW failed.
-  mkdir -p "$home/data/filed"
-  printf -- '- [ ] filed - Measured defect https://github.com/o/r/issues/9 (repo: sample) (kind: ship)\n' \
-    >> "$home/data/backlog.md"
-  jq -n --arg now "$NOW" '{schema:"fm-contributions.v1",task:"filed",records:[{url:"https://github.com/o/r/issues/9",
-    kind:"issue",checked_at:$now,error:"forge observation unavailable or changed during read",observation:null,
-    verdict:null,pending:[],seen:[],notified:[]}]}' > "$home/data/filed/contributions.json"
-  out=$(with_home "$home" env FM_CONTRIBUTIONS_MAX_AGE=900 "$ROOT/bin/fm-contributions.sh" poll) \
-    || fail 'poll failed with fresh observations'
-  ! grep -Fx 'api repos/o/r/pulls/8' "$home/forge/calls" >/dev/null \
-    || fail 'a PR observed inside the freshness window was read again'
-  grep -Fx 'api repos/o/r/issues/9' "$home/forge/calls" >/dev/null \
-    || fail 'a URL whose last read failed was treated as fresh'
-  jq -e '.records[0].error == null and .records[0].observation != null' \
-    "$home/data/filed/contributions.json" >/dev/null || fail 'the retried issue was not observed'
-  : > "$home/forge/calls"
-  # A fresh record whose signal was saved but never carried by a wake.
-  mutate_record "$home" delivery '.records[0].pending = [{token:"comment:12:x",type:"comment",
-    source:"https://github.com/o/r/pull/8#issuecomment-12",head:null,author:"maintainer",body:"hi"}]
-    | .records[0].seen = ["comment:12:x"] | .records[0].notified = []'
-  out=$(with_home "$home" env FM_CONTRIBUTIONS_MAX_AGE=900 "$ROOT/bin/fm-contributions.sh" poll) \
-    || fail 'poll failed with an unpublished signal'
-  grep -Fx 'api repos/o/r/pulls/8' "$home/forge/calls" >/dev/null \
-    || fail 'a fresh record holding an unpublished signal was skipped'
-  [ -s "$home/state/.wake-queue" ] || fail 'the unpublished signal was not retried as a wake'
-  : > "$home/forge/calls"
-  mutate_record "$home" delivery '.records[0].checked_at="2026-09-16T07:50:00Z"'
-  out=$(with_home "$home" env FM_CONTRIBUTIONS_MAX_AGE=900 "$ROOT/bin/fm-contributions.sh" poll) \
-    || fail 'poll failed with an ageing observation'
-  grep -Fx 'api repos/o/r/pulls/8' "$home/forge/calls" >/dev/null \
-    || fail 'a PR past half its freshness window was not re-read before it expired'
-  pass 'a fresh observation is not re-read, while a failed or ageing one is'
-}
-
-test_call_timeout_above_budget_is_the_deadlines_outcome() {
-  local home out expected
-  home=$(new_home call-timeout-above-budget)
-  forge_home "$home"
-  wrap_forge "$home"
-  mutate_record "$home" delivery '.records[0].checked_at="2026-09-15T08:00:00Z"'
-  printf 'hang\n' > "$home/forge/fault"
-  expected='contributions: observation needs more than the 3s poll budget for https://github.com/o/r/pull/8; raise FM_CONTRIBUTIONS_BUDGET to at least 315s and raise FM_CONTRIBUTIONS_CHECK_TIMEOUT to at least 318s'
-  out=$(with_home "$home" env FM_CONTRIBUTIONS_BUDGET=3 FM_CONTRIBUTIONS_CALL_TIMEOUT=35 \
-    "$ROOT/bin/fm-contributions.sh" poll) || fail 'poll failed with a per-call timeout above its budget'
-  [ "$out" = "$expected" ] \
-    || fail "a call killed at the deadline was not attributed to the budget that bound it: $out"
-  jq -e --arg now "$NOW" --arg error 'forge observation needs more than the 3s poll budget; raise FM_CONTRIBUTIONS_BUDGET to at least 315s and raise FM_CONTRIBUTIONS_CHECK_TIMEOUT to at least 318s' '
-    .records[0].checked_at == $now and .records[0].error == $error' \
-    "$home/data/delivery/contributions.json" >/dev/null \
-    || fail 'a call killed at the deadline named no setting that could change it'
-  pass 'a per-call timeout at or above the budget reports the deadline and the settings that bind it'
+  pass "budget exhausted mid-observation ($mode) keeps the prior record and stays silent"
 }
 
 test_budget_refusal_between_calls() { test_budget_exhaustion_keeps_prior_record exhaust; }
 test_budget_bounded_call_timeout() { test_budget_exhaustion_keeps_prior_record hang; }
-
-test_per_call_timeout_is_unavailable() {
-  local home out
-  home=$(new_home per-call-timeout)
-  forge_home "$home"
-  wrap_forge "$home"
-  # The hanging PR is observed first; a healthy issue follows it in the same poll.
-  mutate_record "$home" delivery '.records[0].checked_at="2026-09-15T08:00:00Z"'
-  mkdir -p "$home/data/filed"
-  printf -- '- [ ] filed - Measured defect https://github.com/o/r/issues/9 (repo: sample) (kind: ship)\n' \
-    >> "$home/data/backlog.md"
-  jq -n '{schema:"fm-contributions.v1",task:"filed",records:[{url:"https://github.com/o/r/issues/9",
-    kind:"issue",checked_at:"2026-09-15T09:00:00Z",error:null,observation:null,verdict:null,
-    pending:[],seen:[],notified:[]}]}' > "$home/data/filed/contributions.json"
-  printf 'hang\n' > "$home/forge/fault"
-  out=$(with_home "$home" env FM_CONTRIBUTIONS_BUDGET=20 FM_CONTRIBUTIONS_CALL_TIMEOUT=1 "$ROOT/bin/fm-contributions.sh" poll) \
-    || fail 'poll failed when its per-call timeout elapsed'
-  [ "$out" = 'contributions: observation unavailable for https://github.com/o/r/pull/8: gh api repos/o/r/pulls/8 timed out after 1s' ] \
-    || fail "a per-call timeout did not report the URL as unavailable exactly once: $out"
-  jq -e --arg now "$NOW" '.records[0].checked_at == $now
-    and .records[0].error == "forge observation unavailable: gh api repos/o/r/pulls/8 timed out after 1s"' \
-    "$home/data/delivery/contributions.json" >/dev/null \
-    || fail 'a per-call timeout left the slow URL unchecked instead of recording it'
-  jq -e --arg now "$NOW" '.records[0].checked_at == $now and .records[0].error == null
-    and .records[0].observation != null' "$home/data/filed/contributions.json" >/dev/null \
-    || fail 'a per-call timeout on the first URL starved the next URL of its observation'
-  pass 'a per-call timeout records what timed out for one URL and still observes the next'
-}
 
 test_genuine_failure_near_deadline_is_unavailable() {
   local home out
@@ -905,16 +700,16 @@ test_genuine_failure_near_deadline_is_unavailable() {
   /bin/date +%s > "$home/forge/clock"
   printf 'fail-late\n' > "$home/forge/fault"
   out=$(with_home "$home" "$ROOT/bin/fm-contributions.sh" poll) || fail 'poll failed on a genuine forge failure'
-  [ "$out" = 'contributions: observation unavailable for https://github.com/o/r/pull/8: gh api repos/o/r/pulls/8/reviews?per_page=100 failed: HTTP 502' ] \
-    || fail "a genuine forge failure past the deadline was swallowed or reported as a budget problem: $out"
-  jq -e --arg now "$NOW" '.records[0].checked_at == $now and .records[0].error
-    == "forge observation unavailable: gh api repos/o/r/pulls/8/reviews?per_page=100 failed: HTTP 502"' \
+  [ "$out" = 'contributions: observation unavailable for https://github.com/o/r/pull/8' ] \
+    || fail "a genuine forge failure past the deadline was swallowed: $out"
+  jq -e --arg now "$NOW" '.records[0].checked_at == $now
+    and .records[0].error == "forge observation unavailable or changed during read"' \
     "$home/data/delivery/contributions.json" >/dev/null || fail 'a genuine forge failure left no error evidence'
-  pass 'a genuine forge failure past the deadline records and reports the failed read, not a budget shortfall'
+  pass 'a genuine forge failure inside the budget still records the error and wakes'
 }
 
 test_shared_url_observed_once() {
-  local mode home out calls expected reason
+  local mode home out calls expected
   for mode in ok fail head; do
     home=$(new_home "shared-once-$mode")
     forge_home "$home"
@@ -928,14 +723,8 @@ test_shared_url_observed_once() {
       expected=null
       [ -z "$out" ] || fail "a healthy shared observation printed: $out"
     else
-      if [ "$mode" = fail ]; then
-        reason='gh api repos/o/r/pulls/8/reviews?per_page=100 failed: HTTP 502'
-        [ "$(grep -cF 'api repos/o/r/pulls/8/reviews?' "$home/forge/calls")" = 1 ] || fail 'a failed read was repeated'
-      else
-        reason='head changed during observation'
-      fi
-      expected=$(jq -n --arg reason "$reason" '"forge observation unavailable: " + $reason')
-      [ "$out" = "contributions: observation unavailable for https://github.com/o/r/pull/8: $reason" ] \
+      expected='"forge observation unavailable or changed during read"'
+      [ "$out" = 'contributions: observation unavailable for https://github.com/o/r/pull/8' ] \
         || fail "a shared unavailable observation did not wake exactly once ($mode): $out"
     fi
     for task in delivery duplicate; do
@@ -1260,29 +1049,26 @@ test_unavailable_forge_records_error_and_wakes_once_per_episode() { # genuine ou
   printf 'down\n' > "$home/forge/fault"
   poll_at() { with_home "$home" env FM_CONTRIBUTIONS_NOW="$1" "$ROOT/bin/fm-contributions.sh" poll || fail "poll at $1 failed"; }
   out=$(poll_at 2026-09-16T09:00:00Z)
-  [ "$out" = "$line" ] || fail "the first failure of an episode did not wake with its reason: $out"
-  for hour in 10 11 12; do
-    out=$(poll_at "2026-09-16T$hour:00:00Z")
-    [ -z "$out" ] || fail "an unchanged read failure woke again on a later poll: $out"
-  done
-  jq -e --arg error "forge observation unavailable: $reason" \
-    '.records[0] | .checked_at == "2026-09-16T12:00:00Z" and .error == $error' \
-    "$home/data/delivery/contributions.json" >/dev/null || fail 'a repeated read failure stopped recording what failed'
-  [ "$(grep -cFx 'api repos/o/r/pulls/8' "$home/forge/calls")" = 4 ] || fail 'a failing open PR was not read once per poll'
+  [ "$out" = "$line" ] || fail "the first failure of an episode did not wake: $out"
+  out=$(poll_at 2026-09-16T10:00:00Z)
+  [ -z "$out" ] || fail "an unchanged read failure woke again on the next cycle: $out"
+  jq -e --argjson error "$error" '.records[0] | .checked_at == "2026-09-16T10:00:00Z" and .error == $error' \
+    "$home/data/delivery/contributions.json" >/dev/null || fail 'a repeated read failure stopped recording its error'
+  [ "$(grep -cFx 'api repos/o/r/pulls/8' "$home/forge/calls")" = 2 ] || fail 'a failing open PR stopped being observed'
   : > "$home/forge/fault"
-  out=$(poll_at 2026-09-16T13:00:00Z)
+  out=$(poll_at 2026-09-16T11:00:00Z)
   [ -z "$out" ] || fail "a successful read printed: $out"
   jq -e '.records[0].error == null' "$home/data/delivery/contributions.json" >/dev/null \
     || fail 'a successful read did not end the failure episode'
   printf 'down\n' > "$home/forge/fault"
-  out=$(poll_at 2026-09-16T14:00:00Z)
+  out=$(poll_at 2026-09-16T12:00:00Z)
   [ "$out" = "$line" ] || fail "a new failure after a successful read did not wake: $out"
   pass 'a genuinely unavailable forge records an error and wakes once per failure episode'
 }
 
 test_late_owner_keeps_failure_episode_suppressed() {
-  local home out line='contributions: observation unavailable for https://github.com/o/r/pull/8: gh api repos/o/r/pulls/8 failed: HTTP 502'
-  local error='forge observation unavailable: gh api repos/o/r/pulls/8 failed: HTTP 502' task
+  local home out line='contributions: observation unavailable for https://github.com/o/r/pull/8'
+  local error='forge observation unavailable or changed during read' task
   home=$(new_home late-owner-failure-episode)
   forge_home "$home"
   wrap_forge "$home"

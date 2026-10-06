@@ -258,7 +258,7 @@ status_line() {  # <note> <verb> <project>
 # answered through different commands and the server must not guess.
 emit_item() {  # <home-id> <state-dir> <id> <source> <key> <title> <detail> <repo> <kind>
   local home=$1 state=$2 id=$3 source=$4 key=$5 title=$6 detail=$7 repo=$8 kind=$9
-  local meta=$state/$id.meta project worktree listen bstate branch since since_kind sent
+  local meta=$state/$id.meta project worktree listen bstate branch since since_kind sent opened
   project=$(meta_get "$meta" project)
   worktree=$(meta_get "$meta" worktree)
   [ -n "$kind" ] || kind=$(meta_get "$meta" kind)
@@ -281,16 +281,18 @@ emit_item() {  # <home-id> <state-dir> <id> <source> <key> <title> <detail> <rep
     since=$(date -u -d "${SINCE_DATE}T00:00:00Z" +%s 2>/dev/null || printf '')
     since_kind=created
   else
-    # A worker's timestamp on the line that actually opened this decision is
-    # honest waiting time; the status file's mtime is only ever the LAST
-    # append, which can be a much newer, unrelated line. Fall back to that
-    # mtime only for a pre-timestamp log with nothing better to report.
+    # The stamp on the line that opened this decision (bin/fm-classify-lib.sh's
+    # status_line_at_epoch) is honest waiting time; the status file's mtime is
+    # only ever the LAST append, which can be a much newer, unrelated line. Fall
+    # back to that mtime only for an unstamped line with nothing better to report.
     since=
     if [ "$source" = status ]; then
-      since=$(status_key_opened_at "$state/$id.status" "$key" 2>/dev/null)
-    fi
-    if [ -n "$since" ]; then
-      since=$(date -u -d "$since" +%s 2>/dev/null || printf '')
+      if [ "$key" = default ]; then
+        opened=$(grep -E '^(needs-decision|blocked)[[:space:]:[]' "$state/$id.status" 2>/dev/null | grep -v -F '[key=' | tail -n 1)
+      else
+        opened=$(grep -E '^(needs-decision|blocked)[[:space:]:[]' "$state/$id.status" 2>/dev/null | grep -F "[key=$key]" | tail -n 1)
+      fi
+      since=$(status_line_at_epoch "$opened" 2>/dev/null) || since=
     fi
     if [ -n "$since" ]; then
       since_kind=status-timestamp

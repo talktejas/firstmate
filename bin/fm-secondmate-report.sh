@@ -89,7 +89,6 @@ if [ ! -d "$(dirname "$DESTINATION")" ]; then
 fi
 
 token=$(fm_pending_reply_corr_token "$CORR")
-TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 if [ "$DOC_MODE" = 1 ]; then
   DOC_PATH=$1
   shift

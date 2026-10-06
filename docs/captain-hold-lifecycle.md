@@ -100,6 +100,10 @@ It also verifies the task stays closed.
 A hold whose `--until` date has passed keeps those annotations while tasks-axi reports it no longer held.
 An expired deferral therefore remains answerable.
 
+For a closing answer, the same path writes an id-bound, decision-text-free receipt under `state/captain-hold-resolutions/` once the resolution is recorded, closed, and published, and a re-held task's new answer replaces the earlier receipt.
+The receipt carries its schema, task id, answer mode, digest, and timestamp, and is the narrow proof `verify` accepts only when a retained Done row has been pruned.
+An id with neither a readable task nor a valid matching receipt remains an error, so absence never becomes an answer.
+
 ### Recording a reviewed inventory (`complete`)
 
 While originating task metadata is live, the `complete` subcommand unions the reviewed captain-held task ids, called the reviewed inventory, into `decision_keys=` and appends `decisions_reviewed=1`.
@@ -124,6 +128,7 @@ Scout teardown calls the read-only `verify` subcommand after checking for the re
 
 - The recorded attestation exists.
 - Every recorded inventory entry still passes the [completion inventory checks](#recording-a-reviewed-inventory-complete).
+  An entry whose Done row was pruned passes when a matching answer receipt exists.
 - No keyed status decision opened after the last `complete`.
 
 A keyed status decision opened after the last `complete` makes `verify` fail, and re-running `complete` is the repair.
@@ -490,6 +495,7 @@ It then finishes any still-recorded dependency-edge cleanup without rewriting th
 
 The focused end-to-end regression suite is `tests/fm-captain-hold-lifecycle.test.sh`, using only synthetic identities and decision text.
 It proves the behaviors below.
+
 The suite does not test the accepted merge-to-cleanup re-hold window or asynchronous queued-forge landing because those events occur after the locally serialized merge command has returned.
 
 ### Cleanup of a captain-held row

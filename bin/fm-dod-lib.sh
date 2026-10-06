@@ -105,6 +105,19 @@
 # ordinary ship brief and the durable contract written during scout promotion.
 # It takes the same optional trailing forge argument, because the rule that keeps
 # a worker off a remote is exactly the rule that changes when the forge does.
+# fm_dod_block's optional sixth and seventh arguments are the firstmate home and
+# the task's project. When `bin/fm-house-rules-check.sh --enabled` succeeds for
+# them (the project's name is a line of that home's config/jev-code-projects
+# and TYPESAFE_API_KEY is present), every mode's block gains the advisory
+# house-rules step from fm_dod_house_rules_step; otherwise, and whenever either
+# argument is omitted, the block is byte-identical to the one without it.
+# fm_brief_exists_search_step owns the lines bin/fm-brief.sh adds under "Before
+# you write any code" when `bin/fm-exists-search.sh --enabled` succeeds for the
+# same home and project; otherwise it prints nothing and that section is
+# byte-identical to the one without it.
+
+_FM_DOD_LIB_DIR=${BASH_SOURCE[0]%/*}
+[ "$_FM_DOD_LIB_DIR" != "${BASH_SOURCE[0]}" ] || _FM_DOD_LIB_DIR=.
 
 # shellcheck source=bin/fm-pr-lib.sh
 . "$(d=${BASH_SOURCE[0]%/*}; [ "$d" != "${BASH_SOURCE[0]}" ] || d=.; cd "${d:-/}" && pwd)/fm-pr-lib.sh"
@@ -400,9 +413,45 @@ There is no pull request, no \`gh-axi\` call, and no forge CI result to report: 
 EOF
 }
 
-fm_dod_block() {  # <mode> <task-id> [branch] [<forge>] [<base>]
+# Print the advisory house-rules step, led by a newline so it can follow a
+# block line directly, or nothing when the check is off for <project> in
+# <home>. A project path is reduced to its name.
+fm_dod_house_rules_step() {  # <home> <project>
+  local home=$1 project=${2%/} check
+  project=${project##*/}
+  [ -n "$home" ] && [ -n "$project" ] || return 0
+  check=$(cd "$_FM_DOD_LIB_DIR" 2>/dev/null && pwd)/fm-house-rules-check.sh
+  FM_HOME="$home" "$check" --enabled "$project" >/dev/null 2>&1 || return 0
+  # shellcheck disable=SC2016 # Backticks are literal Markdown in the brief.
+  {
+  printf '\nOnce your work is committed, and before the next step below, run `FM_HOME=%q %q %q` in the worktree.\n' "$home" "$check" "$project"
+  printf '%s\n' 'It prints advisory house-rule flags, one `file:line` per line, and never fails: read each flagged line, fix and commit a real rule break, and leave alone a flag you judge wrong.'
+  printf '%s' 'No flag, or a check that could not run, changes nothing: carry on.'
+  }
+}
+
+# Print the advisory "does this already exist?" search lines, led by a newline
+# so they can follow the study section directly, or nothing when the search is
+# off for <project> in <home>. A project path is reduced to its name. A ship
+# brief also gets the line for the run over its own change.
+fm_brief_exists_search_step() {  # <home> <project> <kind>
+  local home=$1 project=${2%/} search
+  project=${project##*/}
+  [ -n "$home" ] && [ -n "$project" ] || return 0
+  search=$(cd "$_FM_DOD_LIB_DIR" 2>/dev/null && pwd)/fm-exists-search.sh
+  FM_HOME="$home" "$search" --enabled "$project" >/dev/null 2>&1 || return 0
+  # shellcheck disable=SC2016 # Backticks are literal Markdown in the brief.
+  {
+  printf '\nFor step 1 this project also has a search: `FM_HOME=%q %q %q "<yes/no question about one function>" [<path>...]`, run in the worktree, asks that question of the project'"'"'s functions and prints the likely ones, one `file:line` per line, best first.\n' "$home" "$search" "$project"
+  printf '%s' 'It is advice and it misses things: read each function it names, and search by hand as well. No match, or a search that could not run, changes nothing.'
+  [ "${3:-}" != ship ] || printf '\nOnce your work is committed, run `FM_HOME=%q %q %q --change`: it names each function your change adds that an existing one may already do; read each pair, reuse the existing function where it really is the same job, and leave alone a match you judge wrong.' "$home" "$search" "$project"
+  }
+}
+
+fm_dod_block() {  # <mode> <task-id> [branch] [<forge>] [<base>] [<home> <project>]
   local mode=$1 id=$2 forge=${4:-none} base=${5:-}
-  local branch=${3:-fm/$id} pr_base='' nm_base='' base_q
+  local branch=${3:-fm/$id} pr_base='' nm_base='' base_q house
+  house=$(fm_dod_house_rules_step "${6:-}" "${7:-}")
   fm_forge_valid_for_mode "$forge" "$mode" fm_dod_block || return 1
   fm_base_branch_valid "$base" "$mode" "$forge" fm_dod_block || return 1
   if [ -n "$base" ]; then
@@ -419,7 +468,7 @@ Delivery contract: mode=direct-PR forge=gerrit shape=squash
 Ship branch: $branch
 This task ships **direct-PR** to a Gerrit review server: you publish the change yourself, without the no-mistakes pipeline.
 Gerrit has no pull requests, so there is nothing to open; publishing creates the change.
-The task is complete only when committed on your branch.
+The task is complete only when committed on your branch.$house
 When it is implemented and committed, publish it.
 EOF
       fm_gerrit_publish_block
@@ -435,7 +484,7 @@ Ship branch: $branch
 This project's review server is Gerrit: it has no pull requests and no forge CI the pipeline can watch, so **no-mistakes runs here as a review pass that ends at a ready branch**, and you then publish that branch as one change.
 Pass \`--skip push,pr,ci\` on every \`no-mistakes axi run\` for this task, and skip nothing else: \`review\`, \`test\`, \`document\`, and \`lint\` are the whole point of the run.
 Those three are the only steps that reach a forge, and skipping them is a supported outcome, not a degraded one.
-The task is complete only when committed on your branch.
+The task is complete only when committed on your branch.$house
 When you believe it is complete, append \`done [at=<epoch>]: {summary}\` to the status file and stop.
 Firstmate will then instruct you to run /no-mistakes to validate.
 That first \`done:\` is the handoff that starts the pipeline; it is not a request to publish.
@@ -465,7 +514,7 @@ EOF
 Delivery contract: mode=direct-PR
 Ship branch: $branch
 This task ships **direct-PR**: you raise the PR yourself, without the no-mistakes pipeline.
-The task is complete only when committed on your branch.
+The task is complete only when committed on your branch.$house
 When it is implemented and committed, push your branch and open a PR with \`gh-axi\` that is ready for review, not a draft$pr_base.
 Before you report done, read the PR back from the forge and confirm it is not a draft (\`gh-axi pr view <number>\` must print \`draft: no\`, where <number> is the PR number from your PR URL); if it is a draft, mark it ready with \`gh-axi pr ready <number>\`.
 A draft cannot be merged, so a done report on one leaves the merge unasked.
@@ -481,7 +530,7 @@ EOF
 Delivery contract: mode=local-only
 Ship branch: $branch
 This task ships **local-only**: no remote, no PR, no pipeline.
-The task is complete only when committed on your branch \`$branch\`. Do NOT push, do NOT open a PR, do NOT merge.
+The task is complete only when committed on your branch \`$branch\`. Do NOT push, do NOT open a PR, do NOT merge.$house
 A \`done:\` is accepted when the named head is on this project's shared local branch, not only on a detached copy; the check tests that head, not merely that a branch moved.
 Keep your branch a clean fast-forward onto the current default branch - if \`main\` has advanced, rebase onto it so the eventual merge stays a fast-forward.
 When it is implemented and committed, append \`done [at=<epoch>]: ready in branch $branch\` to the status file and stop.
@@ -493,7 +542,7 @@ EOF
 # Definition of done
 Delivery contract: mode=no-mistakes
 Ship branch: $branch
-The task is complete only when committed on your branch.
+The task is complete only when committed on your branch.$house
 When you believe it is complete, append \`done [at=<epoch>]: {summary}\` to the status file and stop.
 Firstmate will then instruct you to run /no-mistakes to validate and ship a PR.
 That first \`done:\` is the handoff that starts the pipeline, which owns the push; it is not a request to push from this copy.

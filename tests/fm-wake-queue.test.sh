@@ -643,8 +643,7 @@ SH
   # The retired generation's last observation records sequence 9.
   printf '1000\n' > "$dir/now"
   printf '100\t9\tcheck\told\tcheck: retired generation row\n' > "$sub/state/.wake-queue"
-  checkpoint_until "$dir/watch-old.out" observed "$state" mate 1000 100-9 -- \
-    env PATH="$fakebin:$PATH" FM_FAKE_NOW_FILE="$dir/now" FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" \
+  PATH="$fakebin:$PATH" FM_FAKE_NOW_FILE="$dir/now" FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" \
     FM_STATE_OVERRIDE="$state" FM_FAKE_TMUX_WINDOW='firstmate:fm-mate' \
     FM_SECONDMATE_WAKE_STALL_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=0 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
@@ -656,8 +655,7 @@ SH
   # inherit the old generation's idle interval.
   printf '1010\n' > "$dir/now"
   printf '200\t9\tcheck\tregen\tcheck: reprovisioned row\n' > "$sub/state/.wake-queue"
-  checkpoint_until "$dir/watch-regen.out" observed "$state" mate 1010 200-9 -- \
-    env PATH="$fakebin:$PATH" FM_FAKE_NOW_FILE="$dir/now" FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" \
+  PATH="$fakebin:$PATH" FM_FAKE_NOW_FILE="$dir/now" FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" \
     FM_STATE_OVERRIDE="$state" FM_FAKE_TMUX_WINDOW='firstmate:fm-mate' \
     FM_SECONDMATE_WAKE_STALL_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=0 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
@@ -667,8 +665,7 @@ SH
 
   # The restarted generation still earns its own honest no-progress episode.
   printf '1012\n' > "$dir/now"
-  checkpoint_until "$dir/watch-regen-frozen.out" published "$dir/watch-regen-frozen.out" 'check: secondmate wake-loop stalled: mate=mate row=9 idle=2s' -- \
-    env PATH="$fakebin:$PATH" FM_FAKE_NOW_FILE="$dir/now" FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" \
+  PATH="$fakebin:$PATH" FM_FAKE_NOW_FILE="$dir/now" FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" \
     FM_STATE_OVERRIDE="$state" FM_FAKE_TMUX_WINDOW='firstmate:fm-mate' \
     FM_SECONDMATE_WAKE_STALL_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=0 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \

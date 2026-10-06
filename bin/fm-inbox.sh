@@ -33,6 +33,13 @@
 #   fm-inbox.sh pending
 #   fm-inbox.sh drain [--ack <id>...]
 #
+# `pending` prints one line per note still waiting for firstmate, oldest first:
+# <id> TAB <how long it has waited> TAB <start of the body>. It reads the notes
+# themselves, never the wake queue, because a note waits until `drain --ack <id>`
+# moves it whatever became of its wake. bin/fm-wake-drain.sh lists these on every
+# drain and keeps their wake rows through any wake acknowledgement, so an
+# unreadable inbox exits non-zero rather than reporting nothing waiting.
+#
 # `note --request-id` is the idempotent capture path: a repeat of the same
 # request id returns the original note instead of creating a second one, and
 # prints `replay` (or JSON `"outcome":"replay"`) so a first submission and a
@@ -1175,6 +1182,7 @@ case "${1:-}" in
   status)   shift; cmd_status ;;
   ask)      shift; cmd_ask "$@" ;;
   list)     shift; cmd_list ;;
+  pending)  shift; cmd_pending ;;
   drain)    shift; cmd_drain "$@" ;;
   ''|-h|--help|help)
     # The whole header block, found rather than counted: everything after the

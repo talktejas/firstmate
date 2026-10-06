@@ -10,8 +10,8 @@
 #   accessor as FMX_PAIRING_TOKEN (bin/fm-env-lib.sh). The environment wins.
 #   Absent in both: one "dispatch-resolve: off" line on stderr, nothing on
 #   stdout, exit 0, no network call, so firstmate dispatches exactly as today.
-#   bin/fm-jev-lib.sh owns the key handling, the request, and the answer
-#   validation; this tool owns everything decided from the answer.
+#   The key lives in one shell variable and reaches curl as a header read from
+#   a file descriptor, never on argv; nothing logs or writes it.
 #
 # What it does when on with at least one rule: one POST to
 #   https://api.typesafe.ai/v1/systemone with the project name and the brief's
@@ -62,12 +62,6 @@
 #   existing unreadable rules file, malformed rules, or missing jq), which is
 #   actionable, never selected around.
 #
-# Record: every outcome after the gate appends one JSON line (time, project,
-#   digest of the state sent or null when no request was made, status, chosen
-#   rule, confidence, each answer and its confidence, profile) to $FM_HOME/state/.dispatch-resolve.log, mode 0600,
-#   cut back to its newest 1000 lines past 256 KiB. It holds no brief text and
-#   no key, and a failed write never changes the outcome.
-#
 # Environment:
 #   TYPESAFE_API_KEY is the only resolver-specific environment setting.
 #
@@ -76,12 +70,9 @@
 #   inspectable answer plus every candidate's evidence, in code.
 set -u
 
-# Sourced before anything can start a child: it takes the key out of the
-# exported environment. The path is derived with builtins for the same reason.
-_fm_dispatch_dir=${BASH_SOURCE[0]%/*}
-[ "$_fm_dispatch_dir" != "${BASH_SOURCE[0]}" ] || _fm_dispatch_dir=.
-# shellcheck source=bin/fm-jev-lib.sh
-. "$_fm_dispatch_dir/fm-jev-lib.sh"
+TYPESAFE_API_KEY_PRIVATE=${TYPESAFE_API_KEY:-}
+export -n TYPESAFE_API_KEY_PRIVATE 2>/dev/null || true
+unset TYPESAFE_API_KEY
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
@@ -99,81 +90,14 @@ CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 # shellcheck source=bin/fm-brief-heading-lib.sh
 . "$SCRIPT_DIR/fm-brief-heading-lib.sh"
 
-CONFIDENCE_FLOOR=$FM_JEV_CONFIDENCE_FLOOR
+CONFIDENCE_FLOOR=0.6
+TS_MODEL=jev-latest
+TS_BASE=https://api.typesafe.ai
+TS_TIMEOUT=5
 DEFAULT_WHEN="No listed rule applies to this task."
-RECORD_LOG="$FM_HOME/state/.dispatch-resolve.log"
-RECORD_MAX_BYTES=262144
-
-# The small questions asked beside `rule`. A rule's optional `match` names the
-# answers it accepts per question; the keys here are that vocabulary.
-IFS= read -r -d '' QUESTION_DEFS <<'JSON' || true
-{
-  "kind": {
-    "instructions": "What kind of work does `task.brief` ask for? Pick the ONE option that names its main deliverable.",
-    "criteria": {
-      "investigate": "Finding the cause of a problem: diagnosing a failure, hunting a root cause, or reproducing a bug. The result is knowledge, not a change.",
-      "lookup": "Answering a direct question by reading a repository: locating where behaviour lives or tracing how something works, with no fault to diagnose.",
-      "design": "Deciding the technical shape of a system, module, or architecture before it is built.",
-      "product_document": "Writing a product document instead of code: a PRD, a product or feature specification, a plan, a research report, or a study.",
-      "review": "Reviewing or auditing a change or existing code and reporting findings.",
-      "refactor": "Restructuring, renaming, or migrating existing code across many places without adding new behaviour.",
-      "feature": "Building new behaviour or a new capability, including user interface work.",
-      "bugfix": "Fixing a known defect whose symptom or cause is already described.",
-      "tests": "Writing tests or raising test coverage as the main deliverable.",
-      "docs": "Writing or updating documentation that describes existing code.",
-      "mechanical": "A trivial or rote edit that needs no judgement (rename, typo, formatting, import or lint fix), or a throwaway script or scratch tool.",
-      "ops": "Debugging CI, a build, or infrastructure: a failing pipeline, a broken environment, or opaque logs."
-    }
-  },
-  "damage": {
-    "instructions": "How much damage would a wrong result of the work in `task.brief` do before someone notices and undoes it?",
-    "criteria": {
-      "low": "Little: read-only work, a document, a throwaway, or a small change in one place that is easy to revert.",
-      "medium": "Moderate: an ordinary change to familiar code with a contained effect.",
-      "high": "A lot: core or unfamiliar code, many files or modules, a migration, stored data, or anything expensive to unwind."
-    }
-  },
-  "settled": {
-    "instructions": "How settled are the instructions in `task.brief`?",
-    "criteria": {
-      "settled": "The decisions are made: the brief says what to produce and what finished looks like.",
-      "partly": "The goal is clear, but real choices about approach or scope are left to the worker.",
-      "open": "The request is vague or open-ended: working out what to do is part of the task."
-    }
-  },
-  "security": {
-    "instructions": "Is the work in `task.brief` security-sensitive?",
-    "criteria": {
-      "yes": "It changes or reviews authentication, authorization, secrets or credentials, cryptography, permissions, sandboxing, or the handling of untrusted input.",
-      "no": "It touches none of those."
-    }
-  }
-}
-JSON
 
 die() { printf 'error: %s\n' "$1" >&2; exit 2; }
-# record <result-json>: one line per outcome; see "Record" in the header.
-record() {
-  local line sz
-  line=$(jq -c --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg project "$PROJECT" \
-    --arg digest "$([ -z "${JEV_STATE:-}" ] || fm_custom_check_sha256 "$JEV_STATE" 2>/dev/null)" '
-    {ts: $ts, project: $project, digest: (if $digest == "" then null else $digest end), status, reason, rule, confidence,
-     rule_answer: (.raw // null), questions: (.questions // null),
-     selection: (.selection // null), latency_ms,
-     profile: (if .chosen then (.chosen.profile | {harness, model, effort}) else null end)}' <<<"$1" 2>/dev/null) || return 0
-  mkdir -p "${RECORD_LOG%/*}" 2>/dev/null || return 0
-  ( umask 077; printf '%s\n' "$line" >> "$RECORD_LOG" ) 2>/dev/null || return 0
-  sz=$(wc -c < "$RECORD_LOG" 2>/dev/null | tr -d '[:space:]')
-  case "$sz" in ''|*[!0-9]*) return 0 ;; esac
-  if [ "$sz" -ge "$RECORD_MAX_BYTES" ]; then
-    ( umask 077; tail -n 1000 "$RECORD_LOG" > "$RECORD_LOG.tmp" ) 2>/dev/null && mv -f "$RECORD_LOG.tmp" "$RECORD_LOG" 2>/dev/null
-    rm -f "$RECORD_LOG.tmp" 2>/dev/null || true
-  fi
-  return 0
-}
-
 no_rules() {
-  record '{"status": "escalate", "reason": "no rules to match"}'
   printf 'dispatch-resolve:\n  status: escalate\n  reason: no rules to match\n'
   exit 0
 }
@@ -197,7 +121,10 @@ while [ $# -gt 0 ]; do
 done
 
 # ---- opt-in gate ---------------------------------------------------------------
-if ! fm_jev_key_load "$FM_HOME"; then
+if [ -z "$TYPESAFE_API_KEY_PRIVATE" ]; then
+  TYPESAFE_API_KEY_PRIVATE=$(fmx_env_get TYPESAFE_API_KEY "$FM_HOME/.env")
+fi
+if [ -z "$TYPESAFE_API_KEY_PRIVATE" ]; then
   echo "dispatch-resolve: off (TYPESAFE_API_KEY absent from the environment and $FM_HOME/.env)" >&2
   exit 0
 fi
@@ -216,12 +143,7 @@ VERIFIED_HARNESSES=$(fm_control_harnesses | jq -Rsc 'split("\n") | map(select(le
 
 # The fields this tool consumes must be well formed; bootstrap owns the wider
 # schema diagnostic, but an intake never selects around a malformed file.
-rules_err=$(jq -r --argjson verified_harnesses "$VERIFIED_HARNESSES" --arg provider_re "$FM_QUOTA_PROVIDER_ID_RE" --argjson defs "$QUESTION_DEFS" '
-  def match_bad($m):
-    ($m | type) != "object" or ($m | length) == 0
-    or any($m | to_entries[]; . as $e |
-      ($defs | has($e.key) | not) or ($e.value | type) != "array" or ($e.value | length) == 0
-      or any($e.value[]; . as $v | ($v | type) != "string" or ($defs[$e.key].criteria | has($v) | not)));
+rules_err=$(jq -r --argjson verified_harnesses "$VERIFIED_HARNESSES" --arg provider_re "$FM_QUOTA_PROVIDER_ID_RE" '
   def verified($h): $verified_harnesses | index($h);
   def provider_id($p): ($p | type) == "string" and ($p | test($provider_re));
   def effort_ok($h; $m; $e):
@@ -310,7 +232,6 @@ RULE_COUNT=$(jq -r '(.rules // []) | length' "$RULES")
 
 emit_error() {
   local reason=$1
-  record "$(jq -n --arg reason "$reason" --argjson lat "${FM_JEV_LATENCY_MS:-null}" '{status: "error", reason: $reason, latency_ms: $lat}' 2>/dev/null)"
   echo "dispatch-resolve: error ($reason)" >&2
   printf 'dispatch-resolve:\n  status: error\n  reason: %s\n' "$reason"
   exit 0
@@ -595,6 +516,5 @@ TEXT=$(jq -r '
   (if .chosen then "  profile: --harness \(.chosen.profile.harness | shell_arg)"
       + (if .chosen.profile.model then " --model \(.chosen.profile.model | shell_arg)" else "" end)
       + (if .chosen.profile.effort then " --effort \(.chosen.profile.effort | shell_arg)" else "" end) else empty end)' <<<"$RESULT") || emit_error "output rendering failed"
-record "$RESULT"
 printf '%s\n' "$TEXT"
 exit 0

@@ -13,8 +13,7 @@
 # although its initial no-verb status signal still surfaces in normal mode.
 # A home that holds TYPESAFE_API_KEY additionally offers a stale recheck of a
 # paused: wait whose task has a recorded pull request that is still open with no
-# blocker reported, and a transient contributions-read timeout, to Jev as one
-# fixed-choice question
+# blocker reported, to Jev as one fixed-choice question
 # (jev_triage_routine owns the gates); every failure there delivers the wake.
 # That cadence is hours long and condition-aware: a paused: line naming
 # `until <UTC ISO 8601>` is rechecked when that time passes, but a declared time
@@ -169,6 +168,15 @@
 # to this process alone and never signals another watcher.
 set -u
 
+# The shared Jev caller behind the key-gated routine-wake triage below
+# (jev_triage_routine). Sourced before anything can start a child, with its path
+# derived by builtins alone, because sourcing it is what takes TYPESAFE_API_KEY
+# out of the exported environment every later child would inherit.
+_fm_watch_dir=${BASH_SOURCE[0]%/*}
+[ "$_fm_watch_dir" != "${BASH_SOURCE[0]}" ] || _fm_watch_dir=.
+# shellcheck source=bin/fm-jev-lib.sh
+. "$_fm_watch_dir/fm-jev-lib.sh"
+
 SCRIPT_DIR="$(d=${BASH_SOURCE[0]%/*}; [ "$d" != "${BASH_SOURCE[0]}" ] || d=.; cd "${d:-/}" && pwd)"
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
@@ -289,11 +297,6 @@ HEARTBEAT=${FM_HEARTBEAT:-600}        # base seconds between heartbeat scans
 HEARTBEAT_MAX=${FM_HEARTBEAT_MAX:-7200}  # heartbeat backoff cap
 CHECK_INTERVAL=${FM_CHECK_INTERVAL:-300}  # seconds between *.check.sh sweeps
 CHECK_TIMEOUT=${FM_CHECK_TIMEOUT:-30}     # seconds allowed per *.check.sh
-# One pull request costs the contributions poll eight sequential forge reads,
-# which no sweep-wide bound can hold on a slow link, so that check carries its
-# own bound instead of pulling every other check's up with it.
-CONTRIBUTIONS_CHECK_TIMEOUT=${FM_CONTRIBUTIONS_CHECK_TIMEOUT:-273}
-case "$CONTRIBUTIONS_CHECK_TIMEOUT" in ''|*[!0-9]*|0) CONTRIBUTIONS_CHECK_TIMEOUT=273 ;; esac
 HOME_SUMMARY_INTERVAL=${FM_HOME_SUMMARY_INTERVAL:-300}
 case "$HOME_SUMMARY_INTERVAL" in
   ''|*[!0-9]*|0) HOME_SUMMARY_INTERVAL=300 ;;
@@ -1377,8 +1380,8 @@ wedge_wait_evidence() {  # <task> -> one wait_record on stdout
 # The escalation counter is left alone, exactly as the write deferral leaves it:
 # this is not an escalation, and a later genuine one must keep the
 # demand-inspection history it had already earned.
-wedge_defer_wait() {  # <window> <since-file> <triage-label> <idle-age> <wait-record>
-  local win=$1 since_file=$2 label=$3 age=$4 record=$5
+wedge_defer_wait() {  # <window> <since-file> <triage-label> <idle-age> <wait-record> [<task>]
+  local win=$1 since_file=$2 label=$3 age=$4 record=$5 triage_task=''
   local kind subject whom action anchor key mtime wage min_age waited us ok
   us=$(printf '\037')
   IFS=$us read -r kind subject whom action anchor <<EOF
@@ -1407,6 +1410,8 @@ EOF
     return 1
   fi
   key=$(window_key "$win")
+  # Only a wait on something external is offered to the routine-wake triage.
+  [ "$whom" != external ] || triage_task=${6-}
   if [ "$whom" = captain ] && away_record_present; then
     triage_log "absorbed $label ($kind, never rechecked while the away-posture record exists): $win"
     return 0
@@ -1433,7 +1438,7 @@ EOF
   date +%s > "$since_file"
   resurface_absorbed "$win" "$STATE/.waiting-resurfaced-$key" "$wage" \
     "stale: $win (idle ${age}s${waited} - $kind, $subject, rechecked on a long cadence not a wedge; $action)" \
-    '' "$min_age"
+    '' "$min_age" "$triage_task"
   triage_log "absorbed $label ($kind explains the quiet, idle ${age}s): $win"
   return 0
 }
@@ -1548,7 +1553,7 @@ wedge_timer_check() {  # <window> <since-file> <triage-label> <escalation-count-
       age=$(( age - since ))
       if [ "$age" -ge "$STALE_ESCALATE_SECS" ]; then
         if evidence=$(wedge_wait_evidence "$task") &&
-           wedge_defer_wait "$win" "$since_file" "$label" "$age" "$evidence"; then
+           wedge_defer_wait "$win" "$since_file" "$label" "$age" "$evidence" "$task"; then
           return 0
         fi
         if crew_worktree_written_since "$task" "$STATE" "$since_file"; then
@@ -2053,9 +2058,6 @@ surface_nonterminal_stale() {  # <window> <hash>
 #                            recorded pull request that is still open with no
 #                            blocker reported (handle_paused_stale,
 #                            wedge_defer_wait, surface_nonterminal_stale)
-#   contributions-observation-timeout
-#                            a contributions check that reports only forge reads
-#                            that timed out
 # What keeps the rest out is code, never the model. No signal is ever offered
 # to the model; captain notes, merge and PR-ready outcomes, process-event and
 # Relay wakes, and every other check have no call site here.
@@ -2170,22 +2172,6 @@ jev_triage_pause_routine() {  # <task> <reason>
   jev_triage_enabled || return 1
   jev_triage_task_evidence "$1" || return 1
   jev_triage_routine declared-pause-recheck "$1" "$2" "[$JEV_TRIAGE_TASK_EVIDENCE]"
-}
-
-jev_triage_contributions_routine() {  # <diagnostic-lines>
-  local out=$1 line evidence
-  jev_triage_enabled || return 1
-  [ -n "$out" ] || return 1
-  while IFS= read -r line; do
-    [[ $line =~ ^contributions:\ observation\ unavailable\ for\ [^[:space:]]+:\ gh\ .*\ timed\ out\ after\ [0-9]+s$ ]] || return 1
-  done <<EOF
-$out
-EOF
-  evidence=$(printf '%s\n' "$out" | cut -c 1-400 \
-    | jq -Rsc '{diagnostics: (split("\n") | map(select(length > 0))),
-        retry: "the poll reads this address again on its next scheduled run"}' 2>/dev/null) || return 1
-  jev_triage_routine contributions-observation-timeout contributions \
-    "check: contributions observation timed out" "$evidence"
 }
 
 # Check and heartbeat cadence must survive actionable exits and restarts: the
@@ -2305,18 +2291,15 @@ procevent_surface_queued() {
 }
 
 run_check_process() {
-  local c=$1 bound=$CHECK_TIMEOUT
+  local c=$1
   shift
-  # The sweep runs a validated snapshot rather than the registered file, so the
-  # check's own id, not this path, says whose bound applies.
-  [ "${FM_CHECK_ACTIVE_ID:-}" != contributions ] || bound=$CONTRIBUTIONS_CHECK_TIMEOUT
   if [ "${FM_CHECK_FORCE_FALLBACK:-0}" != 1 ] && command -v timeout >/dev/null 2>&1; then
-    exec timeout "$bound" bash "$c" "$@"
+    exec timeout "$CHECK_TIMEOUT" bash "$c" "$@"
   elif [ "${FM_CHECK_FORCE_FALLBACK:-0}" != 1 ] && command -v gtimeout >/dev/null 2>&1; then
-    exec gtimeout "$bound" bash "$c" "$@"
+    exec gtimeout "$CHECK_TIMEOUT" bash "$c" "$@"
   else
     # shellcheck disable=SC2016  # single quotes are deliberate: Perl expands its own variables.
-    exec perl -e 'my $t = shift; my $owned = shift; my $pid = fork; die "fork failed" unless defined $pid; if (!$pid) { setpgrp(0, 0) unless $owned; exec @ARGV } my $group = $owned ? getpgrp(0) : $pid; my $stop = sub { $SIG{HUP} = $SIG{INT} = $SIG{TERM} = "IGNORE"; kill "TERM", -$group; select undef, undef, undef, 0.2; kill "KILL", -$group; waitpid $pid, 0; exit 124 }; local $SIG{ALRM} = $stop; local $SIG{HUP} = $stop; local $SIG{INT} = $stop; local $SIG{TERM} = $stop; alarm $t; waitpid $pid, 0; exit($? >> 8)' "$bound" "${FM_CHECK_OWNED_GROUP:-0}" bash "$c" "$@"
+    exec perl -e 'my $t = shift; my $owned = shift; my $pid = fork; die "fork failed" unless defined $pid; if (!$pid) { setpgrp(0, 0) unless $owned; exec @ARGV } my $group = $owned ? getpgrp(0) : $pid; my $stop = sub { $SIG{HUP} = $SIG{INT} = $SIG{TERM} = "IGNORE"; kill "TERM", -$group; select undef, undef, undef, 0.2; kill "KILL", -$group; waitpid $pid, 0; exit 124 }; local $SIG{ALRM} = $stop; local $SIG{HUP} = $stop; local $SIG{INT} = $stop; local $SIG{TERM} = $stop; alarm $t; waitpid $pid, 0; exit($? >> 8)' "$CHECK_TIMEOUT" "${FM_CHECK_OWNED_GROUP:-0}" bash "$c" "$@"
   fi
 }
 
@@ -2971,12 +2954,7 @@ while :; do
     contribution_check_output=
     for c in "$STATE"/*.check.sh; do
       [ -e "$c" ] || continue
-      # Checks run in sequence and each may hold the cycle for its whole
-      # bound, so beat before each one: the guard's grace then covers the
-      # longest single check rather than the sum of the sweep.
-      touch "$STATE/.last-watcher-beat"
       is_pr_poll=0
-      FM_CHECK_ACTIVE_ID=
       if [ "$(basename "$c")" = x-watch.check.sh ]; then
         if fmx_poll_shim_valid "$c" "$FM_HOME" "$FM_ROOT" \
           && [ -f "$FM_ROOT/bin/fm-x-poll.sh" ] && [ ! -L "$FM_ROOT/bin/fm-x-poll.sh" ]; then
@@ -2988,7 +2966,6 @@ while :; do
         fi
       else
         id=$(basename "$c" .check.sh)
-        FM_CHECK_ACTIVE_ID=$id
         if fm_pr_poll_snapshot_capture "$STATE" "$id" "$SCRIPT_DIR/fm-pr-poll.sh" \
           || { rerecord_device_shifted_pr_poll "$id" \
             && fm_pr_poll_snapshot_capture "$STATE" "$id" "$SCRIPT_DIR/fm-pr-poll.sh"; }; then
@@ -3035,11 +3012,6 @@ $out
 EOF
           if [ -n "$contribution_check_diagnostics" ]; then
             out=${contribution_check_diagnostics%$'\n'}
-            # A transient forge-read timeout is the one check result the key-gated
-            # routine-wake triage may read; the poll retries it on its own.
-            if jev_triage_contributions_routine "$out"; then
-              continue
-            fi
           elif [ -n "$contribution_check_output" ]; then
             continue
           fi

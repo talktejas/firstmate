@@ -158,7 +158,7 @@ test_status_decision_since_prefers_the_opening_line_timestamp() {
   home="$TMP_ROOT/since-kind"
   mkdir -p "$home/data" "$home/state"
   printf '# Backlog\n' > "$home/data/backlog.md"
-  printf 'needs-decision [key=k-ts]: [2026-01-01T00:00:00Z] pick REST or RPC\nworking: [2026-01-01T01:00:00Z] still thinking\n' \
+  printf 'needs-decision [key=k-ts] [at=1767225600]: pick REST or RPC\nworking [at=1767229200]: still thinking\n' \
     > "$home/state/t-ts.status"
   printf 'needs-decision [key=k-legacy]: pick a colour\n' \
     > "$home/state/t-legacy.status"

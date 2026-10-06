@@ -17,7 +17,11 @@
 # draft state does not refuse, matching how the head read below is optional.
 # bin/fm-pr-merge.sh records through this script with FM_PR_CHECK_MERGE=1 and
 # skips this refusal, because its own merge-time draft refusal is authoritative.
-# Usage: fm-pr-check.sh <task-id> <pr-url>
+# A home that holds TYPESAFE_API_KEY also gets one advisory `risk:` line for the
+# recorded pull request (bin/fm-pr-risk-lib.sh); it never affects the arming.
+# bin/fm-pr-merge.sh passes --no-risk, which skips that line entirely: the level
+# is rated once, at ready time, never in a merge.
+# Usage: fm-pr-check.sh <task-id> <pr-url> [--no-risk]
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -33,6 +37,8 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 . "$SCRIPT_DIR/fm-parent-channel-lib.sh"
 # shellcheck source=bin/fm-dod-lib.sh
 . "$SCRIPT_DIR/fm-dod-lib.sh"
+# shellcheck source=bin/fm-pr-risk-lib.sh
+. "$SCRIPT_DIR/fm-pr-risk-lib.sh"
 
 RATE_RISK=1
 if [ "$#" -eq 3 ] && [ "$3" = --no-risk ]; then

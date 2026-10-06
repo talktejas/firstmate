@@ -34,7 +34,7 @@ Briefs: 15 real briefs from this home's recent work plus 10 synthetic ones writt
 | API errors | 0 |
 
 Of the five disagreements, one was a wrong hand label (the brief quoted the bug-fix rule's wording verbatim), three were real briefs the model read as the approval-gated design rule at 0.66 to 0.86 confidence and escalated by design, each of which the captain had in fact dispatched at the strongest-reasoning class, and one was a synthetic tweak that came back ambiguous at 0.41 confidence and was handed back to firstmate.
-A lean request that asks only the rule Choice matched the full request (rule, profile, and status) on all 25 briefs, which is why the tool then asked one question and kept every gate in code; "Live run of the current selection" below records the five-question request sent when a rule declares `match`.
+A lean request that asks only the rule Choice matched the full request (rule, profile, and status) on all 25 briefs, which is why the shipped tool asks one question and keeps every gate in code.
 That table records the 2026-09-16 run with the captain-authored none option.
 A second live run on 2026-09-17 used the same 25 briefs, held one quota snapshot constant through a fake `quota-axi`, and exercised a copy of this branch with the shipped neutral `No listed rule applies to this task.` option and option-free interface.
 
@@ -116,4 +116,4 @@ $ bash tests/fm-dispatch-resolve.test.sh | tail -1
 # all fm-dispatch-resolve tests passed
 ```
 
-A live run needs a key and is not part of the suite; rerun a live table above by pointing the tool at a brief with the key injected for that one command.
+A live run needs a key and is not part of the suite; rerun the table above by pointing the tool at a brief with the key injected for that one command.

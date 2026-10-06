@@ -193,8 +193,15 @@
 # or an unexpected child death, named with its exit status - naming the stage
 # that did not finish and the sections that were therefore never emitted, and
 # still exits 0. The child
-# records its progress in FM_SESSION_START_STAGE_FILE, which is also the flag
-# that tells a child it is the child - the parent never recurses.
+# records its progress in the file named by its private --_child argument, which
+# is also what tells a child it is the child - the parent never recurses. That
+# hand-off is an argument rather than an environment setting so nothing the
+# digest starts can inherit it and mistake itself for a bounded child.
+#
+# Before the digest, the parent reports any command-scoped setting this session
+# inherited (bin/fm-launch-env-lib.sh owns the names) as one INHERITED
+# ENVIRONMENT line carrying the clean start command. A session cannot repair
+# the environment it was started in, so the line is the repair.
 # Hosts without timeout, gtimeout, or perl use the shared pure-Bash watchdog, so
 # the digest never runs without the same hard bound and process-group cleanup.
 #

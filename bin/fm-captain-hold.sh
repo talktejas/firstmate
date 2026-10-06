@@ -28,7 +28,7 @@
 #   fm-captain-hold.sh bind <source-id> [<legacy-origin> | --any-origin]
 #   fm-captain-hold.sh unbind <source-id>
 #   fm-captain-hold.sh binding <source-id>
-#   fm-captain-hold.sh complete <origin-id> [--repair-reason <reason>] (--none | <task-id>...)
+#   fm-captain-hold.sh complete <origin-id> (--none | <task-id>...)
 #   fm-captain-hold.sh verify <origin-id>
 #   fm-captain-hold.sh open <task-id> [--identity] [--distinguish-absent]
 #   fm-captain-hold.sh diverged
@@ -150,10 +150,7 @@
 # the inventory is unioned idempotently into the metadata, and every still-open
 # keyed status decision is transferred to its durable owner with a
 # `captain-held [key=...]` status close naming the inventory. Later review
-# passes may correct its ids: a previously attested id may be dropped only when
-# it is closed with a recorded captain answer, or resolves to no task at all
-# (reported as drift with an explicit repair reason); one still held and unanswered is refused by name.
-# A post-teardown visual review can complete against the
+# passes may add ids. A post-teardown visual review can complete against the
 # surviving report and tasks without recreating task state.
 # `verify` is read-only and is called by scout teardown, so teardown cannot
 # erase a source before this gate has succeeded: every recorded inventory
@@ -262,12 +259,7 @@ CAPTAIN_META_LOCK=
 CAPTAIN_META_LOCK_HELD=0
 CAPTAIN_CONTROL_LOCK=
 CAPTAIN_CONTROL_LOCK_HELD=0
-CAPTAIN_DROP_ERR=
 captain_hold_cleanup() {
-  if [ -n "$CAPTAIN_DROP_ERR" ]; then
-    rm -f -- "$CAPTAIN_DROP_ERR"
-    CAPTAIN_DROP_ERR=
-  fi
   if [ "$CAPTAIN_META_LOCK_HELD" = 1 ]; then
     fm_lock_release "$CAPTAIN_META_LOCK" || true
     CAPTAIN_META_LOCK_HELD=0
@@ -462,8 +454,12 @@ list_has_key() {  # <comma-list> <key>
   esac
 }
 
-sorted_key_list() {  # <space-separated-keys>; prints the sorted deduped comma list
-  printf '%s\n' "$1" | tr ' ' '\n' | sed '/^$/d' | LC_ALL=C sort -u | paste -sd, -
+sorted_key_union() {  # <comma-list> <newline-or-space-separated-new-keys>
+  local existing=$1 new=$2
+  {
+    printf '%s\n' "$existing" | tr ',' '\n'
+    printf '%s\n' "$new" | tr ' ' '\n'
+  } | sed '/^$/d' | LC_ALL=C sort -u | paste -sd, -
 }
 
 meta_value() {  # <meta> <key>
@@ -603,41 +599,6 @@ verify_hold_durable() {  # <task-id>
     return 0
   fi
   fail "captain-held task $id is neither held for the captain nor closed with a recorded captain answer"
-}
-
-# Non-fatal test for the settled half of verify_hold_durable: true only when the
-# row carries a recorded captain answer, so a still-held call reads as unsettled.
-hold_answered() {  # <task-id>
-  task_show "$1" || return 1
-  body_has_resolution_record "$(show_field "$TASK_SHOW_OUTPUT" body)"
-}
-
-# A resolution failure is only absence when the backlog itself was readable; an
-# unreadable backend fails every id alike, and spending that as drift would
-# clear a live inventory. So before the first failure is spent as drift, the
-# backlog must prove itself readable, loudly. It takes both tests: `tasks-axi
-# list` reports a markdown backlog that is simply GONE as an empty one, so the
-# declared file is checked directly, while the listing read speaks for a
-# backend that keeps its rows elsewhere. That read runs under the metadata
-# lock, so it carries the same bound as every row read here, set inside the
-# substitution so it cannot leak past this one call.
-require_backlog_readable_for_drift() {  # <origin>
-  local origin=$1 reason probe_rc=0
-  fm_backlog_tasks_axi_addressing "$DATA" \
-    || fail "the configured backlog is not addressable, so no attested captain call may be dropped from the $origin inventory (data directory $DATA)${FM_BACKLOG_TRANSITION_ERROR:+: $FM_BACKLOG_TRANSITION_ERROR}"
-  [ -z "$FM_BACKLOG_AXI_FILE" ] || [ -r "$FM_BACKLOG_AXI_FILE" ] \
-    || fail "the configured backlog could not be read, so no attested captain call may be dropped from the $origin inventory: $FM_BACKLOG_AXI_FILE is absent or unreadable"
-  reason=$(FM_TASKS_AXI_TIMEOUT=${FM_TASKS_AXI_TIMEOUT:-${FM_BACKLOG_ROW_TIMEOUT_SECS:-10}} \
-    fm_backlog_row_list "$DATA" 2>&1) || probe_rc=$?
-  case "$probe_rc" in
-    0) : ;;
-    124|137)
-      fail "the backlog backend exceeded its read bound listing this home's backlog, so no attested captain call may be dropped from the $origin inventory (data directory $DATA)"
-      ;;
-    *)
-      fail "the configured backlog could not be read, so no attested captain call may be dropped from the $origin inventory (data directory $DATA)${reason:+: $(printf '%s' "$reason" | tr '\n' ' ')}"
-      ;;
-  esac
 }
 
 # --- migrated legacy-id resolution on the Beads backend ---------------------
@@ -972,12 +933,12 @@ verify_entry_durable() {  # <origin-or-empty> <entry>; prints "<id> <how> <origi
   if [ -n "$origin" ] && [ "$origin" != "$BINDING_ANY" ] && [ "$entry" = "$origin" ]; then
     refuse_self_inventory "$origin" "$entry"
   fi
-  resolved=$(resolve_entry "$origin" "$entry") || resolve_status=$?
+  resolved=$(resolve_entry "$origin" "$entry" 2>&1) || resolve_status=$?
   if [ "$resolve_status" -ne 0 ]; then
     [ "$resolve_status" -ne 124 ] \
       || { printf '%s\n' "$resolved" >&2; fail "the backlog backend exceeded its read bound resolving $entry"; }
     if resolved=$(receipt_resolves_entry "$origin" "$entry"); then
-      printf '%s\n' "$resolved"
+      printf '%s pruned\n' "$resolved"
       return 0
     fi
     [ -n "$resolved" ] || resolved="fm-captain-hold: no captain-held task or recorded answer receipt for $entry in this home's configured backlog (data directory $DATA)"
@@ -1856,37 +1817,20 @@ command_complete() {
   fi
   require_tasks_axi
   origin_exists_here "$origin" || fail "origin $origin is not owned by the active home $FM_HOME"
-  while [ "$#" -gt 0 ]; do
-    case "$1" in
-      --repair-reason)
-        [ "$#" -ge 2 ] || fail "--repair-reason requires one line explaining the inventory repair"
-        shift
-        repair_reason=${1:-}
-        validate_one_line repair-reason "$repair_reason"
-        ;;
-      --none)
-        [ "$none" = 0 ] || fail "--none may appear only once"
-        [ -z "$supplied" ] || fail "--none cannot be combined with task ids"
-        none=1
-        ;;
-      *)
-        [ "$none" = 0 ] || fail "--none cannot be combined with task ids"
-        validate_slug task-id "$1"
-        supplied="${supplied}${supplied:+ }$1"
-        ;;
-    esac
-    shift
-  done
-  [ "$none" = 1 ] || [ -n "$supplied" ] || { usage >&2; exit 2; }
+  if [ "$#" -eq 1 ] && [ "$1" = --none ]; then
+    supplied=''
+  else
+    while [ "$#" -gt 0 ]; do
+      [ "$1" != --none ] || fail "--none cannot be combined with task ids"
+      validate_slug task-id "$1"
+      supplied="${supplied}${supplied:+ }$1"
+      shift
+    done
+  fi
   if [ "$has_meta" = 1 ]; then
     previous=$(meta_value "$meta" decision_keys)
   fi
-  # Completion is a fresh review of the surface, not an append-only ledger.
-  # In particular, a captain answer closes its task with a durable resolution,
-  # so a later repair can remove that settled id by supplying only the calls
-  # still awaiting the captain. What a replacement drops is checked below
-  # against the durable record itself, never against the status stream.
-  keys=$(sorted_key_list "$supplied")
+  keys=$(sorted_key_union "$previous" "$supplied")
   if [ -n "$keys" ]; then
     while IFS= read -r entry; do
       [ -n "$entry" ] || continue
@@ -1906,45 +1850,6 @@ $(printf '%s\n' "$keys" | tr ',' '\n')
 EOF
   fi
 
-  # Dropping an id from the attested inventory takes it out of verify's reach
-  # and therefore out of teardown's, so every dropped id must be settled first.
-  # A recorded captain answer is the outcome this gate exists to accept; a call
-  # still held and unanswered is refused by name; an id that resolves to no row
-  # at all is repairable drift, reported so a mistype stays visible.
-  drop_err=$(umask 077; mktemp "${TMPDIR:-/tmp}/fm-captain-hold-drop-err.XXXXXX") \
-    || fail "cannot stage the inventory-drop resolution diagnostics"
-  CAPTAIN_DROP_ERR=$drop_err
-  while IFS= read -r entry; do
-    [ -n "$entry" ] || continue
-    ! list_has_key "$keys" "$entry" || continue
-    resolve_rc=0
-    resolved=$(resolve_entry "$origin" "$entry" 2>"$drop_err") || resolve_rc=$?
-    resolved=${resolved%% *}
-    reason=$(tr '\n' ' ' < "$drop_err")
-    [ "$resolve_rc" -ne 124 ] \
-      || fail "the backlog backend exceeded its read bound resolving $entry"
-    [ "$resolve_rc" -ne 2 ] \
-      || fail "the migrated-hold scan refused to resolve $entry, so it cannot be dropped from the $origin inventory${reason:+: $reason}"
-    if [ "$resolve_rc" -ne 0 ]; then
-      [ -n "$dropped_unresolved" ] || require_backlog_readable_for_drift "$origin"
-      dropped_unresolved="${dropped_unresolved}${dropped_unresolved:+ }$entry"
-      continue
-    fi
-    # The supplied inventory may name the same row under its resolved identity,
-    # so a spelling absent from the keys is only dropped when the row it
-    # resolves to is absent from the rows the replacement just attested.
-    ! list_has_key "$retained" "$resolved" || continue
-    hold_answered "$resolved" \
-      || fail "attested captain call $entry carries no recorded captain answer, so it cannot be dropped from the $origin inventory; answer it or keep it in the supplied inventory"
-  done <<EOF
-$(printf '%s\n' "$previous" | tr ',' '\n')
-EOF
-  rm -f -- "$drop_err"
-  CAPTAIN_DROP_ERR=
-
-  [ -z "$dropped_unresolved" ] || [ -n "$repair_reason" ] \
-    || fail "attested captain calls resolve to no task ($dropped_unresolved); re-run complete with --repair-reason stating why this explicit inventory repair drops them"
-
   status_file="$STATE/$origin.status"
   open=$(status_open_decisions "$status_file")
   if [ -n "$open" ] && [ -z "$keys" ]; then
@@ -1954,10 +1859,6 @@ EOF
   if [ "$has_meta" = 1 ]; then
     if [ "$(meta_value "$meta" decisions_reviewed)" != 1 ] || [ "$previous" != "$keys" ]; then
       printf 'decisions_reviewed=1\ndecision_keys=%s\n' "$keys" >> "$meta"
-    fi
-    if [ -n "$dropped_unresolved" ]; then
-      printf 'decision_repair=%s dropped=%s reason=%s\n' \
-        "${FM_CAPTAIN_HOLD_NOW:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}" "$dropped_unresolved" "$repair_reason" >> "$meta"
     fi
     fm_lock_release "$CAPTAIN_META_LOCK"
     CAPTAIN_META_LOCK_HELD=0

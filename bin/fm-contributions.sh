@@ -113,9 +113,7 @@ command -v jq >/dev/null 2>&1 || fail 'jq is required to measure contribution co
 NOW=${FM_CONTRIBUTIONS_NOW:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}
 EPOCH=$(jq -nr --arg now "$NOW" '$now | fromdateiso8601') || fail 'invalid observation clock'
 MAX_AGE=${FM_CONTRIBUTIONS_MAX_AGE:-900}
-BUDGET=${FM_CONTRIBUTIONS_BUDGET:-}
-CALL_TIMEOUT=${FM_CONTRIBUTIONS_CALL_TIMEOUT:-30}
-CHECK_TIMEOUT=${FM_CONTRIBUTIONS_CHECK_TIMEOUT:-273}
+BUDGET=${FM_CONTRIBUTIONS_BUDGET:-20}
 case "$MAX_AGE" in ''|*[!0-9]*) fail 'invalid freshness bound' ;; esac
 case "$BUDGET" in ''|*[!0-9]*) fail 'invalid poll budget' ;; esac
 [ "$BUDGET" -ge 1 ] && [ "$BUDGET" -le 25 ] || fail 'poll budget must be 1..25 seconds'
@@ -216,21 +214,6 @@ write_record() { # task record-json-file
   mv -f -- "$staged" "$file"
 }
 
-budget_advice() { # pr|issue : the settings that bound this observation, with the value each needs
-  local kind=$1 needed advice=
-  # Eight sequential calls observe a PR and three observe an issue; one call
-  # more covers the local work between reads. A budget already that large was
-  # still not enough on this link, so ask for one call beyond it.
-  if [ "$kind" = issue ]; then needed=$((4 * CALL_TIMEOUT)); else needed=$((9 * CALL_TIMEOUT)); fi
-  [ "$needed" -gt "$BUDGET" ] || needed=$((BUDGET + CALL_TIMEOUT))
-  [ "$BUDGET" -ge "$BUDGET_MAX" ] || advice="raise FM_CONTRIBUTIONS_BUDGET to at least ${needed}s"
-  if [ "$needed" -gt "$BUDGET_MAX" ]; then
-    [ -z "$advice" ] || advice="$advice and "
-    advice="${advice}raise FM_CONTRIBUTIONS_CHECK_TIMEOUT to at least $((needed + 3))s"
-  fi
-  printf '%s\n' "$advice"
-}
-
 forge() {
   local remaining rc=0 forge_err=${FORGE_ERR:-$TMP/forge.err}
   remaining=$((DEADLINE - $(date +%s)))
@@ -263,8 +246,6 @@ wait_forges() { # background forge pids from one independent read wave
 
 observe() { # canonical GitHub URL -> normalized JSON
   local url=$1 part number kind endpoint head after label
-  # forge names the read that failed; anything else is a response it cannot use.
-  FAIL_REASON='forge returned an unusable response'
   case "$url" in https://github.com/*) ;; *) return 1 ;; esac
   part=${url#https://github.com/}; number=${part##*/}; part=${part%/*}; kind=${part##*/}; part=${part%/*}
   case "$kind" in pull) endpoint="repos/$part/pulls/$number" ;; issues) endpoint="repos/$part/issues/$number" ;; *) return 1 ;; esac
@@ -290,7 +271,7 @@ observe() { # canonical GitHub URL -> normalized JSON
     jq -e 'type == "array" and all(.[]; type == "array")' "$TMP/comments.json" >/dev/null || return 1
     forge pr view "$url" --json headRefOid,reviewDecision > "$TMP/after.json" || return 1
     after=$(jq -er .headRefOid "$TMP/after.json")
-    [ "$head" = "$after" ] || { FAIL_REASON='head changed during observation'; return 1; }
+    [ "$head" = "$after" ] || { printf 'head changed during observation\n' > "$TMP/forge.err"; return 1; }
     jq -n --slurpfile core "$TMP/core.json" --slurpfile comments "$TMP/comments.json" \
       --slurpfile reviews "$TMP/reviews.json" --slurpfile inline "$TMP/inline.json" --slurpfile after "$TMP/after.json" --slurpfile checks "$TMP/checks.json" \
       --slurpfile statuses "$TMP/statuses.json" --slurpfile repo "$TMP/repo.json" '
@@ -381,7 +362,7 @@ settle_final() { # canonical-url task... : copy the URL's final observation to e
 }
 
 poll() {
-  local task url old kind error observed starved advice progressed=0
+  local task url old kind error observed
   local -a row
   acquire
   get_input
@@ -414,21 +395,15 @@ poll() {
     [ $((DEADLINE - $(date +%s))) -ge "$OBSERVATION_RESERVE" ] || break
     url=${row[0]}
     observed=0
-    starved=0
-    case "$url" in */issues/*) kind=issue ;; *) kind="pr" ;; esac
     observe "$url" || observed=$?
     [ "$BUDGET_EXHAUSTED" -eq 0 ] || continue
     # Wake once per failure episode: only when no owner has a prior error.
     if [ "$observed" -ne 0 ] && jq -ne --slurpfile saved "$TMP/saved.json" --arg url "$url" --args \
       'all($ARGS.positional[] as $task | [$saved[0][] | select(.task == $task) | .records[] | select(.url == $url)] | first;
         .error == null)' "${row[@]:1}" >/dev/null; then
-      if [ "$starved" -eq 0 ]; then
-        printf 'contributions: observation unavailable for %s: %s\n' "$url" "$FAIL_REASON"
-      else
-        printf 'contributions: observation needs more than the %ss poll budget for %s; %s\n' \
-          "$BUDGET" "$url" "$advice"
-      fi
+      printf 'contributions: observation unavailable for %s\n' "$url"
     fi
+    case "$url" in */issues/*) kind=issue ;; *) kind="pr" ;; esac
     for task in "${row[@]:1}"; do
       fm_pr_task_id_valid "$task" || { printf 'contributions: invalid durable task id\n'; continue; }
       old="$TMP/old.json"
@@ -446,11 +421,7 @@ poll() {
             seen:($events | map(.token)),
             pending:(($old.pending // []) + [$events[] | select(.token as $t | ($old.seen // [] | index($t)) == null)] | unique_by(.token))}' > "$TMP/row.json"
       else
-        if [ "$starved" -eq 0 ]; then
-          error="forge observation unavailable: $FAIL_REASON"
-        else
-          error="forge observation needs more than the ${BUDGET}s poll budget; ${advice}"
-        fi
+        error='forge observation unavailable or changed during read'
         jq --arg now "$NOW" --arg error "$error" '.checked_at=$now | .error=$error' "$old" > "$TMP/row.json"
       fi
       write_record "$task" "$TMP/row.json"

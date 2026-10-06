@@ -339,18 +339,12 @@ fm_tasks_axi_timeout_expired() {  # <status>
   fm_timed_out "$1"
 }
 
-fm_run_bounded() {  # <bound-seconds-or-empty> <command> [arg...]
-  local bound=$1
-  shift
+fm_tasks_axi() {
+  local bound=${FM_TASKS_AXI_TIMEOUT:-}
   if [ -z "$bound" ]; then
-    exec "$@"
+    exec tasks-axi "$@"
   fi
   fm_exec_timed "$bound" "$bound" tasks-axi "$@"
-}
-
-# The tasks-axi-shaped wrapper the backlog paths call.
-fm_tasks_axi() {
-  fm_run_bounded "${FM_TASKS_AXI_TIMEOUT:-}" tasks-axi "$@"
 }
 
 # Print one row's `tasks-axi show` output (plus stderr) from the addressing
@@ -456,7 +450,7 @@ fm_backlog_row_probe() {  # <data-dir> <id>
     else
       FM_BACKLOG_ROW_ERROR=$(printf '%s\n' "$out" | sed -n '1p')
       if [ -z "$FM_BACKLOG_ROW_ERROR" ]; then
-        if fm_run_bounded_timed_out "$command_status" && [ -n "${FM_TASKS_AXI_TIMEOUT:-}" ]; then
+        if fm_tasks_axi_timeout_expired "$command_status" && [ -n "${FM_TASKS_AXI_TIMEOUT:-}" ]; then
           FM_BACKLOG_ROW_ERROR="tasks-axi show $id did not finish within ${FM_TASKS_AXI_TIMEOUT}s"
         else
           FM_BACKLOG_ROW_ERROR="tasks-axi show $id failed with no output"
@@ -509,7 +503,7 @@ fm_backlog_mutate() {  # <data-dir> <verb> <id> [flag...]
   [ "$command_status" -ne 0 ] || return 0
   FM_BACKLOG_TRANSITION_ERROR=$(printf '%s\n' "$out" | sed -n '1p')
   if [ -z "$FM_BACKLOG_TRANSITION_ERROR" ]; then
-    if fm_run_bounded_timed_out "$command_status" && [ -n "${FM_TASKS_AXI_TIMEOUT:-}" ]; then
+    if fm_tasks_axi_timeout_expired "$command_status" && [ -n "${FM_TASKS_AXI_TIMEOUT:-}" ]; then
       FM_BACKLOG_TRANSITION_ERROR="tasks-axi $verb $id did not finish within ${FM_TASKS_AXI_TIMEOUT}s"
     else
       FM_BACKLOG_TRANSITION_ERROR="tasks-axi $verb $id failed with no output"

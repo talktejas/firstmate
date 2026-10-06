@@ -62,6 +62,28 @@ A forge composes with `no-mistakes`, `direct-PR`, and `no-mistakes-prod-only`, a
 `yolo` is inactive on a `forge=gerrit` project, so never propose `+yolo` alongside it.
 `bin/fm-project-mode.sh`'s header owns the binding and `bin/fm-dod-lib.sh` owns what it changes for a worker.
 
+## Development branch
+
+Ask the captain which branch the project is developed on at every add and every create, before the clone is registered.
+The remote's default branch is a proposal, not the answer: most of the captain's projects develop off it, and inferring silently is how a project ends up with no branch recorded at all.
+State the inferred default as the proposed answer and take his correction.
+
+Store the answer IN THE PROJECT REPOSITORY, in a `.firstmate-base` file at its root holding that one branch name:
+
+```sh
+echo develop > .firstmate-base
+```
+
+A value kept only in this home's `data/projects.md` tells no other home anything, which is exactly how a second mate that owns a project found its base unset.
+The committed file is read by every home that clones the project, including one with no registry entry for it yet.
+`bin/fm-project-base.sh` owns the resolution order and reads the file from whichever branch carries it.
+
+Firstmate never writes that file itself, because `AGENTS.md` hard rule 1 forbids writing to a project.
+For a project firstmate creates, write and commit it as part of that project's initial local content, which the captain's creation request authorizes.
+For a project firstmate clones, record the branch as `base=` in the registry entry so dispatch is correct immediately, and land `.firstmate-base` through the project's own delivery path as its own small task.
+
+The resolved branch is the project's standing base, so never redirect one effort by editing it: `bin/fm-spawn.sh --base-branch <branch>` names the base for a single task.
+
 ## Add or clone an existing project
 
 Confirm the source URL, local project name, delivery posture, autonomy posture, and development branch, stating the resolved default for each rather than asking the captain to invent one.

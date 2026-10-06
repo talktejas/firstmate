@@ -605,20 +605,6 @@ status_event_recorded() {  # <status-file> <new-status-line>
 # number of "[name=value]" tags before the colon, in any order, so verb parsing
 # ends at the first tag rather than special-casing "[key=...]".
 #
-# Note-head timestamp. A worker append also carries the UTC moment it was
-# written as a complete "[YYYY-MM-DDTHH:MM:SSZ]" bracket at the head of the
-# note (bin/fm-brief.sh instructs every worker to put it first), which is the
-# only honest record of how long that line has been waiting - the status
-# file's mtime is only ever its newest append. It is accepted on either side
-# of a note-head key token, so both of these state the same key, the same note
-# and the same timestamp:
-#   needs-decision: [2026-09-21T10:00:00Z] [key=api-shape] <summary>
-#   needs-decision: [key=api-shape] [2026-09-21T10:00:00Z] <summary>
-# status_line_timestamp reads it and status_line_note strips it, so it is key
-# metadata rather than note text. A pre-timestamp line simply has no bracket
-# and reads as an empty timestamp, never as malformed: every status log
-# written before this convention keeps parsing unchanged.
-#
 # Correlation tokens. That bracket rule already covers every BRACKETED tag,
 # including the "[corr=<16 hex>]" form bin/fm-secondmate-report.sh writes. It
 # does not cover the UNBRACKETED token that bin/fm-pending-reply-lib.sh writes
@@ -710,6 +696,23 @@ _fm_key_before_colon() {  # <status-line>
     *) return 1 ;;
   esac
 }
+# Raw slug of a complete "[key=<slug>]" token at the head of the note (the
+# first thing after the line's first colon, ignoring whitespace). Fails when
+# the line has no colon or no complete token there; slug charset validity is
+# the caller's check via _fm_decision_slug_ok, exactly as for the before-colon
+# position.
+_fm_key_at_note_head() {  # <status-line> -> raw slug
+  local rest
+  case "$1" in
+    *:*) rest=${1#*:} ;;
+    *) return 1 ;;
+  esac
+  rest=${rest#"${rest%%[![:space:]]*}"}
+  case "$rest" in
+    \[key=*\]*) rest=${rest#\[key=}; printf '%s' "${rest%%\]*}" ;;
+    *) return 1 ;;
+  esac
+}
 # 0 when a stated key slug is well-formed: nonempty, A-Za-z0-9._- only.
 _fm_decision_slug_ok() {  # <slug>
   case "$1" in
@@ -728,37 +731,6 @@ status_line_note() {  # <status-line> -> text after the first colon, trimmed
     *:*) n=${unstamped#*:}; n=${n#"${n%%[![:space:]]*}"} ;;
     *) printf '%s' "$unstamped"; return 0 ;;
   esac
-}
-# Raw slug of a complete "[key=<slug>]" token at the head of the note (the
-# first thing after the line's first colon, ignoring whitespace, and ignoring
-# a timestamp bracket that may sit ahead of it). Fails when the line has no
-# colon or no complete token there; slug charset validity is the caller's
-# check via _fm_decision_slug_ok, exactly as for the before-colon position.
-_fm_key_at_note_head() {  # <status-line> -> raw slug
-  local _fm_rest _fm_ts
-  case "$1" in
-    *:*) _fm_rest=${1#*:} ;;
-    *) return 1 ;;
-  esac
-  _fm_rest=${_fm_rest#"${_fm_rest%%[![:space:]]*}"}
-  _fm_ts_split_head "$_fm_rest" _fm_ts _fm_rest
-  case "$_fm_rest" in
-    \[key=*\]*) _fm_rest=${_fm_rest#\[key=}; printf '%s' "${_fm_rest%%\]*}" ;;
-    *) return 1 ;;
-  esac
-}
-# Split a status line into the timestamp its note carries and the note text
-# itself: everything after the first colon, trimmed, with the timestamp
-# bracket and a note-head "[key=...]" token (see status_line_note) removed in
-# either order. The ONE place both note and timestamp are derived, assigned to
-# out-variables so the fold pays no subshell per line.
-_fm_note_split() {  # <status-line> <ts-outvar> <note-outvar>
-  local _fm_n _fm_k _fm_ts=''
-  case "$1" in
-    *:*) _fm_n=${1#*:}; _fm_n=${_fm_n#"${_fm_n%%[![:space:]]*}"} ;;
-    *) _fm_ts_split_head "$1" "$2" "$3"; return 0 ;;
-  esac
-  _fm_ts_split_head "$_fm_n" _fm_ts _fm_n
   # A note-head token that states this line's key (no before-colon token, valid
   # slug) is key metadata, not note text: strip it so both stated-key positions
   # yield the same note.

@@ -116,6 +116,16 @@
 # Scaffolds carry no role scope: fm-spawn.sh supplies fm_brief_worker_role from
 # fm-dod-lib.sh to every ship/scout launch brief, so this file never becomes a
 # second owner of a contract that must stay current across relaunches.
+# Every ship and scout brief opens with a "# Before you write any code" section,
+# ahead of `# Task`, requiring the worker to study and name what already exists
+# for the area, extend it instead of duplicating it, check for other in-progress
+# branches touching the same area, and reuse existing patterns and configuration.
+# This is a standing instruction, not task-specific: it exists because the
+# captain repeatedly rejected work that rebuilt from zero instead of extending
+# what the repository already had, and it must reach every worker unconditionally
+# rather than depend on being copied into each brief by hand. It survives
+# fm-promote.sh promotion because promotion republishes the scout brief's own
+# bytes before appending the ship-time contract.
 # A home may carry standing worker instructions without editing this tracked
 # script: when config/brief-include.md exists under the active home, ship and
 # scout scaffolds append its text verbatim as their last section, "# Home brief
@@ -556,6 +566,22 @@ IFS= read -r -d '' TASK_SECTION <<'EOF' || true
 EOF
 TASK_SECTION=${TASK_SECTION%$'\n'}
 
+# The captain has repeatedly rejected work that rebuilt from zero instead of
+# studying and extending what the repository already has (captain 2026-09-24:
+# study and extend the existing code, never rebuild it). That rule used to live only in
+# firstmate's own notes and had to be copied into each brief by hand, so it
+# kept being forgotten; it is now part of every generated brief instead.
+IFS= read -r -d '' STUDY_SECTION <<'EOF' || true
+# Before you write any code
+1. Find and read what already exists for this area in this repository: the services, screens, tables, settings and tests that already do part of this job. Name them in your first status line.
+2. Say what you will EXTEND. Creating a second implementation of something that already exists is a failure, not a choice: if you find yourself about to write one, stop and report it instead.
+3. Check which branch already carries work for this area (feature/*, integration/*) and say whether your base is the right one. If work for this area lives on another branch, stop and report before building.
+4. Reuse the project's existing patterns, helpers and configuration mechanism rather than inventing a parallel one.
+EOF
+STUDY_SECTION=${STUDY_SECTION%$'\n'}
+# Nothing is added unless the project is opted in to the advisory search.
+STUDY_SECTION+=$(fm_brief_exists_search_step "$FM_HOME" "$REPO" "$KIND")
+
 # One shared string keeps the ship and scout infrastructure rule identical.
 # Rule 2 governs file edits, so it does not prohibit pool administration.
 # The secondmate charter deliberately omits this rule because a secondmate
@@ -670,7 +696,7 @@ case "$MODE" in
     ;;
 esac
 RULE1=$(fm_ship_rule_one "$MODE" "$ID" "$BRANCH" "$FORGE" "$BASE_BRANCH") || exit 1
-DOD=$(fm_dod_block "$MODE" "$ID" "$BRANCH" "$FORGE" "$BASE_BRANCH") || exit 1
+DOD=$(fm_dod_block "$MODE" "$ID" "$BRANCH" "$FORGE" "$BASE_BRANCH" "$FM_HOME" "$REPO") || exit 1
 
 cat > "$BRIEF" <<EOF
 You are a crewmate: an autonomous worker agent managed by firstmate. Work on your own; do not wait for a human.
