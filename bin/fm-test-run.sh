@@ -400,7 +400,7 @@ family_for_basename() {
     fm-branch-supervision.test.sh|fm-busy-adapter-wiring.test.sh|\
     fm-busy-state.test.sh|fm-classify-corr-token.test.sh|\
     fm-claude-stop-autoarm.test.sh|fm-cursor-harness.test.sh|\
-    fm-dispatch-resolve.test.sh|fm-house-rules-check.test.sh|\
+    fm-dispatch-resolve.test.sh|fm-house-rules-check.test.sh|fm-exists-search.test.sh|\
     fm-finished-check.test.sh|fm-finding-sort.test.sh|fm-commit-check.test.sh|\
     fm-extension-binding.test.sh|fm-gitignore-config.test.sh|\
     fm-no-mistakes-required.test.sh|fm-peek-remote.test.sh|\
@@ -1459,7 +1459,9 @@ families_for_changed_path() {
       # The one Jev caller, sourced by bin/fm-dispatch-resolve.sh, the watcher's
       # routine-wake triage, bin/fm-house-rules-check.sh, the worker stop
       # hook's finished check, the review finding sort, the pull request risk
-      # level, the failed check sort, and the worker commit check.
+      # level, the failed check sort, the worker commit check, and
+      # bin/fm-exists-search.sh.
+      printf '%s\n' "__script__:fm-exists-search.test.sh"
       printf '%s\n' "__script__:fm-pr-state.test.sh"
       printf '%s\n' "__script__:fm-dispatch-resolve.test.sh"
       printf '%s\n' "__script__:fm-jev-wake-triage.test.sh"
@@ -1478,7 +1480,12 @@ families_for_changed_path() {
       printf '%s\n' "__script__:fm-pr-state.test.sh"
       ;;
     bin/fm-house-rules-check.sh)
+      # bin/fm-exists-search.sh sources it for the skipped paths and the base.
       printf '%s\n' "__script__:fm-house-rules-check.test.sh"
+      printf '%s\n' "__script__:fm-exists-search.test.sh"
+      ;;
+    bin/fm-exists-search.sh)
+      printf '%s\n' "__script__:fm-exists-search.test.sh"
       ;;
     bin/fm-commit-check.sh)
       printf '%s\n' "__script__:fm-commit-check.test.sh"
