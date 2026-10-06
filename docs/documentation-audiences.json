@@ -545,6 +545,10 @@
       "audience": "maintainer-verification"
     },
     {
+      "path": "docs/verification/worker-health.md",
+      "audience": "maintainer-verification"
+    },
+    {
       "path": "docs/voice-relay.md",
       "audience": "operator-current"
     },

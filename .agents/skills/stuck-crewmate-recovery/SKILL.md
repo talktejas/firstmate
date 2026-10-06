@@ -61,6 +61,10 @@ Only positive socket refusal or absence is a daemon-down finding; escalate that 
 
 ## Live-endpoint escalation
 
+Before step 1, run `bin/fm-worker-health.sh <task-id>`.
+It prints the task's `bin/fm-crew-state.sh` line and, only in a home that has opted in ([`docs/configuration.md`](../../../docs/configuration.md) "Worker health"), may add one `health:` line: `working`, `stuck`, `waiting`, or `finished`.
+That line is advice about where to look first, never a finding: step 1's own reading still decides, and a health line alone neither authorizes an interrupt, a relaunch, or a failure report nor lets a step below be skipped.
+
 Escalate in order:
 
 1. Peek the pane, and check the task's steering inbox (`state/<id>.inbox/`) for unhandled `*.msg` records - a stale wake naming an unread firstmate instruction means the worker never acknowledged a durable steer, and the record itself shows exactly what was intended.

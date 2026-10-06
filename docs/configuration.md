@@ -530,6 +530,31 @@ Firstmate runs it at intake and still resolves the project and the owner itself 
 The script is one shell command firstmate runs in its own home, so it behaves the same on every supported primary harness and runtime backend and for local or remote second mates; it needs `jq`, `curl`, and outbound network, and a home that lacks any of them resolves by hand.
 `bin/fm-intake-route.sh`'s header owns the exact bounds, questions, and output, `bin/fm-project-mode.sh`'s header owns the registry format, `bin/fm-jev-lib.sh` owns the request, the answer validation, and the key handling, and [`verification/intake-route.md`](verification/intake-route.md) records the live evidence.
 
+## Worker health (.env TYPESAFE_API_KEY)
+
+`bin/fm-worker-health.sh <task-id>` prints a task's deterministic current state and, when that read alone cannot tell, asks typesafe.ai's System One model (Jev) whether the worker is working, stuck, waiting, or finished, so a worker that has stopped is noticed at the first look instead of after a reading of its terminal.
+It is on when `TYPESAFE_API_KEY` is available under the same environment-then-`.env` contract as [typed dispatch resolution](#typed-dispatch-resolution-env-typesafe_api_key), and off otherwise.
+The key alone is the whole opt-in, because no project code, file list, or diff is sent and [`config/jev-code-projects`](#jev-code-projects-configjev-code-projects) is therefore not consulted.
+
+Code decides every fact before the call.
+The script runs `bin/fm-crew-state.sh <task-id>` and prints that one line unchanged on every run, so without the key its output is that line alone.
+The model is asked only when that line's source is `pane` or `status-log`, the two fallbacks used when no validation run speaks for the task, and only for a local ship or scout task.
+A read that comes from a validation run, a gone or unreachable endpoint, a remote endpoint, and a secondmate, whose idle endpoint is healthy, are never asked about.
+
+One request then carries one question with four fixed choices: `working`, `stuck`, `waiting`, or `finished`.
+An answer whose confidence reaches the shared 0.6 floor adds one line, `health: <choice> (confidence <c>, advice only)`; a low-confidence answer, a timeout, a transport or API error, a malformed answer, and a missing key add nothing.
+
+That request sends the crew-state line, the task's kind, the newest six lines of the task's status log, how many whole minutes ago the status log, the turn-end marker, and the progress marker last changed, and the count and oldest age of unacknowledged steering messages, and nothing else: no terminal content, nothing a worker typed in its shell, no steering message text, no part of the brief, and no file of the project.
+A status line over 400 characters keeps its head and its end.
+
+The health line is advice only.
+Firstmate runs the script at the start of the live-endpoint escalation in [`stuck-crewmate-recovery`](../.agents/skills/stuck-crewmate-recovery/SKILL.md), which owns what a printed line means; a worker never runs it.
+The script exits 0 on every outcome except a usage error (exit 2), steers, interrupts, and relaunches nothing, and writes no record, so a failure leaves the recovery exactly as it is without the feature.
+Nothing runs it automatically: the watcher, the fleet view, and `bin/fm-crew-state.sh` itself are unchanged.
+
+The script is one shell command firstmate runs in its own home over `bin/fm-crew-state.sh`, which already covers every supported worker harness and runtime backend, so it behaves the same on each of them and on every supported primary harness; it needs `jq`, `curl`, and outbound network, and a home that lacks any of them gets the crew-state line alone.
+`bin/fm-worker-health.sh`'s header owns the exact gates, bounds, question, and output, `bin/fm-jev-lib.sh` owns the request, the answer validation, the key handling, and the credential-line filter, and [`verification/worker-health.md`](verification/worker-health.md) records the live evidence.
+
 ## Gate defaults (.no-mistakes.yaml)
 
 The tracked `.no-mistakes.yaml` sets `test.evidence.store_in_repo: true` and pins `commands.lint` to `bin/fm-lint.sh`, the same owner CI invokes.
@@ -834,8 +859,8 @@ The tool never replaces firstmate's judgment, `quota-array-dispatch`, the captai
 By accepted design, a `clear` result does not enforce catalog/authentication, reasoning-class, or completion-runway gates.
 Firstmate passes its profile line unless it states a reason to override, such as the brief's reasoning class or an eligible-unranked-candidate note; every non-clear result returns to the full existing intake.
 
-The resolver, the watcher, the house-rules check, the finished check, the review finding sort, the pull request registration, the failed check sort, the commit check, the escalation screen, the helper model pick, intake routing, and bootstrap copy an environment-provided key into a non-exported private variable and unset `TYPESAFE_API_KEY` before launching child processes, so the secret is absent from child environments.
-`bin/fm-jev-lib.sh` is the single owner of the Jev request, the answer validation, and that key handling for the resolver, for [routine-wake triage](#routine-wake-triage-env-typesafe_api_key), for the [house-rules check](#house-rules-check-env-typesafe_api_key-confighouse-rulesjson), for the [finished check](#finished-check-env-typesafe_api_key), for the [review finding sort](#review-finding-sort-env-typesafe_api_key-configjev-code-projects), for the [pull request risk level](#pull-request-risk-level-env-typesafe_api_key), for the [failed check sort](#failed-check-sort-env-typesafe_api_key-configjev-code-projects), for the [commit check](#commit-check-env-typesafe_api_key-configjev-code-projects), for the [escalation screen](#escalation-screen-env-typesafe_api_key), for the [helper model pick](#helper-model-pick-env-typesafe_api_key-configjev-code-projects), and for [intake routing](#intake-routing-env-typesafe_api_key); it sends the key to `curl` only as a header read from a file descriptor, never on argv, and nothing prints, logs, or writes it.
+The resolver, the watcher, the house-rules check, the finished check, the review finding sort, the pull request registration, the failed check sort, the commit check, the escalation screen, the helper model pick, intake routing, the worker health line, and bootstrap copy an environment-provided key into a non-exported private variable and unset `TYPESAFE_API_KEY` before launching child processes, so the secret is absent from child environments.
+`bin/fm-jev-lib.sh` is the single owner of the Jev request, the answer validation, and that key handling for the resolver, for [routine-wake triage](#routine-wake-triage-env-typesafe_api_key), for the [house-rules check](#house-rules-check-env-typesafe_api_key-confighouse-rulesjson), for the [finished check](#finished-check-env-typesafe_api_key), for the [review finding sort](#review-finding-sort-env-typesafe_api_key-configjev-code-projects), for the [pull request risk level](#pull-request-risk-level-env-typesafe_api_key), for the [failed check sort](#failed-check-sort-env-typesafe_api_key-configjev-code-projects), for the [commit check](#commit-check-env-typesafe_api_key-configjev-code-projects), for the [escalation screen](#escalation-screen-env-typesafe_api_key), for the [helper model pick](#helper-model-pick-env-typesafe_api_key-configjev-code-projects), for [intake routing](#intake-routing-env-typesafe_api_key), and for the [worker health line](#worker-health-env-typesafe_api_key); it sends the key to `curl` only as a header read from a file descriptor, never on argv, and nothing prints, logs, or writes it.
 It fixes the endpoint at `https://api.typesafe.ai`, model at `jev-latest`, confidence floor at 0.6, and request timeout at 5 seconds; `TYPESAFE_API_KEY` is the resolver's only resolver-specific environment setting.
 The live rule-match evidence is recorded in [`verification/dispatch-resolve.md`](verification/dispatch-resolve.md).
 
@@ -1426,7 +1451,7 @@ FMX_RELAY_URL=https://myfirstmate.io   # optional Relay endpoint override, mainl
 FMX_ENV_FILE=           # optional alternate .env file for direct Relay client invocations; bootstrap still checks $FM_HOME/.env
 FMX_DRY_RUN=            # truthy previews Relay replies and dismissals to state/x-outbox/ without posting or requiring a token
 FMX_X_REPLY_MAX_CHARS=280   # X reply per-message split budget; values below 50 clamp to 50
-TYPESAFE_API_KEY=       # typed dispatch resolution opt-in, from the environment or .env; absent means bin/fm-dispatch-resolve.sh is off (docs/configuration.md "Typed dispatch resolution"), and so are routine-wake triage, the escalation screen, intake routing (bin/fm-intake-route.sh), the finished check, the pull request risk level, the failed check sort, the house-rules check, the review finding sort, the commit check, and the helper model pick, the last six sending a project's code or text only for a project listed in config/jev-code-projects
+TYPESAFE_API_KEY=       # typed dispatch resolution opt-in, from the environment or .env; absent means bin/fm-dispatch-resolve.sh is off (docs/configuration.md "Typed dispatch resolution"), and so are routine-wake triage, the escalation screen, intake routing (bin/fm-intake-route.sh), the worker health line, the finished check, the pull request risk level, the failed check sort, the house-rules check, the review finding sort, the commit check, and the helper model pick, the last six sending a project's code or text only for a project listed in config/jev-code-projects
 FMX_DISCORD_REPLY_MAX_CHARS=1900   # Discord reply per-message split budget; values below 50 clamp to 50, values above 2000 reset to 1900
 FMX_X_THREAD_MAX=25     # maximum messages in one auto-split reply thread
 FMX_FOLLOWUP_MAX_AGE_SECS=604800   # local window for posting Relay completion follow-ups (7 days)
