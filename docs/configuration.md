@@ -517,6 +517,7 @@ A `mechanical` answer whose confidence and probability are both at or above the 
 
 Code decides first, and then nothing is asked or sent: when the worker named a model for the helper, and when the helper type is not one that inherits the worker's model (only the general-purpose helper types do; every other type carries its own model, and a fork ignores the field).
 A worker launched on a sonnet or haiku model gets no hook at all, because there is nothing cheaper worth moving to.
+A worker launched with no model named gets none either, because the account's default model is not known to be a stronger one, so the pick only ever lowers a helper's model and never raises it.
 Without the key, or for a project that is not listed, the worker's settings file is written exactly as it is without this feature.
 A project taken off the list after a worker was launched is no longer asked about by that worker's hook.
 

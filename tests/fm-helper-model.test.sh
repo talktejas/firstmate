@@ -7,7 +7,7 @@
 #     library boundary, so every gate is asserted by whether a question was
 #     asked at all, what was sent, what the hook prints, and what is recorded;
 #   - bin/fm-spawn.sh on a fake tmux, proving the worker's settings file gains
-#     the hook only with a key, a listed project, and a strong worker model,
+#     the hook only with a key, a listed project, and a named strong worker model,
 #     and that the command it holds works as written, with the real library
 #     and a fake curl.
 # Every case runs against a fixture home, so no real key can load.
@@ -126,7 +126,7 @@ pass "a long prompt is sent as its end and handed on whole"
 "$PICK" --enabled "$HOME_ON" listed claude-sonnet-5-5; expect_code 1 $? "a worker already on sonnet: off"
 "$PICK" --enabled "$HOME_ON" listed haiku; expect_code 1 $? "a worker already on haiku: off"
 "$PICK" --enabled "$HOME_ON" listed opus; expect_code 0 $? "key, listed project, strong worker: on"
-"$PICK" --enabled "$HOME_ON" listed ''; expect_code 0 $? "the account default model counts as strong"
+"$PICK" --enabled "$HOME_ON" listed ''; expect_code 1 $? "no model named: off, so the pick can never raise a helper"
 pass "--enabled: key, listed project, and a worker model worth lowering from"
 
 # --- layer 2: what bin/fm-spawn.sh writes for the worker ----------------------
@@ -172,7 +172,9 @@ assert_equals "$nokey" "$(spawn_settings nolist "$HOME_KEY")" \
   "a key without the project listed writes exactly the keyless settings"
 assert_equals "$nokey" "$(spawn_settings cheap "$HOME_ON" --model sonnet)" \
   "a worker already on a cheaper model gets exactly the keyless settings"
-on=$(spawn_settings on "$HOME_ON")
+assert_equals "$nokey" "$(spawn_settings default "$HOME_ON")" \
+  "a worker launched with no model named gets exactly the keyless settings"
+on=$(spawn_settings on "$HOME_ON" --model opus)
 assert_equals 'Agent|Task' "$(jq -r '.hooks.PreToolUse[0].matcher' <<<"$on")" "the hook fires only for the helper-agent tool"
 assert_equals "$(jq -cS . <<<"$nokey")" "$(jq -cS 'del(.hooks.PreToolUse)' <<<"$on")" "every other hook is unchanged"
 

@@ -4035,8 +4035,8 @@ if [ "$KIND" != secondmate ]; then
     j_stopfail=$(json_escape "$busy_cmd_prefix idle $busy_suffix --event stop-failure 2>/dev/null || true")
     j_sessionend=$(json_escape "$busy_cmd_prefix idle $busy_suffix --event session-end 2>/dev/null || true")
     # The helper model pick (bin/fm-helper-model.sh): only with a key, a project
-    # listed in config/jev-code-projects, and a worker not already on a cheaper
-    # model does a ship or scout get the PreToolUse entry; otherwise the file
+    # listed in config/jev-code-projects, and a worker launched on a named
+    # stronger model does a ship or scout get the PreToolUse entry; otherwise the file
     # is written exactly as before.
     j_pretool=
     if { [ "$KIND" = ship ] || [ "$KIND" = scout ]; } \

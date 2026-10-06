@@ -11,9 +11,10 @@
 # --enabled is run by bin/fm-spawn.sh for a ship or scout launch on Claude. It
 #   exits 0 only with a key (environment, then <home>/.env; bin/fm-jev-lib.sh
 #   owns the key handling and the one Jev request), a <project> that
-#   fm_jev_code_allowed finds in <home>/config/jev-code-projects, and a
+#   fm_jev_code_allowed finds in <home>/config/jev-code-projects, and a named
 #   <worker-model> that is not already a sonnet or haiku model (empty means the
-#   account default and counts as strong). Spawn adds the PreToolUse hook to
+#   account default, which is not known to be a stronger model, so it is left
+#   alone and the pick can never raise a helper). Spawn adds the PreToolUse hook to
 #   the worker's .claude/settings.local.json only then, so every other launch
 #   writes the bytes it writes without this script.
 #
@@ -75,7 +76,7 @@ fm_hm_usage() {
 fm_helper_model_enabled() {  # <home> <project> <worker-model>
   fm_jev_key_load "$1" || return 1
   FM_HOME=$1 fm_jev_code_allowed "$2" || return 1
-  case "$3" in *sonnet* | *haiku*) return 1 ;; esac
+  case "$3" in '' | *sonnet* | *haiku*) return 1 ;; esac
   return 0
 }
 
