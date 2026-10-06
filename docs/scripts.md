@@ -83,9 +83,9 @@ The shared no-mistakes gate lifecycle boundary is summarized in [architecture.md
 | `backends/cmux.sh`       | Experimental cmux session-provider adapter                                           |
 | `fm-config-push.sh`      | Push declared inherited local material to live local or remote secondmates and send the placement-specific config reread when changed |
 | `fm-project-mode.sh`     | Resolve a project's registered delivery posture, forge binding, or ship-branch prefix from `data/projects.md` for fleet sync, home seeding, and the forge agreement a ship spawn or scout promotion applies, plus the legacy `base=` fallback tier that `fm-project-base.sh` consults and the `--list` of unfinished entries that `fm-intake-route.sh` offers |
-| `fm-project-base.sh`     | Resolve a project's development branch from its committed `.firstmate-base`, falling back to the registry record, for spawns, fleet sync, local landing, and teardown |
+| `fm-project-base.sh`     | Resolve a project's development branch from its committed `.firstmate-base`, falling back to the registry record, as the default `--base-branch` for briefs and spawns and the branch fleet sync tracks |
 | `fm-forge-detect.sh`     | Propose a clone's forge binding from its origin remote for project-add intake, never recording it |
-| `fm-merge-local.sh`      | Fast-forward a `local-only` project's local development branch after approval        |
+| `fm-merge-local.sh`      | Fast-forward a `local-only` project's local default branch after approval            |
 | `fm-review-diff.sh`      | Review a crewmate branch or resolved PR head against the authoritative base          |
 | `fm-marker-lib.sh`       | Compatibility entry point for the from-firstmate carrier owned by `fm-operational-input.sh` |
 | `fm-task-inbox-lib.sh`   | Single owner of durable steering-inbox records, acknowledgement, doorbells, and the delivery-attempt ladder |

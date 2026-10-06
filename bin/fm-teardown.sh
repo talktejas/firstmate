@@ -1932,11 +1932,7 @@ validate_worktree_teardown_safety() {
   unpushed=$(printf '%s\n' "$unpushed_raw" | head -5)
 
   if [ -n "$unpushed" ] && [ "$MODE" = local-only ]; then
-    # Landed means merged into the project's declared development branch
-    # (bin/fm-project-base.sh), which is where bin/fm-merge-local.sh lands it;
-    # absent a declaration, the repository default.
-    DEFAULT=$("$FM_ROOT/bin/fm-project-base.sh" "$PROJ" "$(basename "$PROJ")" 2>/dev/null || true)
-    [ -n "$DEFAULT" ] || DEFAULT=$(default_branch) || { echo "REFUSED: cannot determine default branch for $PROJ; expected origin/HEAD, main, or master." >&2; return 1; }
+    DEFAULT=$(default_branch) || { echo "REFUSED: cannot determine default branch for $PROJ; expected origin/HEAD, main, or master." >&2; return 1; }
     if ! unmerged_raw=$(git -C "$WT" log --oneline HEAD --not "$DEFAULT" -- 2>/dev/null); then
       if worktree_safety_blocked_by_lock "commits not on $DEFAULT"; then
         return "$TEARDOWN_WORKTREE_SAFETY_LOCK_BLOCKED"

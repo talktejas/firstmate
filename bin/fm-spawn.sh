@@ -3126,6 +3126,12 @@ if [ "$KIND" = ship ] || [ "$KIND" = scout ]; then
       fi
     fi
   fi
+  # A project's standing development branch (bin/fm-project-base.sh) is the
+  # default --base-branch; local-only takes no named base.
+  if [ "$RELAUNCH" -eq 0 ] && [ "$BASE_BRANCH_SET" -eq 0 ] && [ "$MODE" != local-only ]; then
+    BASE_BRANCH=$("$FM_ROOT/bin/fm-project-base.sh" "$PROJ_ABS" "$(basename "$PROJ_ABS")" 2>/dev/null || true)
+    [ -z "$BASE_BRANCH" ] || BASE_BRANCH_SET=1
+  fi
   if [ "$RELAUNCH" -eq 1 ]; then
     BASE_BRANCH=$(fm_meta_get "$RELAUNCH_META" base_branch)
   elif [ "$BASE_BRANCH_SET" -eq 1 ]; then
@@ -3427,7 +3433,7 @@ spawn_worktree_has_origin_config() { # <worktree>
 }
 
 freshen_spawn_worktree_base() { # <worktree> [<base-branch>]
-  local worktree=$1 base=${2:-} default target expected actual status base_source=explicit
+  local worktree=$1 base=${2:-} default target expected actual status
   status=$(git -C "$worktree" -c core.quotePath=false status --porcelain) || {
     echo "error: could not inspect pooled worktree '$worktree' before refreshing its base" >&2
     return 1
@@ -3454,40 +3460,22 @@ freshen_spawn_worktree_base() { # <worktree> [<base-branch>]
   if [ -n "$base" ]; then
     default=$base
   else
-    # A freshly allocated pool slot lands on the repo's DEFAULT branch, which is
-    # silently the wrong base for a project that develops elsewhere: a task once
-    # audited a tree 1036 commits behind origin/develop and correctly reported
-    # that nothing in its brief existed. Absent an explicit --base-branch,
-    # bin/fm-project-base.sh owns which branch the project declares; absent a
-    # declaration, the default stands.
-    default=$("$FM_ROOT/bin/fm-project-base.sh" "$worktree" "$(basename "$PROJ_ABS")" 2>/dev/null || true)
-    base_source=recorded
-    if [ -z "$default" ]; then
-      base_source=default
-      if ! git -C "$worktree" remote set-head origin --auto >/dev/null 2>&1; then
-        echo "error: could not resolve origin's current default branch for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
-        return 1
-      fi
-      default=$(default_branch "$worktree") || {
-        echo "error: could not determine origin's default branch for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
-        return 1
-      }
-    fi
-  fi
-  # origin/<branch> is the fetched truth for a shared clone. A local-only project
-  # inverts that: it lands with bin/fm-merge-local.sh, which fast-forwards the
-  # LOCAL branch and never pushes, so there origin/<branch> is the stale one.
-  if [ "$MODE" = local-only ]; then
-    target=$default
-  else
-    target="origin/$default"
-    if ! git -C "$worktree" fetch --quiet origin "+refs/heads/$default:refs/remotes/origin/$default"; then
-      echo "error: could not fetch $base_source base '$target' for pooled worktree '$worktree'; refusing to launch rather than falling back to another base" >&2
+    if ! git -C "$worktree" remote set-head origin --auto >/dev/null 2>&1; then
+      echo "error: could not resolve origin's current default branch for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
       return 1
     fi
+    default=$(default_branch "$worktree") || {
+      echo "error: could not determine origin's default branch for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
+      return 1
+    }
+  fi
+  target="origin/$default"
+  if ! git -C "$worktree" fetch --quiet origin "+refs/heads/$default:refs/remotes/origin/$default"; then
+    echo "error: could not fetch '$target' for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
+    return 1
   fi
   expected=$(git -C "$worktree" rev-parse --verify --quiet "$target^{commit}" 2>/dev/null) || {
-    echo "error: $base_source base '$target' is not a commit for pooled worktree '$worktree'; refusing to launch rather than falling back to another base" >&2
+    echo "error: '$target' is not a commit for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
     return 1
   }
   if ! git -C "$worktree" reset --hard "$target" >/dev/null; then
@@ -3496,7 +3484,7 @@ freshen_spawn_worktree_base() { # <worktree> [<base-branch>]
   fi
   actual=$(git -C "$worktree" rev-parse --verify --quiet HEAD 2>/dev/null || true)
   if [ "$actual" != "$expected" ]; then
-    echo "error: pooled worktree '$worktree' is at '${actual:-unknown}', not current $base_source base '$target' ('$expected'); refusing to launch" >&2
+    echo "error: pooled worktree '$worktree' is at '${actual:-unknown}', not current '$target' ('$expected'); refusing to launch" >&2
     return 1
   fi
 }

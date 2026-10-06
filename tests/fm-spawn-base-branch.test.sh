@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Regression test for fm-spawn.sh's task-worktree base branch
-# (bin/fm-spawn.sh's ensure_spawn_base_branch, bin/fm-project-mode.sh's base=).
+# Regression test for a project's standing development branch as the default
+# task base (bin/fm-project-base.sh, bin/fm-project-mode.sh's base=).
 #
 # A freshly allocated pool worktree lands on the repo's DEFAULT branch. For a
 # project that develops on another branch that is silently the wrong base: task
@@ -10,11 +10,12 @@
 #
 # The fixtures below build exactly that shape - a main-defaulted clone whose
 # work happens on develop, plus a cold worktree detached at main - and assert
-# the recorded base is checked out, an unconfirmable base is refused instead of
-# launched, and a project with no base= record still spawns as it does today.
+# the declared base is used exactly as if --base-branch had named it, an
+# unconfirmable base is refused instead of launched, a local-only task ignores
+# the declaration, and a project with no base= record spawns as it does today.
 #
-# A per-task base is upstream's --base-branch, covered by its own tests; these
-# cases cover the project's standing declaration only.
+# A per-task base is --base-branch, covered by its own tests; these cases cover
+# the project's standing declaration only.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -47,13 +48,14 @@ SH
   printf '%s\n' "$fakebin"
 }
 
-# make_base_case <name> <id> <primary-branch> [registry-line]: build a home plus
+# make_base_case <name> <id> <primary-branch> [registry-line] [brief-base]: build a home plus
 # a project clone whose default branch is main and whose develop branch is three
 # commits ahead, with a COLD worktree detached at main. <primary-branch> is the
 # branch the project clone itself sits on; a registry line is written only when
-# one is given (its absence is the unregistered-project case).
+# one is given (its absence is the unregistered-project case). <brief-base>
+# is the base the brief records, as bin/fm-brief.sh scaffolds it.
 make_base_case() {
-  local name=$1 id=$2 primary=$3 reg_line=${4:-}
+  local name=$1 id=$2 primary=$3 reg_line=${4:-} brief_base=${5:-}
   local case_dir home src bare proj wt fakebin
   case_dir="$TMP_ROOT/$name"
   home="$case_dir/home"
@@ -94,6 +96,11 @@ base branch regression fixture
 
 no build work; the spawn path itself is what is under test
 BRIEF
+  if [ -n "$brief_base" ]; then
+    printf '\n%s\nBase branch: %s\n' \
+      "You are in a disposable git worktree of $name, at a detached HEAD on a clean copy of its base branch." \
+      "$brief_base" >> "$home/data/$id/brief.md"
+  fi
   touch "$home/state/.last-watcher-beat"
   if [ -n "$reg_line" ]; then
     printf '# Projects\n%s\n' "$reg_line" > "$home/data/projects.md"
@@ -136,7 +143,7 @@ test_recorded_base_is_checked_out() {
   local rec id out status
   id="base-recorded-b1"
   rec=$(make_base_case base-recorded "$id" main \
-    '- base-recorded [no-mistakes base=develop] - develop-based (added 2026-07-28)')
+    '- base-recorded [no-mistakes base=develop] - develop-based (added 2026-07-28)' develop)
   read_base_record "$rec"
 
   out=$(run_base_spawn "$id")
@@ -144,7 +151,9 @@ test_recorded_base_is_checked_out() {
   expect_code 0 "$status" "spawn should succeed with a recorded base branch: $out"
   [ "$(head_sha "$WT_DIR")" = "$(git -C "$PROJ_DIR" rev-parse origin/develop)" ] \
     || fail "cold slot was not moved to the recorded base branch (HEAD $(head_sha "$WT_DIR"))"
-  pass "a cold slot for a develop-based project starts the worker on develop"
+  assert_grep "base_branch=develop" "$HOME_DIR/state/$id.meta" \
+    "the declared base was not recorded as the task's base branch"
+  pass "a cold slot for a develop-based project starts the worker on develop and records it"
 }
 
 # With no base record the repo default branch is the base, exactly as before:
@@ -205,7 +214,7 @@ test_missing_base_branch_is_refused() {
   local rec id out status
   id="base-typo-b5"
   rec=$(make_base_case base-typo "$id" main \
-    '- base-typo [no-mistakes base=develp] - typo in the base record (added 2026-07-28)')
+    '- base-typo [no-mistakes base=develp] - typo in the base record (added 2026-07-28)' develp)
   read_base_record "$rec"
 
   out=$(run_base_spawn "$id")
@@ -216,27 +225,58 @@ test_missing_base_branch_is_refused() {
   pass "a base= record naming a branch the repo does not have is refused"
 }
 
-# A local-only project lands work with bin/fm-merge-local.sh, which fast-forwards
-# the LOCAL default branch and never pushes, so origin/main is the stale ref
-# there and the worker must start from the local branch instead.
-test_local_only_prefers_local_branch() {
+# A local-only task takes no named base, so the declaration does not apply to
+# it: the worker starts from the default branch and no base is recorded.
+test_local_only_ignores_the_declared_base() {
   local rec id out status
   id="base-localonly-b6"
   rec=$(make_base_case base-localonly "$id" main \
-    '- base-localonly [local-only] - merged locally, never pushed (added 2026-07-28)')
+    '- base-localonly [local-only base=develop] - merged locally (added 2026-07-28)')
   read_base_record "$rec"
-  printf 'landed locally\n' > "$PROJ_DIR/landed.txt"
-  git -C "$PROJ_DIR" add landed.txt
-  git -C "$PROJ_DIR" commit -qm "landed locally"
 
   out=$(run_base_spawn "$id" local-only)
   status=$?
   expect_code 0 "$status" "a local-only project must still spawn: $out"
-  [ "$(head_sha "$WT_DIR")" = "$(git -C "$PROJ_DIR" rev-parse main)" ] \
-    || fail "local-only worker did not start from the local default branch (HEAD $(head_sha "$WT_DIR"))"
-  [ "$(head_sha "$WT_DIR")" != "$(git -C "$PROJ_DIR" rev-parse origin/main)" ] \
-    || fail "local-only worker started from the stale origin/main"
-  pass "a local-only project starts the worker from the local default branch"
+  [ "$(head_sha "$WT_DIR")" = "$(git -C "$PROJ_DIR" rev-parse origin/main)" ] \
+    || fail "local-only worker did not start from the default branch (HEAD $(head_sha "$WT_DIR"))"
+  assert_no_grep "base_branch=" "$HOME_DIR/state/$id.meta" \
+    "a local-only task recorded a base branch"
+  pass "a local-only task ignores the project's declared base"
+}
+
+# A brief that does not record the declared base is refused, exactly as one
+# that disagrees with an explicit --base-branch is.
+test_brief_without_the_declared_base_is_refused() {
+  local rec id out status
+  id="base-nobrief-b8"
+  rec=$(make_base_case base-nobrief "$id" main \
+    '- base-nobrief [no-mistakes base=develop] - develop-based (added 2026-07-28)')
+  read_base_record "$rec"
+
+  out=$(run_base_spawn "$id")
+  status=$?
+  [ "$status" -ne 0 ] || fail "a brief without the declared base should be refused: $out"
+  assert_contains "$out" "must record Base branch: develop" "refusal did not name the declared base"
+  pass "a brief that does not record the project's declared base is refused"
+}
+
+# bin/fm-brief.sh scaffolds the declared base into the brief with no flag, and
+# leaves a local-only brief without one.
+test_brief_scaffold_records_the_declared_base() {
+  local home out
+  home="$TMP_ROOT/brief/home"
+  mkdir -p "$home/data" "$home/state" "$home/config" "$home/projects/brief-proj"
+  printf '# Projects\n- brief-proj [no-mistakes base=develop] - x (added 2026-07-28)\n' > "$home/data/projects.md"
+
+  out=$(FM_ROOT_OVERRIDE='' FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-b9 brief-proj --mode no-mistakes 2>&1) \
+    || fail "scaffolding a brief for a declared-base project failed: $out"
+  assert_grep "Base branch: develop" "$home/data/brief-b9/brief.md" \
+    "the scaffolded brief did not record the declared base"
+  out=$(FM_ROOT_OVERRIDE='' FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-b10 brief-proj --mode local-only 2>&1) \
+    || fail "scaffolding a local-only brief for a declared-base project failed: $out"
+  assert_no_grep "Base branch:" "$home/data/brief-b10/brief.md" \
+    "a local-only brief recorded the declared base"
+  pass "a scaffolded brief records the project's declared base, except for local-only"
 }
 
 # A scout audits the same tree a ship would build on, so the recorded base must
@@ -246,7 +286,7 @@ test_scout_also_starts_from_the_recorded_base() {
   local rec id out status
   id="base-scout-b7"
   rec=$(make_base_case base-scout "$id" main \
-    '- base-scout [no-mistakes base=develop] - develop-based (added 2026-09-10)')
+    '- base-scout [no-mistakes base=develop] - develop-based (added 2026-09-10)' develop)
   read_base_record "$rec"
 
   out=$(run_base_spawn "$id" no-mistakes scout)
@@ -414,92 +454,6 @@ test_declaration_resolves_under_stock_bash() {
   pass "the resolver reads a declaration from an unchecked-out branch under stock /bin/bash"
 }
 
-# Precedence below the flag is unchanged: with no --base the registry still wins.
-test_registry_base_applies_without_the_flag() {
-  local rec id out status
-  id="base-noflag-b10"
-  rec=$(make_base_case base-noflag "$id" main \
-    '- base-noflag [no-mistakes base=develop] - develop-based (added 2026-09-17)')
-  read_base_record "$rec"
-
-  out=$(run_base_spawn "$id")
-  status=$?
-  expect_code 0 "$status" "a spawn with no --base should still use the registry: $out"
-  [ "$(head_sha "$WT_DIR")" = "$(git -C "$PROJ_DIR" rev-parse origin/develop)" ] \
-    || fail "the registry base stopped applying when --base was absent"
-  assert_no_grep "base=develop" "$HOME_DIR/state/$id.meta" \
-    "a spawn that named no base still recorded one, freezing its landing target"
-  pass "the registry base still applies when --base is absent"
-}
-
-# --- the recorded base governs landing and cleanup too ----------------------
-# Recording base= would be theatre if the landing path ignored it: a local-only
-# task dispatched against an integration branch would have bin/fm-merge-local.sh
-# fast-forward the project's STANDING branch over every commit the effort has
-# accumulated, which is precisely the one-merge-checked-as-a-whole rule the flag
-# exists to keep.
-# make_landing_case <name> <id> <branch-the-task-was-built-on> [base=<branch>]:
-# a local-only project with main plus an integration branch, a task worktree
-# holding one commit on top of <branch-the-task-was-built-on>, and the project
-# checkout left on that branch so the landing can fast-forward it. Extra args
-# are appended to the task's meta. Prints home|project|worktree.
-make_landing_case() {
-  local name=$1 id=$2 on=$3
-  shift 3
-  local dir home proj wt
-  dir="$TMP_ROOT/landing/$name"
-  home="$dir/home"
-  proj="$dir/projects/$name"
-  wt="$dir/projects/$id"
-  mkdir -p "$home/state" "$home/data" "$home/config" "$dir/projects"
-  fm_git_init_commit "$proj"
-  git -C "$proj" branch integration/x main
-  git -C "$proj" worktree add --quiet -b "fm/$id" "$wt" "$on"
-  printf 'effort work\n' > "$wt/effort.txt"
-  git -C "$wt" add effort.txt
-  git -C "$wt" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' \
-    commit -qm 'effort work'
-  git -C "$proj" checkout -q "$on"
-  fm_write_meta "$home/state/$id.meta" \
-    "window=firstmate:fm-$id" "endpoint_task_id=$id" "worktree=$wt" \
-    "project=$proj" "kind=ship" "mode=local-only" "spawn_gen=fixture-$id" "$@"
-  printf '%s|%s|%s\n' "$home" "$proj" "$wt"
-}
-
-run_local_merge() {  # <home> <id>
-  FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$1" FM_STATE_OVERRIDE="$1/state" \
-    FM_DATA_OVERRIDE="$1/data" FM_CONFIG_OVERRIDE="$1/config" \
-    "$ROOT/bin/fm-merge-local.sh" "$2" 2>&1
-}
-
-# A task dispatched without --base owns no base, so its landing keeps resolving
-# the project's CURRENT declaration - which is free to change under an in-flight
-# task. Freezing the target at spawn time would leave such a task landable only
-# by hand-editing its record.
-test_local_merge_without_a_recorded_base_follows_the_declaration() {
-  local rec home proj wt id out status
-  id="base-nolanding-b17"
-  rec=$(make_landing_case base-nolanding "$id" integration/x)
-  IFS='|' read -r home proj wt <<EOF
-$rec
-EOF
-  # The project adopts the branch the task happens to sit on, after the task was
-  # dispatched: the landing must follow that, not anything recorded at spawn.
-  git -C "$proj" checkout -q main
-  printf 'integration/x\n' > "$proj/.firstmate-base"
-  git -C "$proj" add .firstmate-base
-  git -C "$proj" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' \
-    commit -qm 'declare integration/x'
-  git -C "$proj" checkout -q integration/x
-
-  out=$(run_local_merge "$home" "$id")
-  status=$?
-  expect_code 0 "$status" "a task with no recorded base should land on the project's current declaration: $out"
-  [ "$(git -C "$proj" rev-parse integration/x)" = "$(git -C "$wt" rev-parse HEAD)" ] \
-    || fail "the declared branch did not receive the work"
-  pass "a task dispatched without --base lands on the project's current declaration"
-}
-
 # CI's stock macOS Bash lane sets FM_TEST_ONLY to run just the resolver's
 # bash-3.2 regression. The rest of this file is not a 3.2 snapshot suite.
 if [ -n "${FM_TEST_ONLY:-}" ]; then
@@ -513,10 +467,10 @@ test_unconfirmable_base_is_refused
 test_default_base_passes_assertion
 test_unregistered_project_spawns_as_today
 test_missing_base_branch_is_refused
-test_local_only_prefers_local_branch
+test_local_only_ignores_the_declared_base
+test_brief_without_the_declared_base_is_refused
+test_brief_scaffold_records_the_declared_base
 test_scout_also_starts_from_the_recorded_base
-test_registry_base_applies_without_the_flag
-test_local_merge_without_a_recorded_base_follows_the_declaration
 
 test_declaration_is_read_from_the_branch_that_carries_it
 test_declaration_beats_the_private_registry

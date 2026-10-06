@@ -1556,13 +1556,13 @@ EOF
   # and the timeout wrapper carry the script path as an ARGV element, and the
   # lock stage's own command substitution leaves a subshell whose argv is
   # still `fm-session-start.sh` - only the topmost match is the digest bash
-  # itself. That digest child is the topmost ancestor whose ENVIRON carries
-  # FM_SESSION_START_STAGE_FILE: the parent wrapper mktemps the file and hands
-  # it over with env (which never keeps it for itself), the bash -c inner
-  # shell and timeout sit BELOW env, and the parent wrapper never holds it -
-  # so the env marker stops the walk above the digest child and below the
-  # wrapper whose death would skip the banner entirely. Kill that topmost
-  # marker carrier: the digest bash whose death the parent must banner.
+  # itself. That digest child is the topmost ancestor whose own argv is the
+  # script followed by the private --_child hand-off: the parent wrapper runs
+  # without --_child, and the timeout wrapper above the digest carries the
+  # script path later in its argv, not as the script it interprets - so the
+  # argv marker stops the walk at the digest child and below the wrapper
+  # whose death would skip the banner entirely. Kill that topmost marker
+  # carrier: the digest bash whose death the parent must banner.
   mv "$fakebin/ps" "$fakebin/ps.real"
   cat > "$fakebin/ps" <<SH
 #!/usr/bin/env bash
@@ -1574,8 +1574,8 @@ case "\$(tr '\\0' ' ' < /proc/\$PPID/cmdline 2>/dev/null)" in
     matched=0
     for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
       [ -n "\$pid" ] && [ "\$pid" != 1 ] || break
-      if tr '\\0' '\\n' < /proc/\$pid/environ 2>/dev/null | grep -q '^FM_SESSION_START_STAGE_FILE=' \
-        && case "\$(tr '\\0' ' ' < /proc/\$pid/cmdline 2>/dev/null)" in *fm-session-start.sh*) true ;; *) false ;; esac; then
+      if tr '\\0' '\\n' < /proc/\$pid/cmdline 2>/dev/null | sed -n '2,3p' | tr '\\n' ' ' \
+        | grep -q '/fm-session-start\\.sh --_child \$'; then
         target=\$pid
         matched=1
       elif [ "\$matched" -eq 1 ]; then

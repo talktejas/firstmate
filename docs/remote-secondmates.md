@@ -622,7 +622,7 @@ There is no two-phase journal and no additional tasks-axi release requirement.
 ### Inherited-material transfer
 
 Locked startup convergence and `bin/fm-config-push.sh` transfer only the declared inherited-material allowlist.
-Changed live routes receive a fire-and-forget instruction to re-read the transferred files, which opens no pending-reply expectation.
+Changed live routes receive a marked instruction to re-read the transferred files.
 The primary records that remote nudge before delivery and retries it during locked startup convergence after a failed send.
 Local secondmates retain their generation-specific local pointer contract.
 Remote transfers do not copy those primary-local instruction paths.
