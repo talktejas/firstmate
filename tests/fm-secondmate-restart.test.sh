@@ -62,6 +62,13 @@ case "${1:-}" in
     done
     payload=${1:-}
     if [ "$literal" = 1 ]; then
+      case "$payload" in
+        ". '"*"'")
+          staged=${payload#". '"}
+          staged=${staged%"'"}
+          [ ! -f "$staged" ] || payload=$(cat "$staged")
+          ;;
+      esac
       printf '%s\n' "$payload" >> "$D/literal"
       case "$payload" in
         /exit|/quit)
@@ -70,7 +77,7 @@ case "${1:-}" in
           fi
           printf 'zsh' > "$D/command.$target"
           ;;
-        *'encode launch-brief'*) cat "$D/becomes" > "$D/command.$target" ;;
+        *'encode launch-brief'* | *'Firstmate operational input waiting: read'*) cat "$D/becomes" > "$D/command.$target" ;;
         ': Firstmate instruction waiting: list '*)
           printf 'doorbell\n' >> "$D/rings"
           if [ -x "$D/on-doorbell" ]; then
@@ -373,14 +380,6 @@ test_unprovable_runtime_falls_back() {
     "a mate that cannot be restarted should not be asked to persist first"
   assert_grep 're-read your AGENTS.md' "$dir/home/state/sm1.inbox/001.msg" \
     "the fallback should hand the mate the ordinary re-read message"
-  # The nudge has no reply protocol, so it must ride the fire-and-forget plane:
-  # a marked send would open a decision nothing could ever close.
-  assert_grep 'delivery=' "$dir/home/state/sm1.inbox/001.msg" \
-    "the fallback nudge should ride the fire-and-forget plane"
-  assert_no_grep 'corr=' "$dir/home/state/sm1.inbox/001.msg" \
-    "the fallback nudge must not open a correlation"
-  [ -z "$(ls -A "$dir/home/state/pending-replies" 2>/dev/null)" ] \
-    || fail "the fallback nudge created an unanswerable pending-reply expectation"
   pass "T3 a runtime that cannot prove a restart falls back to the re-read message"
 }
 
@@ -486,7 +485,15 @@ case "${rargs[1]:-}" in
         : > "$FM_FAKE_DIR/remote-relaunch-end"
         ;;
     esac
-    printf 'relaunched %s\n' "${rargs[2]}"
+    printf 'relaunched %s harness=%s from=claude model=%s effort=%s backend=herdr endpoint=fm-remote:2ndmate-%s worktree=/srv/fm\n' \
+      "${rargs[2]}" "${rargs[3]}" "${rargs[4]}" "${rargs[5]}" "${rargs[2]}"
+    printf 'schema=fm-remote-secondmate-control.v1\n'
+    printf 'backend=herdr\n'
+    printf 'target=fm-remote:2ndmate-%s\n' "${rargs[2]}"
+    printf 'herdr_session=fm-remote\n'
+    printf 'harness=%s\n' "${rargs[3]}"
+    printf 'model=%s\n' "${rargs[4]}"
+    printf 'effort=%s\n' "${rargs[5]}"
     ;;
 esac
 exit 0

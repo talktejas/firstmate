@@ -9,7 +9,7 @@ The API shape itself is recorded in [`dispatch-resolve.md`](dispatch-resolve.md)
 ## Live answers to the shipped question
 
 Run 2026-10-06 against `https://api.typesafe.ai`, model `jev-latest` answering as `jev-1.13.0`, timeout 5 s, floor 0.6.
-Each row is one real call made through the watcher's own `jev_triage_pause_routine` or `jev_triage_contributions_routine`, sourced from `bin/fm-watch.sh` at commit 3ac9b3d with its question text and criteria unmodified, with the key read from a home `.env` by `fm_jev_key_load` and a synthetic wake as evidence.
+Each row is one real call made through the watcher's own `jev_triage_pause_routine`, sourced from `bin/fm-watch.sh` at commit 3ac9b3d with its question text and criteria unmodified, with the key read from a home `.env` by `fm_jev_key_load` and a synthetic wake as evidence.
 Every `declared-pause-recheck` row carried the pull request note `open; no blocker reported`, as the class always does, from a pull-request read that printed `CHECKS: none reported yet`, and the reason `stale: fm:fm-sample (paused 14520s, awaiting external - declared pause, rechecked on a long cadence not a wedge; confirm the wait still holds)`.
 The agent column is the `worker_agent` value the row carried: `exited` for an endpoint whose agent state read `dead`, `running` for `alive`.
 
@@ -25,7 +25,6 @@ The newest evidence of each row:
 - `pr-open-but-asks`: `paused: PR is open, waiting for you to decide whether the migration should also ship in this PR`.
 - `review-question`: `paused: a reviewer asked on the pull request whether the old flag should keep working, waiting for an answer before I change anything`.
 - `review-wait`: `paused: PR is open, waiting for the captain to review the approach before I continue`.
-- `gh-timeout`: one diagnostic, `gh pr view timed out after 30s`.
 
 The set was run three times; the table shows run 1.
 
@@ -48,13 +47,10 @@ The set was run three times; the table shows run 1.
 | declared-pause-recheck | pr-open-but-asks | running | deliver | deliver | needs_firstmate | 0.97 | 0.02 |
 | declared-pause-recheck | review-question | running | deliver | deliver | needs_firstmate | 1.0 | 0.0 |
 | declared-pause-recheck | review-wait | running | deliver | deliver | needs_firstmate | 0.98 | 0.01 |
-| contributions-observation-timeout | gh-timeout | - | absorb | absorb | routine | 0.91 | 0.95 |
 
 Every row answered as `jev-1.13.0`.
 No verdict changed in any of the three runs, and every row matched its expectation.
-The lowest absorbed confidence was 0.88, on `gh-timeout` in run 3.
 The narrowest delivery was `ci` with an exited agent, which the model kept choosing as `routine` at a confidence of 0.10 to 0.12 and a `routine` probability of 0.56, so only the floor delivered it.
-A contributions diagnostic that is not a read timeout is refused in code before any call, so it has no row.
 
 ## The rejected wording
 

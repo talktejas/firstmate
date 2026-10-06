@@ -34,7 +34,7 @@ Briefs: 15 real briefs from this home's recent work plus 10 synthetic ones writt
 | API errors | 0 |
 
 Of the five disagreements, one was a wrong hand label (the brief quoted the bug-fix rule's wording verbatim), three were real briefs the model read as the approval-gated design rule at 0.66 to 0.86 confidence and escalated by design, each of which the captain had in fact dispatched at the strongest-reasoning class, and one was a synthetic tweak that came back ambiguous at 0.41 confidence and was handed back to firstmate.
-A lean request that asks only the rule Choice matched the full request (rule, profile, and status) on all 25 briefs, which is why the tool then asked one question and kept every gate in code; "Live run of the current selection" below records the five-question request sent when a rule declares `match`.
+A lean request that asks only the rule Choice matched the full request (rule, profile, and status) on all 25 briefs, which is why the shipped tool asks one question and keeps every gate in code.
 That table records the 2026-09-16 run with the captain-authored none option.
 A second live run on 2026-09-17 used the same 25 briefs, held one quota snapshot constant through a fake `quota-axi`, and exercised a copy of this branch with the shipped neutral `No listed rule applies to this task.` option and option-free interface.
 
@@ -53,78 +53,50 @@ The maximum latency was one outlier; the next slowest request was 309 ms.
 The differing clear result was a synthetic small tweak that matched the simple-bug-fix rule at 0.90 and selected `cursor-grok-4.6-medium` instead of the hand-labeled `cursor-grok-4.6-high`: the tweak exemption removed from the none-option text belongs in that rule's own `when` text.
 Two default-labeled briefs became ambiguous.
 
-## Small-question answers on a 19-rule file
+## Task sections and per-rule confidence floors
 
-Run 2026-10-06 against `https://api.typesafe.ai`, model `jev-latest` answering as `jev-1.13.0`, timeout 5 s, with the key read from a home `.env` by `fm_jev_key_load`.
-Rules: a 19-rule file whose rules lead to 12 distinct outcomes.
-Briefs: 12 synthetic briefs with a `# Task` section and one line of standing text after it, plus one real scaffolded brief of 16 KB.
-Each brief was sent four times as the five-question request (`rule`, `kind`, `damage`, `settled`, `security`) over the task-only state, 52 requests, and the answers were read back from each scratch home's `state/.dispatch-resolve.log`.
-This section records the model's answers only; what the tool selects from such answers is recorded under "Live run of the current selection".
+Run 2026-09-23 against `jev-latest` (answering as `jev-1.13.0`), comparing the resolver before this change (whole brief as state) with the resolver after it (only `## Captain's intent` and `## Firstmate spec`).
+Each fixture brief was scaffolded with `bin/fm-brief.sh` (ship `--mode no-mistakes` or `--scout`), its two placeholders filled, and both resolvers run on the same file against the same rules.
 
-| Brief | `kind` answer |
-| --- | --- |
-| Write a PRD | product_document 1.0 |
-| Write a specification from notes | product_document 1.0 |
-| Research competing products | product_document 1.0 |
-| Produce a study | product_document 0.95 |
-| Open-ended architecture | design 1.0 |
-| Small stated bug fix | bugfix 1.0 |
-| Review of a risky migration | review 1.0 |
-| Rename a function everywhere | refactor 0.83 |
-| Failing pipeline | ops 1.0 |
-| Password reset tokens | feature 0.77 |
-| Raise test coverage | tests 1.0 |
-| Locate behaviour, change nothing | lookup 0.99 |
-| Real scaffolded brief | feature 1.0 |
+Generic rules: a hardest-tier rule that requires the brief itself to call the work unusually difficult or high-risk and excludes routine builds, ports, and installers; routine feature, port, or installer builds; bug fixes with a stated root cause; trivial mechanical edits; and read-only investigations or audits.
+Sixteen fixtures: ten clear-cut briefs (two per rule) and six borderline ones (a large port with signed installers, an installer after a broken upgrade, a large file split, a table migration, an unexplained slowdown, and a retry policy).
 
-Repeat requests differed by at most 0.05 on any confidence.
-The password-reset brief answered `security` `yes` at 1.0, and every other synthetic brief answered `no` at 0.75 or higher.
-The real scaffolded brief answered `security` `yes` at 0.79 and 0.87; that brief's own text discusses API key handling.
-The single-question tool at commit 08a3a5cd, which sent the whole brief, answered that brief's rule at 0.65; with only the task part sent, the same rule came back at about 0.5.
-Each request used 1,869 to 1,884 input tokens and 416 to 417 output tokens on the synthetic briefs and 2,960 input tokens on the real one, and latency was 308 to 475 ms on 51 of the 52 requests, with one at 845 ms.
-The vendor's published Choice confidence, `(p_max - 1/n) / (1 - 1/n)` over `n` options, is the formula the tool applies when it counts rules that lead to one outcome as one answer.
+| Measure | Whole brief | Task sections |
+| --- | --- | --- |
+| Top rule matched the label | 16 of 16 | 16 of 16 |
+| Input tokens per ship brief | 4,327 to 4,379 | 583 to 624 |
+| Input tokens per scout brief | 2,861 to 2,874 | 584 to 597 |
+| Borderline top-rule confidence below 0.99 | 0.77 split, 0.72 slowdown | 0.59 split, 0.70 slowdown |
 
-## Live run of the current selection
+The top rule matched the label on 16 of 16 fixtures under both shapes, so on these generic briefs the change did not improve routing accuracy.
+Every clear-cut fixture answered at probability 0.99 or 1.0 under both shapes, so the scaffold boilerplate neither caused nor prevented a wrong pick.
+The one routing difference is a regression: the large-file-split fixture went from clear (confidence 0.77, probability 0.82 on its labeled routine-build rule) to `ambiguous` (confidence 0.59, probability 0.66, the rest going to the neutral option), just under the 0.6 floor.
+The gain that holds across the set is size: about 4,350 input tokens down to about 600 per ship brief.
 
-Run 2026-10-06 local time (records stamped 2026-10-05T18:2x UTC) at commit 6c3ba93 against `https://api.typesafe.ai`, model `jev-latest` answering as `jev-1.13.0`, timeout 5 s, floor 0.6.
-The key was read by the tool itself from a scratch home's `.env`; it was absent from the environment, and it appeared in neither the captured request body nor the record.
-The command was `FM_HOME=<scratch home> bin/fm-dispatch-resolve.sh <brief> --project demo`, 22 requests, none failed.
-`curl` was the real one behind a pass-through that kept a copy of each request body; `quota-axi` was a fixed snapshot (one provider, 79% remaining) so the quota step could not vary.
-Rules: a synthetic four-rule file written for this run, not the captain's: (1) vague investigation or plan or spec writing, `match.kind` `investigate` or `product_document`; (2) architecture, `match.kind` `design`; (3) small bug fix or familiar feature, `match.kind` `bugfix` or `feature` and `match.damage` `low` or `medium`; (4) security-sensitive, `approval: captain`, `match.security` `yes`; each with its own outcome.
-Briefs: 16 synthetic one-sentence briefs with a `# Task` section and one line of standing text after it.
-Latency was 304 to 633 ms; a five-question request used 1,239 to 1,265 input and 268 to 271 output tokens, a `rule`-only request 464 to 490 and 62.
+### A routine port the hardest tier over-claims
 
-Scenarios driven live, each line being what the tool printed:
+Run 2026-09-23 against `jev-latest` (answering as `jev-1.13.0`).
+The brief was a generic scaffolded ship brief for a routine port of a macOS-only capture helper to Windows plus a Windows installer, described as a straightforward port, with a long never-do-X safety list in its spec.
+The rules were the same generic five-rule set with two changes: a loosely worded top-tier rule ("Large or hard engineering work that needs the strongest model, such as a multi-platform build or anything where a mistake is costly.") and the routine rule broadened to "Implementation where the worker must design parts of the solution itself within an existing codebase."
+The task-sections row is the shape this change sends: the two task sections, with no kind line because it is a ship brief.
 
-| Scenario | Brief | Rule answer | Small answers | Result |
-| --- | --- | --- | --- | --- |
-| Unsure rule answer, product document | Produce a study as a written report | none option 0.52 (0.51 on a second run) | `kind=product_document` 1.0 | `clear`, rule 1's profile, confidence 1.0, `selection: small answers (kind=product_document) meet the declared match of rule_1; rule answer default 0.52` |
-| Confident rule stands | Write the PRD | rule 1 0.98 | `kind=product_document` 1.0 | `clear`, rule 1, no `selection` line |
-| Confident none option stands against a met `match` | Research competitors and write a report | none option 0.65 | `kind=product_document` 1.0, which meets rule 1 | `clear`, default profile, no `selection` line |
-| Confident rule stands against the gated rule's met `match` | Design a service architecture | rule 2 1.0 | `security=yes` 0.91, which meets rule 4 | `clear`, rule 2's profile, no approval stop |
-| Confident gated rule | Change password reset tokens | rule 4 0.99 | `security=yes` 1.0 | `escalate`, captain approval, no profile |
-| Unsure rule answer, unsure small answers | Tidy up the checkout code | rule 1 0.37 | `kind=review` 0.56, `security=yes` 0.32 | `ambiguous`, no profile |
-| Unsure rule answer, a `match` half met | Update the settings page | rule 1 0.44 | `kind=feature` 0.99, `damage=medium` 0.47 | `ambiguous`, no profile |
-| Unsure rule answer, small answers meet no rule | Find where a total is rounded | none option 0.54 | `kind=lookup` 0.99 | `ambiguous`, no profile |
-| Same-outcome rules counted as one answer | Update the settings page, rules 1 and 3 given one outcome | rule 1 0.46 alone | not asked | `clear` at 0.93, `selection: rule_3+rule_1 counted as one answer; rule answer alone rule_1 0.46` |
+| Shape | Runs | Input tokens | Top-tier rule probability | Confidence | Implementation rule probability |
+| --- | --- | --- | --- | --- | --- |
+| Whole brief | 3 | 4,436 | 0.90 to 0.93 | 0.87 to 0.92 | 0.07 to 0.10 |
+| Task sections | 5 | 670 | 0.88 to 0.91 | 0.84 to 0.89 | 0.09 to 0.12 |
 
-The captured body of a request to the real API held `model`, `state`, and `questions` only.
-With the four-rule file its questions were `rule`, `kind`, `damage`, `settled`, `security`, and the `rule` options were `rule_1` to `rule_4` plus `default`.
-With `match` removed from every rule its only question was `rule`.
-Its state was `{"task":{"project":"demo","brief":"<the # Task text>"}}`; the standing line after `# Task` and the words `match`, `use`, `why`, `approval`, and every model name were absent.
-The record after the run was mode 600 with one line per call (22 at the time it was read: 15 `clear`, 6 `ambiguous`, 1 `escalate`, read with `jq -r .status state/.dispatch-resolve.log | sort | uniq -c`), each with the status, rule, rule answer, every small answer and its confidence, and profile, and no brief text.
-Of the 16 briefs with the four-rule file, 9 were `clear`, 1 `escalate`, and 6 `ambiguous`; one of the 9 (the study brief) was `clear` only through the small answers.
-That is one synthetic rule file and hand-written briefs, so it shows the mechanism working against the real model, not a hit rate for the captain's rules.
+Extraction does not prevent the top-tier pick; a loosely worded rule is matched from the task text alone.
+With `min_confidence: 0.95` declared on the top-tier rule, the task-sections shape returned `ambiguous` in 3 of 3 runs, because the pick's probability was below its floor and no other option cleared its own floor.
+Additionally declaring `min_confidence: 0.05` on the implementation rule returned a `fallback:` line to that rule in 3 of 3 runs.
 
-Not driven live, covered only by `tests/fm-dispatch-resolve.test.sh` with a canned reply at the `curl` boundary, because the exact probabilities or a malformed reply cannot be forced from the real model:
+Two scaffolded scout briefs (592 and 605 input tokens, sent with the `Brief kind: scout (report only)` line) matched the investigation rule at probability 1.0 in 4 of 4 runs.
+A free-form brief with neither task section (561 input tokens, sent whole with no kind line) matched the trivial-edit rule at probability 1.0.
 
-- an unsure rule answer where a rule without a gate has its `match` met and the approval-gated rule's `match` is also met;
-- Jev's own unsure pick being the approval-gated rule;
-- the counted-together rule answer being an approval-gated rule;
-- a small answer that is a non-object, off-list, or missing;
-- small answers meeting two rules with different outcomes.
+Negative finding: an intermediate variant that also sent `Brief kind: ship, mode=no-mistakes` moved the same routine port brief to the top-tier rule at probability 0.96 to 0.97 in 7 of 7 runs, above a 0.95 floor.
+The delivery mode is the same on most ship briefs and says nothing about difficulty, so it is deliberately not sent.
 
-No live brief produced any of these: every unsure rule answer above was rule 1 or the none option, and no unsure brief answered `security` `yes` at or above the floor.
+These live runs cover the scout line, the free-form whole-brief fallback, the ship-brief package, the top-tier floor turning the pick `ambiguous`, and the fallback to a runner-up.
+The remaining behavior is covered only by the offline tests below: a fenced heading inside a section, the boundaries of the global 0.6 confidence check with no declared floors, the probability-based floor examples, the tie case, and rejection of an out-of-range `min_confidence`.
 
 ## Offline behavior
 
@@ -134,10 +106,9 @@ It proves the absent key (environment and `.env`) prints one stderr line, nothin
 It proves absent, default-only, and empty-rules files return `no rules to match` without a model or quota request, while a broken rules-file symlink exits 2 as unreadable.
 It proves the documented starter configuration resolves its Pi default through the declared Claude provider, a `.env` key turns the tool on, and the environment wins over it.
 It proves the key is absent from child environments, never appears on `curl` argv, and arrives only as the bearer header on the descriptor.
-It proves the request uses the fixed endpoint and model, carries only the project, the brief's `# Task` section (the whole brief when it has none), and the rule Choice with one option per rule plus the fixed neutral none option, adds the four small questions only when a rule declares `match`, and never carries `why`, `use`, or quota.
-It proves rules that lead to one outcome count as one answer, a rule answer at or above the floor stands against the small answers, an unsure rule answer is decided only by ungated rules whose whole `match` is met and that share one outcome, each of the three approval-gate conditions keeps the result `ambiguous`, and a missing, malformed, non-object, or off-list small answer is `unusable` without making the result `error`.
-It proves every outcome after the gate appends one mode-0600, size-capped line to `state/.dispatch-resolve.log` that holds no brief text and no key, and that a malformed `match` exits 2.
-It proves the clear, fixed-floor ambiguous with candidate evidence, escalate (approval with candidate evidence, unverifiable rule floor, tie, nothing rankable), known rule-floor fall-through, known and unverifiable profile-floor evidence, explicit-provider and provider-ID enforcement, authoritative Agy and explicit-provider Gemini routing, partial providers, eligible unranked candidates and their clear-result note, concrete quota vetoes and profile-floor shortfalls taking precedence over uncertainty, account-wide quota veto, limiting-bound ranking, missing-curl and quota-axi failures, HTTP 429 and 500, transport failure, malformed usage, zero-mass or malformed probabilities or confidence, malformed or duplicate profile, invalid selector, removed-option rejection, and out-of-range rule ID paths behave as the contract states, with configuration errors exiting 2 before any network call.
+It proves the request uses the fixed endpoint and model, carries only the project, the brief's task sections read by the shared brief-heading parser with a scout line only for a scout brief and never a ship brief's delivery mode (or the whole brief when it has neither section), and rule Choice with one option per rule plus the fixed neutral none option, and never carries `why`, `use`, or quota.
+It proves a declared `min_confidence` is checked against the rule's own probability both as the pick and as a runner-up, a picked rule below it falls to the most probable runner-up that clears its floor, is `ambiguous` when none does or two tie, and that a file without declared floors keeps the global 0.6 floor on confidence unchanged.
+It proves the clear, fixed-floor ambiguous with candidate evidence, escalate (approval with candidate evidence, unverifiable rule floor, tie, nothing rankable), known rule-floor fall-through, known and unverifiable profile-floor evidence, explicit-provider and provider-ID enforcement, authoritative Agy and explicit-provider Gemini routing, partial providers, eligible unranked candidates and their clear-result note, concrete quota vetoes and profile-floor shortfalls taking precedence over uncertainty, account-wide quota veto, limiting-bound ranking, schema-6 account-row binding with schema-5 compatibility, missing-curl and quota-axi failures, HTTP 429 and 500, transport failure, malformed usage, zero-mass or malformed probabilities or confidence, malformed or duplicate profile, invalid selector, removed-option rejection, and out-of-range rule ID paths behave as the contract states, with configuration errors exiting 2 before any network call.
 `tests/fm-bootstrap.test.sh` proves bootstrap ignores resolver-only fields without the typed key, validates each malformed shape when the environment or home `.env` activates typed resolution, and prevents an environment-provided key from reaching child processes.
 
 ```console
@@ -145,4 +116,4 @@ $ bash tests/fm-dispatch-resolve.test.sh | tail -1
 # all fm-dispatch-resolve tests passed
 ```
 
-A live run needs a key and is not part of the suite; rerun a live table above by pointing the tool at a brief with the key injected for that one command.
+A live run needs a key and is not part of the suite; rerun the table above by pointing the tool at a brief with the key injected for that one command.

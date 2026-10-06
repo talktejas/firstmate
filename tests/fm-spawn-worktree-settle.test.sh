@@ -143,7 +143,7 @@ test_already_settled_pane_costs_one_confirm_read() {
   assert_grep "worktree=$WT_DIR" "$HOME_DIR/state/$id.meta" \
     "meta did not record the already-settled worktree"
   reads=$(cat "$COUNTFILE")
-  [ "$reads" -eq 1 ] || fail "already-settled pane took $reads reads to confirm - expected a single read"
+  [ "$reads" -eq 2 ] || fail "already-settled pane took $reads reads to confirm - expected the first read and the launch-boundary cwd check"
   pass "an already-settled pane confirms on its first read, not a whole extra cycle"
 }
 

@@ -242,6 +242,9 @@ change db/migrations/0042_drop.sql:3 src/parser.js:12
 
 check() {  # [env assignments...] -> runs the real registration for a fresh task
   fm_write_meta "$H/state/task-a.meta" "window=fm-task-a" "kind=ship" "worktree=$WT" "project=$PROJ"
+  # A pull request exists only for a pushed branch: record the head as pushed so
+  # the registration's named-head gate (bin/fm-dod-lib.sh) sees it outside this copy.
+  git -C "$WT" update-ref refs/remotes/origin/fm/task-a HEAD
   rm -f "$H/log/"*
   env FM_STATE_OVERRIDE="$H/state" "$@" "$ROOT/bin/fm-pr-check.sh" task-a "$URL" 2>"$TMP_ROOT/err"
 }
@@ -303,6 +306,9 @@ printf 'TYPESAFE_API_KEY=%s\n' "$KEY" > "$H/.env"
 printf 'alpha\n' > "$LISTED"
 merge_time() {
   fm_write_meta "$H/state/task-a.meta" "window=fm-task-a" "kind=ship" "worktree=$WT" "project=$PROJ"
+  # A pull request exists only for a pushed branch: record the head as pushed so
+  # the registration's named-head gate (bin/fm-dod-lib.sh) sees it outside this copy.
+  git -C "$WT" update-ref refs/remotes/origin/fm/task-a HEAD
   rm -f "$H/log/"*
   FM_STATE_OVERRIDE="$H/state" "$ROOT/bin/fm-pr-check.sh" task-a "$URL" --no-risk 2>"$TMP_ROOT/err"
 }

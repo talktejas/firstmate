@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # Perform the approved local merge for a local-only ship task: fast-forward the
-# branch the task was dispatched against - its own recorded base when it has
-# one, otherwise the project's development branch - to the crewmate's fm/<id>
-# branch.
+# project's default branch to the crewmate's immutable ship branch recorded in
+# state/<task-id>.meta ("fm/<id>" for records created before that field existed).
 #
 # This is firstmate's merge gate-action (the captain's merge authority applied
 # locally instead of via a GitHub PR). It is the one sanctioned exception to hard
@@ -43,8 +42,11 @@ META="$STATE/$ID.meta"
 "$FM_ROOT/bin/fm-guard.sh" || true
 # Role partition: landing local-only work is MAIN-owned; the Pi supervision
 # branch reports readiness and never lands (contract: bin/fm-lease-lib.sh;
-# no-op in homes without a branch actor). This precedes reading the task
-# record, because the wrong actor is refused for its role whatever it says.
+# no-op in homes without a branch actor). This action is deliberately NOT
+# relocated under the away-posture record: unlike the PR merge it has no
+# record-side grant gate of its own, so a parked main keeps it held for the
+# captain's return. This precedes reading the task record, because the wrong
+# actor is refused for its role whatever it says.
 # shellcheck source=bin/fm-lease-lib.sh
 . "$SCRIPT_DIR/fm-lease-lib.sh"
 fm_lease_forbid_branch "local-only landing (fm-merge-local)"
@@ -92,27 +94,15 @@ default_branch() {
   return 1
 }
 
-BRANCH="fm/$ID"
+BRANCH=$(grep '^branch=' "$META" | cut -d= -f2- || true)
+[ -n "$BRANCH" ] || BRANCH="fm/$ID"
+if ! git check-ref-format --branch "$BRANCH" >/dev/null 2>&1; then
+  echo "error: task $ID has an invalid recorded ship branch '$BRANCH'" >&2
+  exit 1
+fi
 git -C "$PROJ" rev-parse --verify --quiet "refs/heads/$BRANCH" >/dev/null || { echo "error: branch $BRANCH does not exist in $PROJ" >&2; exit 1; }
 
-# The captain's ruling is that the recorded development branch governs the merge
-# as well as the worktree, and a local-only project lands on the LOCAL branch.
-# The task's own recorded base outranks the project's standing one: a task
-# dispatched with an explicit --base was created against that branch, and
-# landing it anywhere else would fast-forward the standing branch over every
-# commit the effort has accumulated - the one-merge-checked-as-a-whole rule the
-# per-task base exists to keep. A recorded branch that has since disappeared
-# falls back to the project's current declaration, exactly as cleanup does,
-# rather than stranding the work with no command that lands it.
-TASK_BASE=$(grep '^base=' "$META" | tail -n 1 | cut -d= -f2- || true)
-DEFAULT=
-if [ -n "$TASK_BASE" ] && git -C "$PROJ" rev-parse --verify --quiet "refs/heads/$TASK_BASE" >/dev/null; then
-  DEFAULT=$TASK_BASE
-fi
-if [ -z "$DEFAULT" ]; then
-  DEFAULT=$("$FM_ROOT/bin/fm-project-base.sh" "$PROJ" "$(basename "$PROJ")" 2>/dev/null || true)
-  [ -n "$DEFAULT" ] || DEFAULT=$(default_branch) || { echo "error: cannot determine default branch for $PROJ; expected origin/HEAD, main, or master" >&2; exit 1; }
-fi
+DEFAULT=$(default_branch) || { echo "error: cannot determine default branch for $PROJ; expected origin/HEAD, main, or master" >&2; exit 1; }
 
 # The project's main checkout must be on its default branch and clean, so the
 # fast-forward lands predictably (firstmate never writes here otherwise).
@@ -151,4 +141,6 @@ fm_lock_release "$MERGE_CONTROL_LOCK" || true
 MERGE_CONTROL_LOCK=
 [ "$merge_status" -eq 0 ] || exit "$merge_status"
 after=$(git -C "$PROJ" rev-parse --short "$DEFAULT")
+# Opt-in fleet activity ledger (docs/fleet-ledger.md); off costs one file test.
+[ ! -e "${FM_CONFIG_OVERRIDE:-$FM_HOME/config}/fleet-ledger" ] || FM_HOME=$FM_HOME FM_STATE_OVERRIDE=$STATE "$SCRIPT_DIR/fm-fleet-ledger.sh" merged "$ID" local || true
 echo "merged $BRANCH into local $DEFAULT ($before -> $after) in $PROJ"

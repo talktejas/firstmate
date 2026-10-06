@@ -256,13 +256,13 @@ pass "eligible: a live parked worker's first stale sight is absorbed and bounded
 reset
 mk_task park "pr=$PR_URL" 'paused: waiting on the upstream release'
 age_status park 500
-wedge_defer_wait test:fm-park park "$USTATE/.stale-since-test_fm-park" 'non-terminal stale' 300 declared
+wedge_defer_wait test:fm-park "$USTATE/.stale-since-test_fm-park" 'non-terminal stale' 300 "$(wedge_wait_evidence park)" park
 assert_equals 1 "$(calls)" "a due declared-wait deferral asks Jev"
 assert_equals 0 "$(queued)" "a routine declared-wait deferral queues nothing"
 reset
 mk_task park "pr=$PR_URL" 'captain-held [key=route]: tracked by task-decision-route'
 age_status park 500
-wedge_defer_wait test:fm-park park "$USTATE/.stale-since-test_fm-park" 'non-terminal stale' 300 held
+wedge_defer_wait test:fm-park "$USTATE/.stale-since-test_fm-park" 'non-terminal stale' 300 "$(wedge_wait_evidence park)" park
 assert_equals 0 "$(calls)" "a captain-held recheck never asks Jev"
 assert_equals 1 "$(queued)" "a captain-held recheck is delivered"
 reset
@@ -292,26 +292,10 @@ assert_equals 2 "$(queued)" "every due recheck of a paused task with no pull req
 reset
 mk_task park '' 'paused: waiting on the upstream release'
 age_status park 500
-wedge_defer_wait test:fm-park park "$USTATE/.stale-since-test_fm-park" 'non-terminal stale' 300 declared
+wedge_defer_wait test:fm-park "$USTATE/.stale-since-test_fm-park" 'non-terminal stale' 300 "$(wedge_wait_evidence park)" park
 assert_equals 0 "$(calls)" "a due deferral of a paused task with no pull request never asks Jev"
 assert_equals 1 "$(queued)" "a due deferral of a paused task with no pull request is delivered"
 pass "never eligible: a paused task with no recorded pull request, at each of the three pause sites"
-
-# -- eligible: a contributions observation timeout --------------------------
-reset
-jev_triage_contributions_routine "contributions: observation unavailable for $PR_URL: gh pr view timed out after 30s" \
-  || fail "a contributions observation timeout was not absorbed"
-assert_equals 'contributions-observation-timeout' "$(jq -r '.wake.class' "$U/jev-state.json")" "the timeout is its own class"
-reset
-rc=0
-jev_triage_contributions_routine "contributions: observation unavailable for $PR_URL: gh pr view failed: HTTP 401" || rc=$?
-expect_never_asked "$rc" "a contributions failure that is not a timeout"
-reset
-rc=0
-jev_triage_contributions_routine "contributions: observation unavailable for $PR_URL: gh pr view timed out after 30s
-contributions: 1 unreadable durable record(s)" || rc=$?
-expect_never_asked "$rc" "a contributions check that also reports another diagnostic"
-pass "eligible: only a contributions check made solely of forge-read timeouts is offered"
 
 # -- never eligible: status events that belong to firstmate -------------------
 for event in 'needs-decision [key=scope]: pick an option' 'blocked: cannot reach the host' \

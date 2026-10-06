@@ -42,11 +42,14 @@
 # reported as unknown rather than attributing it to either incarnation.
 #
 # Placement changes the transport and nothing else. A local mate is restarted
-# with bin/fm-control.sh <id> relaunch; a remote mate is restarted by running THAT
-# SAME command on its host over bin/fm-on.sh, through the host-local
-# fm-remote-secondmate-control.sh relaunch verb. The restart decision, the
-# profile, the request text, the bound, the failure vocabulary, and this report
-# are all computed here in the primary and are identical for both.
+# with bin/fm-control.sh <id> relaunch, which republishes this home's own
+# metadata directly; a remote mate is restarted with
+# bin/fm-remote-secondmate-relaunch.sh, which runs that same command on its
+# host over bin/fm-on.sh and then republishes this primary's own route
+# metadata from the identity the host confirmed, since the host-local verb can
+# only rewrite its own endpoint record. The restart decision, the profile, the
+# request text, the bound, the failure vocabulary, and this report are all
+# computed here in the primary and are identical for both.
 #
 # Nothing here forces, stashes, or discards anything. bin/fm-control.sh owns the
 # restart transaction, its checkpoint, its journal, and its rollback; a refusal
@@ -142,15 +145,9 @@ first_reported_line() {  # <text>
 # Send the ordinary re-read steer to a mate this pass will not restart, and say
 # plainly which it was. A nudge is a partial reload and is never reported as more.
 fall_back_to_nudge() {  # <id> <reason>
-  local id=$1 reason=$2 out did
-  if ! did=$(fm_secondmate_nudge_delivery_id "$id" "$RESULT_DIR"); then
-    unreached_count=$((unreached_count + 1))
-    printf 'unreached: %s: %s; the re-read message could not be delivered either: cannot compute delivery id\n' \
-      "$id" "$reason"
-    return
-  fi
+  local id=$1 reason=$2 out
   if out=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
-    "$SCRIPT_DIR/fm-send.sh" "$id" --fire-and-forget "$did" "$FM_SECOND_MATE_NUDGE_MESSAGE" 2>&1); then
+    "$SCRIPT_DIR/fm-send.sh" "$id" "$FM_SECOND_MATE_NUDGE_MESSAGE" 2>&1); then
     nudged_count=$((nudged_count + 1))
     printf 'nudged: %s: %s\n' "$id" "$reason"
   else
@@ -169,8 +166,8 @@ restart_mate() {  # <array-index>
   local i=$1 id restart_out restart_rc restart_reason ran_on
   id=${IDS[$i]}
   if [ "${PLACEMENT[i]}" = remote ]; then
-    restart_out=$(FM_HOME="$FM_HOME" "$SCRIPT_DIR/fm-on.sh" "$id" \
-      fm-remote-secondmate-control.sh relaunch \
+    restart_out=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
+      "$SCRIPT_DIR/fm-remote-secondmate-relaunch.sh" \
       "$id" "${HARNESS[i]}" "${MODEL[i]:-default}" "${EFFORT[i]:-default}" < /dev/null 2>&1)
     restart_rc=$?
   else

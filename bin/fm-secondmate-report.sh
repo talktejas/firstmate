@@ -89,17 +89,17 @@ if [ ! -d "$(dirname "$DESTINATION")" ]; then
 fi
 
 token=$(fm_pending_reply_corr_token "$CORR")
-TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 if [ "$DOC_MODE" = 1 ]; then
   DOC_PATH=$1
   shift
   NOTE=$*
   if [ -n "$NOTE" ]; then
-    printf '%s [%s]: [%s] %s (%s via-helper)\n' "$VERB" "$token" "$TS" "$NOTE" "$DOC_PATH" >> "$DESTINATION"
+    printf -v line '%s [%s]: %s (%s via-helper)' "$VERB" "$token" "$NOTE" "$DOC_PATH"
   else
-    printf '%s [%s]: [%s] %s (via-helper)\n' "$VERB" "$token" "$TS" "$DOC_PATH" >> "$DESTINATION"
+    printf -v line '%s [%s]: %s (via-helper)' "$VERB" "$token" "$DOC_PATH"
   fi
 else
   NOTE=$*
-  printf '%s [%s]: [%s] %s (via-helper)\n' "$VERB" "$token" "$TS" "$NOTE" >> "$DESTINATION"
+  printf -v line '%s [%s]: %s (via-helper)' "$VERB" "$token" "$NOTE"
 fi
+printf '%s\n' "$(status_stamp_line "$line")" >> "$DESTINATION"

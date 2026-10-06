@@ -249,6 +249,7 @@ pass "executable: fixed yes/no questions through the shared caller; key on the f
 # --- layer 3: the definition-of-done step ------------------------------------
 
 # shellcheck source=bin/fm-dod-lib.sh
+# The home and project follow fm_dod_block's branch, forge, and base arguments.
 dod() { ( . "$ROOT/bin/fm-dod-lib.sh"; fm_dod_block "$@" ); }
 for mode in no-mistakes direct-PR local-only; do
   FM_HOME="$ON" "$ROOT/bin/fm-brief.sh" "hr-$mode" "$PROJ" --mode "$mode" >/dev/null 2>&1 \
@@ -262,11 +263,11 @@ for mode in no-mistakes direct-PR local-only; do
   assert_no_grep 'advisory house-rule flags' "$ON/data/hr-other-$mode/brief.md" "$mode: a project outside the list gets no step"
   assert_no_grep 'advisory house-rule flags' "$KEYONLY/data/hr-$mode/brief.md" "$mode: the key alone adds no step"
   plain=$(dod "$mode" "hr-$mode")
-  assert_equals "$plain" "$(dod "$mode" "hr-$mode" "$KEYONLY" "$PROJ")" \
+  assert_equals "$plain" "$(dod "$mode" "hr-$mode" '' '' '' "$KEYONLY" "$PROJ")" \
     "$mode: with the key alone the definition of done is unchanged"
-  assert_equals "$plain" "$(dod "$mode" "hr-$mode" "$ON" other-proj)" \
+  assert_equals "$plain" "$(dod "$mode" "hr-$mode" '' '' '' "$ON" other-proj)" \
     "$mode: for a project outside the list the definition of done is unchanged"
-  assert_contains "$(dod "$mode" "hr-$mode" "$ON" "/somewhere/projects/$PROJ")" \
+  assert_contains "$(dod "$mode" "hr-$mode" '' '' '' "$ON" "/somewhere/projects/$PROJ")" \
     "$TOOL $PROJ\` in the worktree" "$mode: a recorded project path is matched by its name"
 done
 FM_HOME="$ON" "$ROOT/bin/fm-brief.sh" hr-scout "$PROJ" --scout >/dev/null 2>&1 || fail "fm-brief.sh failed for a scout"
