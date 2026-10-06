@@ -430,11 +430,26 @@ SH
     "$ROOT/bin/fm-spawn.sh" "$id" "$dir/listed" --mode no-mistakes --yolo off > "$dir/out" 2>&1 \
     || fail "spawn $name failed: $(cat "$dir/out")"
   rm -rf "/tmp/fm-$id/gotmp"
-  cat "$dir/launch.log"
+  # The launch command is sourced from a per-spawn file: show its text in place
+  # of the line that sources it, so the assertions read what the pane runs.
+  local line script
+  while IFS= read -r line; do
+    case "$line" in
+      ". '"*/launch.*.sh"'")
+        script=${line#". '"}
+        cat "${script%"'"}" 2>/dev/null || printf '%s\n' "$line"
+        ;;
+      *) printf '%s\n' "$line" ;;
+    esac
+  done < "$dir/launch.log"
 }
 
-# as_sent <name> <lines>: the lines with this launch's own id and paths named.
-as_sent() { printf '%s\n' "$2" | sed "s#$TMP_ROOT/spawn-$1#DIR#g; s#cc$$-$1#ID#g; s#wt-$1#BRANCH#g"; }
+# as_sent <name> <lines>: the lines with this launch's own id, paths, and
+# per-spawn launch-prompt record named.
+as_sent() {
+  printf '%s\n' "$2" | sed "s#$TMP_ROOT/spawn-$1#DIR#g; s#cc$$-$1#ID#g; s#wt-$1#BRANCH#g" \
+    | sed -E 's#operational-inbox/[0-9]+-[0-9a-f]+\.msg#operational-inbox/MSG#g'
+}
 
 lines=$(spawn_lines nokey "$HOME_OFF")
 assert_contains "$lines" 'export FM_TASK_ID=' "the keyless spawn still launches"
