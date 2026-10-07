@@ -2400,40 +2400,12 @@ test_the_supervision_engines_own_transcript_is_never_captured() {
   assert_not_contains "$(cat "$log")" 'stale wake seq 61' \
     "the supervision engine's working notes were captured as his chat"
 
-  # A payload naming exactly the engine's transcript must never be recorded
-  # or remembered as a confirmed location either.
-  printf '{"transcript_path":"%s"}' "$tdir/sess-engine.jsonl" \
-    | python3 "$SWEEP" --home "$home" --from-payload \
-    || fail "the sweep failed on a payload naming the engine's transcript"
-  assert_equals 1 "$(wc -l < "$log")" \
-    "a payload naming the supervision engine's transcript was captured"
-  assert_equals 0 "$(jq -r '.named' "$home/state/.captain-message-capture")" \
-    "the supervision engine's transcript was remembered as a confirmed location"
-
   # A payload naming the main session's transcript still records as before.
   printf '{"transcript_path":"%s"}' "$tdir/sess-main.jsonl" \
     | python3 "$SWEEP" --home "$home" --from-payload \
     || fail "the sweep failed on a payload naming the main session"
   assert_equals 1 "$(jq -r '.named' "$home/state/.captain-message-capture")" \
     "the main session's transcript was not remembered once its payload named it"
-
-  # A transcript already remembered as named before this fix is forgotten on
-  # the first run afterwards, with no state cleared by hand.
-  python3 - "$home/state/.captain-message-sweep" "$tdir/sess-engine.jsonl" <<'PYEOF'
-import json, sys
-path, engine = sys.argv[1], sys.argv[2]
-with open(path, encoding="utf-8") as fh:
-    cursor = json.load(fh)
-cursor["files"][engine] = {"off": 0, "named": True}
-with open(path, "w", encoding="utf-8") as fh:
-    json.dump(cursor, fh)
-PYEOF
-  python3 "$SWEEP" --home "$home" --transcripts "$tdir" \
-    || fail "the directory sweep failed on a home with a pre-fix named engine transcript"
-  assert_equals 1 "$(jq -r '.named' "$home/state/.captain-message-capture")" \
-    "a supervision engine transcript named before the fix was not forgotten on the first run after it"
-  assert_equals 1 "$(wc -l < "$log")" \
-    "a supervision engine transcript named before the fix was captured once forgotten"
 
   # A conversation the host has only launched - listed, its first turn not
   # yet succeeded, or failed - is the engine's from its first byte.
@@ -2459,7 +2431,7 @@ PYEOF
     || fail "the directory sweep failed after the engine record was removed"
   assert_equals 1 "$(wc -l < "$log")" \
     "an engine conversation was captured once a failed turn removed the record"
-  pass "the supervision engine's own transcript is identified by session identity and never captured, named, or remembered"
+  pass "the supervision engine's own transcript is identified by session identity and never captured"
 }
 
 # The server sweeps every few seconds, so it is routinely the one that reads a

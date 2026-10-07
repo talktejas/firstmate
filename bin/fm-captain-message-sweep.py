@@ -175,7 +175,7 @@ def supervision_engine_sessions(home):
     conversation's first turn starts and never removed, plus the one
     state/.supervision-host-engine records. The engine's working notes (stale
     wake, seq numbers, MAIN, pane ids) are never his chat, so a transcript
-    named for one of these sessions is never read or remembered, identified by
+    named for one of these sessions is never read, identified by
     session identity and never by what its notes say."""
     state = os.path.join(home, "state")
     sessions = set()
@@ -769,14 +769,7 @@ def sweep(home, since, paths=None, directory=None):
                 key=os.path.getmtime)
         targets += [p for p in named if p not in targets]
     engine_sessions = supervision_engine_sessions(home)
-    if engine_sessions:
-        targets = [p for p in targets if not is_engine_transcript(p, engine_sessions)]
-        remembered = [p for p in cursor["files"] if is_engine_transcript(p, engine_sessions)]
-        if remembered:
-            for p in remembered:
-                del cursor["files"][p]
-            write_cursor(cursor_path, cursor)
-            named = [p for p, f in cursor["files"].items() if isinstance(f, dict) and f.get("named")]
+    targets = [p for p in targets if not is_engine_transcript(p, engine_sessions)]
     targets = [p for p in targets if os.path.isfile(p)]
     if not targets:
         return {"active": False, "dir": directory, "transcripts": 0, "new": 0,
