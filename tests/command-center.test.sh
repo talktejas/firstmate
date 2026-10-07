@@ -2369,6 +2369,72 @@ test_a_transcript_the_payload_names_is_captured_wherever_it_lives() {
   pass "a transcript the payload names is captured wherever it lives"
 }
 
+# bin/fm-supervision-host.sh runs a headless branch engine beside main in the
+# same per-home transcript directory; its own working notes (stale wake, seq
+# numbers, MAIN, pane ids) are not his chat. The sweep identifies that
+# engine's transcript by session identity - the session id
+# state/.supervision-host-engine records for it - never by what it says.
+test_the_supervision_engines_own_transcript_is_never_captured() {
+  local home tdir log at
+  home="$TMP_ROOT/engine-skip"
+  tdir="$TMP_ROOT/engine-skip-transcripts"
+  mkdir -p "$home/state" "$tdir"
+  at=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)
+  entry r-main end_turn false "$at" \
+    '{"type":"text","text":"The fix landed on main."}' > "$tdir/sess-main.jsonl"
+  entry r-engine end_turn false "$at" \
+    '{"type":"text","text":"stale wake seq 61, holding for jt-metal-process-explained"}' \
+    > "$tdir/sess-engine.jsonl"
+  printf 'engine=claude\nmodel=sonnet\nsession=sess-engine\nkey=k\nturns=3\nconversation_cost=0\n' \
+    > "$home/state/.supervision-host-engine"
+
+  python3 "$SWEEP" --home "$home" --transcripts "$tdir" \
+    || fail "the directory sweep failed"
+  log="$home/data/captain-messages.jsonl"
+  assert_equals 1 "$(wc -l < "$log")" \
+    "the supervision engine's own transcript was captured alongside main's"
+  assert_grep 'fix landed on main' "$log" \
+    "the main session's message was lost while excluding the engine's"
+  assert_not_contains "$(cat "$log")" 'stale wake seq 61' \
+    "the supervision engine's working notes were captured as his chat"
+
+  # A payload naming exactly the engine's transcript must never be recorded
+  # or remembered as a confirmed location either.
+  printf '{"transcript_path":"%s"}' "$tdir/sess-engine.jsonl" \
+    | python3 "$SWEEP" --home "$home" --from-payload \
+    || fail "the sweep failed on a payload naming the engine's transcript"
+  assert_equals 1 "$(wc -l < "$log")" \
+    "a payload naming the supervision engine's transcript was captured"
+  assert_equals 0 "$(jq -r '.named' "$home/state/.captain-message-capture")" \
+    "the supervision engine's transcript was remembered as a confirmed location"
+
+  # A payload naming the main session's transcript still records as before.
+  printf '{"transcript_path":"%s"}' "$tdir/sess-main.jsonl" \
+    | python3 "$SWEEP" --home "$home" --from-payload \
+    || fail "the sweep failed on a payload naming the main session"
+  assert_equals 1 "$(jq -r '.named' "$home/state/.captain-message-capture")" \
+    "the main session's transcript was not remembered once its payload named it"
+
+  # A transcript already remembered as named before this fix is forgotten on
+  # the first run afterwards, with no state cleared by hand.
+  python3 - "$home/state/.captain-message-sweep" "$tdir/sess-engine.jsonl" <<'PYEOF'
+import json, sys
+path, engine = sys.argv[1], sys.argv[2]
+with open(path, encoding="utf-8") as fh:
+    cursor = json.load(fh)
+cursor["files"][engine] = {"off": 0, "named": True}
+with open(path, "w", encoding="utf-8") as fh:
+    json.dump(cursor, fh)
+PYEOF
+  python3 "$SWEEP" --home "$home" --transcripts "$tdir" \
+    || fail "the directory sweep failed on a home with a pre-fix named engine transcript"
+  assert_equals 1 "$(jq -r '.named' "$home/state/.captain-message-capture")" \
+    "a supervision engine transcript named before the fix was not forgotten on the first run after it"
+  assert_equals 1 "$(wc -l < "$log")" \
+    "a supervision engine transcript named before the fix was captured once forgotten"
+  pass "the supervision engine's own transcript is identified by session identity and never captured, named, or remembered"
+}
+
 # The server sweeps every few seconds, so it is routinely the one that reads a
 # turn's bytes first. The hook's run then has nothing new to read - and the
 # payload it carries is still the only thing that knows where this session
@@ -2661,6 +2727,7 @@ test_a_hand_recorded_question_without_its_id_folds_only_when_identical
 test_a_captured_message_is_labelled_only_by_the_evidence_it_carries
 test_a_message_recorded_by_hand_is_never_a_second_unlabelled_row
 test_a_transcript_the_payload_names_is_captured_wherever_it_lives
+test_the_supervision_engines_own_transcript_is_never_captured
 test_a_named_transcript_is_remembered_even_with_nothing_new_to_read
 test_a_response_read_across_two_sweeps_is_recorded_once
 test_a_torn_row_costs_itself_and_nothing_after_it

@@ -168,6 +168,27 @@ def utc_now():
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def supervision_engine_transcript(home, directory):
+    """The transcript of this home's current supervision-branch engine
+    conversation (bin/fm-supervision-host.sh, FM_SUPERVISION_ACTOR=branch),
+    identified by session identity: the session id state/.supervision-host-engine
+    records for it, never by what the engine's working notes say. Its own
+    working notes (stale wake, seq numbers, MAIN, pane ids) are never his
+    chat, so this file is excluded from a directory sweep and forgotten from
+    the remembered named transcripts, both without anyone clearing state by
+    hand. None when this home runs no such conversation right now."""
+    if not directory:
+        return None
+    try:
+        with open(os.path.join(home, "state", ".supervision-host-engine"),
+                  encoding="utf-8") as fh:
+            text = fh.read()
+    except (OSError, UnicodeDecodeError):
+        return None
+    m = re.search(r"(?m)^session=(\S+)$", text)
+    return os.path.join(directory, m.group(1) + ".jsonl") if m else None
+
+
 def default_transcript_dir(home):
     base = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
     encoded = re.sub(r"[^A-Za-z0-9]", "-", os.path.abspath(home))
@@ -737,6 +758,12 @@ def sweep(home, since, paths=None, directory=None):
                  and os.path.isfile(os.path.join(directory, f))),
                 key=os.path.getmtime)
         targets += [p for p in named if p not in targets]
+    engine_transcript = supervision_engine_transcript(home, directory)
+    if engine_transcript:
+        targets = [p for p in targets if p != engine_transcript]
+        if cursor["files"].pop(engine_transcript, None) is not None:
+            write_cursor(cursor_path, cursor)
+            named = [p for p, f in cursor["files"].items() if isinstance(f, dict) and f.get("named")]
     targets = [p for p in targets if os.path.isfile(p)]
     if not targets:
         return {"active": False, "dir": directory, "transcripts": 0, "new": 0,
@@ -851,6 +878,9 @@ def main(argv=None):
     parser.add_argument("--since")
     parser.add_argument("--from-payload", action="store_true")
     args = parser.parse_args(argv)
+
+    if os.environ.get("FM_SUPERVISION_ACTOR") == "branch":
+        return 0  # this turn is the supervision engine's own, never his chat
 
     home = os.path.abspath(args.home or os.path.join(os.path.dirname(
         os.path.abspath(__file__)), ".."))
