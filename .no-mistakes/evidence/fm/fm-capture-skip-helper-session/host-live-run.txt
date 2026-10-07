@@ -1,0 +1,12 @@
+# real host log in the lab home (two real engine turns)
+1791355006	start	gen=host-74879-1791355005	primary=claude
+1791355518	handled	turn=host-74879-1791355005.1	posture=away	rc=0	reports=1	error=0 cost=0.062597 conversation_cost=0.062597 input=4 cache_read=16898 cache_write=588 output=57 turns=1	signal: /tmp/fm-lab.E5NDXu/state/demo.status
+1791355572	handled	turn=host-74879-1791355005.2	posture=away	rc=0	reports=1	error=0 cost=0.056084 conversation_cost=0.056084 input=74 cache_read=115510 cache_write=16382 output=2339 turns=12	signal: /tmp/fm-lab.E5NDXu/state/demo.status
+
+# engine launch seen while turn 1 was still running, before any engine record existed
+== at first sight of the list (t=3x3s) ==
+eabfa2ac-b054-4821-909d-6edbb6169fce
+engine record present: no
+ls: cannot access '/home/tds/.claude/projects/-home-tds--no-mistakes-worktrees-3605d2c32b02-01M4AGC3NYSJSVFS84
+23951 perl -MPOSIX=WNOHANG,setpgid -MTime::HiRes=time -e        my ($bound, $gra
+23995 /home/tds/.local/bin/claude -p FIRSTMATE SUPERVISION WAKE: signal: /tmp/fm

@@ -1,0 +1,36 @@
+# after a live rotation (engine model changed sonnet -> haiku): lab state
+state/.supervision-host-engine-sessions:
+eabfa2ac-b054-4821-909d-6edbb6169fce
+160c7546-eade-4801-92ea-6293f328193e
+state/.supervision-host-engine:
+engine=claude
+model=haiku
+session=160c7546-eade-4801-92ea-6293f328193e
+key=96966:219154337:4294967295
+turns=1
+conversation_cost=0.056084
+
+# transcripts in the swept directory:
+160c7546-eade-4801-92ea-6293f328193e.jsonl
+5e77d2cd-6e79-4a7e-b6ab-58e897c92dba.jsonl
+eabfa2ac-b054-4821-909d-6edbb6169fce.jsonl
+
+# TARGET 793c1eb sweep of the lab home
+rc=0
+{"active": true, "dir": "/tmp/fm-lab.E5NDXu/cc/projects/-tmp-fm-lab-E5NDXu", "transcripts": 1, "new": 0, "named": 0, "at": "2026-10-07T06:46:39Z", "ok": true, "error": null}
+{"session":"5e77d2cd","text":"The fix landed on main."}
+{"session":"5e77d2cd","text":"Captain, the supervision host is parked and running in the background, with its output going to `/tmp/fm-lab.E5NDXu/host"}
+
+# ADVERSARIAL: engine record removed (what the host does after a failed turn), then TARGET sweep again
+rc=0
+{"active": true, "dir": "/tmp/fm-lab.E5NDXu/cc/projects/-tmp-fm-lab-E5NDXu", "transcripts": 1, "new": 0, "named": 0, "at": "2026-10-07T06:46:39Z", "ok": true, "error": null}
+rows: 2, from engine sessions: 0
+
+# BASE 5e730b3 sweep, same transcripts, same rotated record
+rc=0
+{"active": true, "dir": "/tmp/fm-basehome.yNwHxz/cc/projects/-tmp-fm-basehome-yNwHxz", "transcripts": 3, "new": 1, "named": 0, "at": "2026-10-07T06:46:39Z", "ok": true, "error": null}
+{"session":"5e77d2cd","text":"The fix landed on main."}
+{"session":"5e77d2cd","text":"Captain, the supervision host is parked and running in the background, with its output going to `/tmp/fm-lab.E5NDXu/host"}
+{"session":"eabfa2ac","text":"The demo worker's status line said \"working: step one\", so I took no action. I reported it as a routine, silent outcome,"}
+{"session":"eabfa2ac","text":"That was the earlier file-search command finishing in the background. I already have what I needed from it, so there's n"}
+{"session":"160c7546","text":"**Wake handled complete.**\n\nDrained the signal wake for task `demo`. The status shows healthy progress: step one complet"}

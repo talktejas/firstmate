@@ -1,0 +1,7 @@
+# base commit 5e730b3 sweep, same two real transcripts (main 5e77d2cd, engine eabfa2ac)
+sweep rc=0
+{"active": true, "dir": "/tmp/fm-basehome.yNwHxz/cc/projects/-tmp-fm-basehome-yNwHxz", "transcripts": 2, "new": 4, "named": 0, "at": "2026-10-07T06:45:36Z", "ok": true, "error": null}
+{"source":"transcript","session":"5e77d2cd","project":null,"text":"The fix landed on main."}
+{"source":"transcript","session":"5e77d2cd","project":null,"text":"Captain, the supervision host is parked and running in the background, with its output going to `/tmp/fm-lab.E5NDXu/host.out`; I have not waited on it or checked its result."}
+{"source":"transcript","session":"eabfa2ac","project":null,"text":"The demo worker's status line said \"working: step one\", so I took no action. I reported it as a routine, silent outcome, which was recorded as seq 1, and then ran the drain's acknowledgement command.\n\nI claimed no leases because I"}
+{"source":"transcript","session":"eabfa2ac","project":null,"text":"That was the earlier file-search command finishing in the background. I already have what I needed from it, so there's nothing more to do for this wake: the demo event is reported and acknowledged."}

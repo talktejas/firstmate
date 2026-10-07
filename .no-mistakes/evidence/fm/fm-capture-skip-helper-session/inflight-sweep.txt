@@ -1,0 +1,5 @@
+engine process alive: yes; engine record present: no
+sweep rc=0
+{"active": true, "dir": "/tmp/fm-lab.E5NDXu/cc/projects/-tmp-fm-lab-E5NDXu", "transcripts": 1, "new": 2, "named": 0, "at": "2026-10-07T06:41:45Z", "ok": true, "error": null}
+{"source":"transcript","session":"5e77d2cd-6e79-4a7e-b6ab-58e897c92dba","project":null,"text":"The fix landed on main."}
+{"source":"transcript","session":"5e77d2cd-6e79-4a7e-b6ab-58e897c92dba","project":null,"text":"Captain, the supervision host is parked and running in the background, with its output going to `/tmp/fm-lab.E5NDXu/host.out`; I have not wa"}
