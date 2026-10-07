@@ -371,6 +371,8 @@ Today the only verified engine is Claude's print mode, measured on Claude Code 2
 - The prompt is the first argument and stdin is `/dev/null`, because an open stdin costs a three-second wait.
 - The engine runs from the tracked code root.
   So its session files land in Claude's own project store for that directory and appear in that directory's resume list.
+- Before a conversation's first turn starts, the host appends its session id to `state/.supervision-host-engine-sessions` and never removes it.
+  So the captain-message capture (`bin/fm-captain-message-sweep.py`) never reads an engine conversation as firstmate's, whether its turn failed or the host has since moved to a new conversation.
 
 **Result and cost**
 

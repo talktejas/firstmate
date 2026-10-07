@@ -70,6 +70,11 @@ n=$(( $(ls "$FM_HOME"/engine-call.* 2>/dev/null | wc -l) + 1 ))
   printf 'mode=%s\nactor=%s\nholder=%s\nprimary=%s\nturn=%s\n' "$mode" "${FM_SUPERVISION_ACTOR:-}" \
     "${FM_LEASE_HOLDER_PID:-}" "${FM_SUPERVISION_PRIMARY_HARNESS:-}" "${FM_BRANCH_REPORT_TURN:-}"
   for a in "$@"; do printf 'arg=%s\n' "$a"; done
+  listed=no
+  for a in "$@"; do
+    ! grep -qxF -- "$a" "$STATE/.supervision-host-engine-sessions" 2>/dev/null || listed=yes
+  done
+  printf 'listed=%s\n' "$listed"
 } > "$FM_HOME/engine-call.$n"
 case "$mode" in held|captain-held) printf 'ready\n' > "$FM_HOME/stub-ready" ;; esac
 # Like Claude, the reported cost is the conversation's running total.
@@ -1933,6 +1938,9 @@ test_attended_latch_keeps_closes_on_main_and_records_recovery_off_main() {
   assert_re '^supervision-host: the supervision session could not take this wake: the engine turn failed \(exit 3\); this wake is yours$' \
     "$home/host.out" "the first engine error must hand the wake back with its reason"
   assert_no_re 'paused' "$home/host.out" "one engine error must not latch the session"
+  assert_re '^listed=yes$' "$home/engine-call.1" "a conversation's session id must be listed before a turn that then fails"
+  assert_grep "$(sed -n '/^arg=--session-id$/{n;s/^arg=//p;}' "$home/engine-call.1")" "$home/state/.supervision-host-engine-sessions" \
+    "a failed turn's conversation must stay listed as the engine's"
   main_drain_and_ack "$home"
 
   park_again "$home"
@@ -2006,6 +2014,7 @@ test_away_wake_is_handled_on_the_engine_and_never_reaches_main() {
   assert_re '^arg=dontAsk$' "$first" "the engine must never prompt"
   assert_re '^arg=sonnet$' "$first" "the engine must default to its default model"
   assert_re '^arg=--session-id$' "$first" "the first turn must open a new conversation"
+  assert_re '^listed=yes$' "$first" "a new conversation's session id must be listed before its first turn starts"
   assert_re '^POSTURE: AWAY\.' "$first" "the wake must carry the away tail"
   assert_grep 'keep the export worker on low effort' "$home/state/.host-mirror.jsonl" "fixture: the captain's dialog was not mirrored"
   assert_no_re 'MAIN DIALOG MIRROR|low effort' "$first" "an away wake must carry no dialog mirror"

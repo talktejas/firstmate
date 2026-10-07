@@ -17,6 +17,8 @@
 # and swept by the directory runs too, and until one has, the capture record
 # says the directory is only inferred so the page never shows a green band over
 # a list it cannot vouch for.
+# A supervision-host engine conversation can land in the same directory and is
+# never swept (supervision_engine_sessions).
 #
 # WHO RUNS IT. Two callers, each enough for what it can see:
 #   - bin/fm-captain-message-hook.sh, a Claude Stop hook, right as a turn ends,
@@ -166,6 +168,37 @@ FINAL_STOPS = ("end_turn",)
 
 def utc_now():
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def supervision_engine_sessions(home):
+    """The session ids of every supervision-branch engine conversation this
+    home has run (bin/fm-supervision-host.sh): the ones
+    state/.supervision-host-engine-sessions lists, written before each
+    conversation's first turn starts and never removed, plus the one
+    state/.supervision-host-engine records. The engine's working notes (stale
+    wake, seq numbers, MAIN, pane ids) are never his chat, so a transcript
+    named for one of these sessions is never read, identified by
+    session identity and never by what its notes say."""
+    state = os.path.join(home, "state")
+    sessions = set()
+    try:
+        with open(os.path.join(state, ".supervision-host-engine-sessions"),
+                  encoding="utf-8") as fh:
+            sessions.update(fh.read().split())
+    except (OSError, UnicodeDecodeError):
+        pass
+    try:
+        with open(os.path.join(state, ".supervision-host-engine"),
+                  encoding="utf-8") as fh:
+            sessions.update(re.findall(r"(?m)^session=(\S+)$", fh.read()))
+    except (OSError, UnicodeDecodeError):
+        pass
+    return sessions
+
+
+def is_engine_transcript(path, sessions):
+    name = os.path.basename(path)
+    return name.endswith(".jsonl") and name[:-len(".jsonl")] in sessions
 
 
 def default_transcript_dir(home):
@@ -737,6 +770,8 @@ def sweep(home, since, paths=None, directory=None):
                  and os.path.isfile(os.path.join(directory, f))),
                 key=os.path.getmtime)
         targets += [p for p in named if p not in targets]
+    engine_sessions = supervision_engine_sessions(home)
+    targets = [p for p in targets if not is_engine_transcript(p, engine_sessions)]
     targets = [p for p in targets if os.path.isfile(p)]
     if not targets:
         return {"active": False, "dir": directory, "transcripts": 0, "new": 0,
