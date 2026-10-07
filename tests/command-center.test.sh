@@ -2371,9 +2371,11 @@ test_a_transcript_the_payload_names_is_captured_wherever_it_lives() {
 
 # bin/fm-supervision-host.sh runs a headless branch engine beside main in the
 # same per-home transcript directory; its own working notes (stale wake, seq
-# numbers, MAIN, pane ids) are not his chat. The sweep identifies that
-# engine's transcript by session identity - the session id
-# state/.supervision-host-engine records for it - never by what it says.
+# numbers, MAIN, pane ids) are not his chat. The sweep identifies an engine
+# transcript by session identity - every session id the host listed in
+# state/.supervision-host-engine-sessions before that conversation's first
+# turn, plus the one state/.supervision-host-engine records - never by what
+# it says.
 test_the_supervision_engines_own_transcript_is_never_captured() {
   local home tdir log at
   home="$TMP_ROOT/engine-skip"
@@ -2432,6 +2434,31 @@ PYEOF
     "a supervision engine transcript named before the fix was not forgotten on the first run after it"
   assert_equals 1 "$(wc -l < "$log")" \
     "a supervision engine transcript named before the fix was captured once forgotten"
+
+  # A conversation the host has only launched - listed, its first turn not
+  # yet succeeded, or failed - is the engine's from its first byte.
+  entry r-engine-2 end_turn false "$at" \
+    '{"type":"text","text":"stale wake seq 62, a new conversation"}' \
+    > "$tdir/sess-engine-2.jsonl"
+  printf 'sess-engine\nsess-engine-2\n' > "$home/state/.supervision-host-engine-sessions"
+  python3 "$SWEEP" --home "$home" --transcripts "$tdir" \
+    || fail "the directory sweep failed on a listed engine conversation"
+  assert_equals 1 "$(wc -l < "$log")" \
+    "a listed engine conversation was captured before its first turn was recorded"
+
+  # Rotation and a failed turn move or remove the record; every conversation
+  # once listed stays the engine's.
+  printf 'engine=claude\nmodel=sonnet\nsession=sess-engine-2\nkey=k\nturns=1\nconversation_cost=0\n' \
+    > "$home/state/.supervision-host-engine"
+  python3 "$SWEEP" --home "$home" --transcripts "$tdir" \
+    || fail "the directory sweep failed after the engine record rotated"
+  assert_equals 1 "$(wc -l < "$log")" \
+    "the previous engine conversation was captured once the record rotated"
+  rm -f "$home/state/.supervision-host-engine"
+  python3 "$SWEEP" --home "$home" --transcripts "$tdir" \
+    || fail "the directory sweep failed after the engine record was removed"
+  assert_equals 1 "$(wc -l < "$log")" \
+    "an engine conversation was captured once a failed turn removed the record"
   pass "the supervision engine's own transcript is identified by session identity and never captured, named, or remembered"
 }
 

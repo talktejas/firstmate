@@ -232,6 +232,7 @@ unset FM_WATCH_PREDECESSOR_ARM_PID FM_SUPERVISION_ACTOR FM_BRANCH_REPORT_TURN
 
 HOST_RECORD="$STATE/.supervision-host"
 ENGINE_RECORD="$STATE/.supervision-host-engine"
+ENGINE_SESSIONS="$STATE/.supervision-host-engine-sessions"
 TURN_FILE="$STATE/.supervision-host-turn"
 RECEIPTS="$STATE/.supervision-host-receipts"
 PROMPT_FILE="$STATE/.supervision-host-prompt"
@@ -948,6 +949,8 @@ handle_wake() {  # <reason-lines>
   errors=$(mktemp "$STATE/.supervision-host-errors.XXXXXX") || errors=/dev/null
   TURN_RESULT=$result
   TURN_ERRORS=$errors
+  grep -qxF -- "$ENGINE_SESSION" "$ENGINE_SESSIONS" 2>/dev/null \
+    || printf '%s\n' "$ENGINE_SESSION" >> "$ENGINE_SESSIONS"
   ENGINE_RUNNING=1
   # Backgrounded and waited, so a signal to the host is handled at once
   # instead of after the whole turn; the cleanup stops the engine.

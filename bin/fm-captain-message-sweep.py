@@ -168,25 +168,35 @@ def utc_now():
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def supervision_engine_transcript(home, directory):
-    """The transcript of this home's current supervision-branch engine
-    conversation (bin/fm-supervision-host.sh, FM_SUPERVISION_ACTOR=branch),
-    identified by session identity: the session id state/.supervision-host-engine
-    records for it, never by what the engine's working notes say. Its own
-    working notes (stale wake, seq numbers, MAIN, pane ids) are never his
-    chat, so this file is excluded from a directory sweep and forgotten from
-    the remembered named transcripts, both without anyone clearing state by
-    hand. None when this home runs no such conversation right now."""
-    if not directory:
-        return None
+def supervision_engine_sessions(home):
+    """The session ids of every supervision-branch engine conversation this
+    home has run (bin/fm-supervision-host.sh): the ones
+    state/.supervision-host-engine-sessions lists, written before each
+    conversation's first turn starts and never removed, plus the one
+    state/.supervision-host-engine records. The engine's working notes (stale
+    wake, seq numbers, MAIN, pane ids) are never his chat, so a transcript
+    named for one of these sessions is never read or remembered, identified by
+    session identity and never by what its notes say."""
+    state = os.path.join(home, "state")
+    sessions = set()
     try:
-        with open(os.path.join(home, "state", ".supervision-host-engine"),
+        with open(os.path.join(state, ".supervision-host-engine-sessions"),
                   encoding="utf-8") as fh:
-            text = fh.read()
+            sessions.update(fh.read().split())
     except (OSError, UnicodeDecodeError):
-        return None
-    m = re.search(r"(?m)^session=(\S+)$", text)
-    return os.path.join(directory, m.group(1) + ".jsonl") if m else None
+        pass
+    try:
+        with open(os.path.join(state, ".supervision-host-engine"),
+                  encoding="utf-8") as fh:
+            sessions.update(re.findall(r"(?m)^session=(\S+)$", fh.read()))
+    except (OSError, UnicodeDecodeError):
+        pass
+    return sessions
+
+
+def is_engine_transcript(path, sessions):
+    name = os.path.basename(path)
+    return name.endswith(".jsonl") and name[:-len(".jsonl")] in sessions
 
 
 def default_transcript_dir(home):
@@ -758,10 +768,13 @@ def sweep(home, since, paths=None, directory=None):
                  and os.path.isfile(os.path.join(directory, f))),
                 key=os.path.getmtime)
         targets += [p for p in named if p not in targets]
-    engine_transcript = supervision_engine_transcript(home, directory)
-    if engine_transcript:
-        targets = [p for p in targets if p != engine_transcript]
-        if cursor["files"].pop(engine_transcript, None) is not None:
+    engine_sessions = supervision_engine_sessions(home)
+    if engine_sessions:
+        targets = [p for p in targets if not is_engine_transcript(p, engine_sessions)]
+        remembered = [p for p in cursor["files"] if is_engine_transcript(p, engine_sessions)]
+        if remembered:
+            for p in remembered:
+                del cursor["files"][p]
             write_cursor(cursor_path, cursor)
             named = [p for p, f in cursor["files"].items() if isinstance(f, dict) and f.get("named")]
     targets = [p for p in targets if os.path.isfile(p)]
@@ -878,9 +891,6 @@ def main(argv=None):
     parser.add_argument("--since")
     parser.add_argument("--from-payload", action="store_true")
     args = parser.parse_args(argv)
-
-    if os.environ.get("FM_SUPERVISION_ACTOR") == "branch":
-        return 0  # this turn is the supervision engine's own, never his chat
 
     home = os.path.abspath(args.home or os.path.join(os.path.dirname(
         os.path.abspath(__file__)), ".."))
