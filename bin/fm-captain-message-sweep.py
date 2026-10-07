@@ -17,6 +17,8 @@
 # and swept by the directory runs too, and until one has, the capture record
 # says the directory is only inferred so the page never shows a green band over
 # a list it cannot vouch for.
+# A supervision-host engine conversation can land in the same directory and is
+# never swept (supervision_engine_sessions).
 #
 # WHO RUNS IT. Two callers, each enough for what it can see:
 #   - bin/fm-captain-message-hook.sh, a Claude Stop hook, right as a turn ends,
