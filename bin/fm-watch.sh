@@ -2820,6 +2820,37 @@ rerecord_device_shifted_pr_poll() {  # <id>
   return 0
 }
 
+# Captain inbox notes (bin/fm-inbox.sh). That script appends the durable
+# `check` row the moment the captain writes a note, but it has no way to end a
+# watcher cycle that is already parked, and nothing else observes an `inbox:`
+# row: the recovery resurface below fires only after watcher downtime. So a
+# note written while supervision was perfectly healthy waited for an unrelated
+# close - the captain's own words unread while main sat idle. Ring once per
+# note here, the same way a captured process-event result is surfaced above.
+# One ring is the whole bound: the note and its row are both durable and every
+# drain presents them (bin/fm-wake-drain.sh), so a note main does not
+# acknowledge cannot re-wake it on every poll.
+inbox_note_rung_marker() {  # <note-id>
+  printf '%s/.rang-inbox-note-%s' "$STATE" "$1"
+}
+
+inbox_surface_queued() {
+  local key id ids=""
+  [ -s "$FM_WAKE_QUEUE" ] || return 0
+  while IFS= read -r key; do
+    case "$key" in inbox:?*) ;; *) continue ;; esac
+    id=${key#inbox:}
+    # The note id is a filename component here, so reject anything the note
+    # writer would not have accepted rather than touching a path it names.
+    case "$id" in *[!A-Za-z0-9._-]*|*..*) continue ;; esac
+    [ -e "$(inbox_note_rung_marker "$id")" ] && continue
+    : > "$(inbox_note_rung_marker "$id")" || return 1
+    ids="$ids $id"
+  done < <(fm_wake_queued_keys check)
+  [ -n "$ids" ] || return 0
+  wake "check: captain inbox note waiting:$ids"
+}
+
 resurface_after_downtime() {
   # Handling successors already have a predecessor-delivered wake on the way.
   # Re-announcing from this cycle is what turned a lost handshake into an
@@ -2924,6 +2955,12 @@ while :; do
   # Then deliver any queued-but-unsurfaced result, including one a runner
   # published while this watcher was between cycles.
   procevent_surface_queued
+
+  # The captain's own words outrank the generic recovery reason below.
+  inbox_surface_queued || {
+    echo "watcher: captain inbox note could not be surfaced" >&2
+    exit 1
+  }
 
   # A process-event result carries richer adapter-owned wake context than the
   # generic recovery reason, so give that owner first refusal.

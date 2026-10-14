@@ -78,6 +78,7 @@ These sources also count toward supervision need:
 - Registered `state/procevent/*.source` records require supervision even though they have no task metadata.
 - Every mode treats `state/x-watch.check.sh` as supervision need, so Relay polling remains guarded without an in-flight task.
 - A custom check registered with `bin/fm-check-register.sh` counts the same way, so an operator's home-level poll keeps running after the last task is torn down.
+- A captain inbox note still waiting for firstmate counts too, so an otherwise idle home arms a watcher for the captain's own words instead of leaving them until the captain comes back and types.
 
 The default cross-harness mode exits silently with no supervision need.
 

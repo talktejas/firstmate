@@ -107,6 +107,27 @@ test_predicate_source_needs_supervision() {
   pass "fm_supervision_unhealthy: source-only home needs supervision"
 }
 
+test_predicate_captain_note_needs_supervision() {
+  local home="$TMP_ROOT/pred-captain-note" state
+  state="$home/state"
+  mkdir -p "$state"
+  fm_supervision_needed "$state" 300 && fail "an empty home must not need supervision"
+  FM_HOME="$home" "$ROOT/bin/fm-inbox.sh" note "clean up the leftover branches" >/dev/null \
+    || fail "fm-inbox.sh could not write a captain note"
+  fm_supervision_needed "$state" 300 \
+    || fail "a captain note waiting for firstmate did not register as supervision need"
+  [ "$FM_SUP_IN_FLIGHT" -eq 0 ] || fail "a captain note must not count as an in-flight task"
+  [ "$FM_SUP_NOTES" -eq 1 ] || fail "expected one waiting captain note, got $FM_SUP_NOTES"
+  fm_supervision_unhealthy "$state" 300 \
+    || fail "a waiting captain note with no beacon must be unhealthy"
+  mkdir -p "$state/inbox/handled"
+  mv "$state"/inbox/*.note "$state/inbox/handled/" || fail "could not acknowledge the note"
+  if fm_supervision_needed "$state" 300; then
+    fail "an acknowledged captain note still demanded a watcher"
+  fi
+  pass "fm_supervision_needed: a captain note waiting for firstmate needs supervision"
+}
+
 # Register a custom check the way an operator does, through the real
 # bin/fm-check-register.sh, so these cases bind to the shipped registration
 # artifacts rather than to a hand-written imitation of them.
@@ -2206,6 +2227,7 @@ test_predicate_healthy_fresh_beacon
 test_predicate_queue_pending_flag
 test_predicate_x_mode_needs_supervision
 test_predicate_source_needs_supervision
+test_predicate_captain_note_needs_supervision
 test_predicate_registered_check_needs_supervision
 test_predicate_registered_check_survives_rebinding_drift
 test_predicate_unregistered_check_needs_nothing

@@ -79,6 +79,19 @@
 #   fm-branch-outcome.sh append --task <id> --verdict routine|captain \
 #       --summary <text> [--wake <text>] [--silent true|false]
 #     Append one outcome record; prints the assigned seq.
+#     A non-silent `routine` row that reports the result of work the captain
+#     asked for is recorded as `captain` instead, with a note on stderr: the
+#     branch prompt already carries that rule, and the store enforces it so one
+#     misclassified turn cannot swallow the captain's own result. The two durable facts
+#     that say so are the wake naming a captain inbox note and the task's own
+#     status log reaching a terminal declaration.
+#     A stored `captain` row is also posted to the captain's command center as a
+#     captain-facing message (bin/fm-captain-message.sh) right after the lock is
+#     released, so the outcome no longer depends on a MAIN turn running to
+#     reach the captain; a failed post warns and leaves the row unprocessed
+#     for the drain.
+#     Nothing is posted while an away record exists, because the away contract
+#     holds every outcome back for the return brief.
 #   fm-branch-outcome.sh unread
 #     Print every unread record (raw JSONL). Exit 0 with no output when none.
 #   fm-branch-outcome.sh mark-read --through <seq>
@@ -141,6 +154,8 @@ SCRIPT_DIR="$(d=${BASH_SOURCE[0]%/*}; [ "$d" != "${BASH_SOURCE[0]}" ] || d=.; cd
 . "$SCRIPT_DIR/fm-wake-lib.sh"
 # shellcheck source=bin/fm-classify-lib.sh
 . "$SCRIPT_DIR/fm-classify-lib.sh"
+# shellcheck source=bin/fm-afk-contract.sh
+. "$SCRIPT_DIR/fm-afk-contract.sh"
 
 STORE="$STATE/branch-outcomes.jsonl"
 CURSOR="$STATE/.branch-outcomes-cursor"
@@ -493,6 +508,43 @@ held_lock_owned_by_ancestor() {
   return 1
 }
 
+# A RESULT OF WORK THE CAPTAIN ASKED FOR IS NEVER ROUTINE (the branch prompt's
+# own classification rule, enforced here so one misclassified turn cannot
+# swallow it). Two durable facts say the row reports such a result:
+#   - its wake was a captain inbox note, so the captain asked for this himself;
+#   - the named task's own status log reached a terminal declaration, so the
+#     requested work produced a result or stopped needing an answer (the
+#     terminal verbs: done, failed, blocked, needs-decision).
+# A silent row is a no-change observation and stays routine; a start or
+# still-working update on unfinished work keeps its routine verdict too.
+outcome_reports_requested_result() {  # <task> <wake>
+  case "$2" in *'captain inbox note'*) return 0 ;; esac
+  status_is_terminal_verb "$(last_status_line "$STATE/$1.status")"
+}
+
+# POST A CAPTAIN OUTCOME THE MOMENT IT IS RECORDED. Main relaying the drain's
+# BRANCH OUTCOMES section was the only path to the captain, so a captain
+# outcome recorded while main sat idle reached nobody until the captain came
+# back and asked. The command center is the captain's own reading surface, so the row
+# goes there as a captain-facing message at record time and no longer depends
+# on a main turn happening at all.
+# Away is the one exception: the away contract holds every outcome back for the
+# return brief, so nothing is posted while that record exists.
+# Store-first durability is kept intact: the row is already on disk, so a
+# failed post warns and leaves the row unprocessed for the drain's backstop
+# rather than losing the outcome.
+post_captain_outcome() {  # <task> <summary>
+  local task=$1 body=$2 title
+  if fm_afk_contract_away_present "$STATE"; then
+    return 0
+  fi
+  title=${body%%$'\n'*}
+  case "$title" in *'. '*) title="${title%%'. '*}." ;; esac
+  [ "${#title}" -le 100 ] || title="$(printf '%.97s...' "$title")"
+  FM_HOME="$FM_HOME" "$SCRIPT_DIR/fm-captain-message.sh" \
+    --title "$title" --task "$task" -- "$body" >/dev/null
+}
+
 CMD=${1:-}
 shift 2>/dev/null || true
 
@@ -521,6 +573,11 @@ case "$CMD" in
     if [ "$SILENT" = true ] && [ "$VERDICT" != routine ]; then
       echo "error: silent outcomes must have the routine verdict" >&2
       exit 2
+    fi
+    if [ "$VERDICT" = routine ] && [ "$SILENT" = false ] \
+      && outcome_reports_requested_result "$TASK" "$WAKE"; then
+      VERDICT=captain
+      echo "note: recorded as a captain outcome because it reports the result of work the captain asked for" >&2
     fi
     fm_lock_acquire_wait "$LOCK"
     if ! LAST_SEQ=$(last_seq); then
@@ -557,6 +614,9 @@ case "$CMD" in
       exit 1
     fi
     fm_lock_release "$LOCK"
+    if [ "$VERDICT" = captain ] && ! post_captain_outcome "$TASK" "$SUMMARY"; then
+      echo "warning: captain outcome $SEQ was stored but could not be posted to the command center" >&2
+    fi
     printf '%s\n' "$SEQ"
     ;;
   unread)

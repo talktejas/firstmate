@@ -5966,6 +5966,86 @@ procevent_watch_bg() {  # <dir> <out>
     FM_POLL=0.2 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
 }
 
+# A captain inbox note is the captain's own words. bin/fm-inbox.sh makes it
+# durable and queues its check row, but it cannot end a watcher cycle that is
+# already parked, so before this sweep existed the note waited for an unrelated
+# close - which on an idle home meant waiting for the captain to come back and
+# type. The note is written through the real bin/fm-inbox.sh so these cases bind
+# to the shipped record rather than a hand-written imitation of it.
+write_captain_note() {  # <dir> <text> -> note id
+  local dir=$1 text=$2 out
+  out=$(FM_HOME="$dir" "$ROOT/bin/fm-inbox.sh" note "$text") || return 1
+  printf '%s\n' "$out" | sed -n '1s/^queued //p'
+}
+
+test_captain_note_wakes_a_parked_watcher() {
+  local dir state out drain_out id pid beacon_age
+  dir=$(make_case captain-note-delivery); state="$dir/state"
+  out="$dir/watch.out"; drain_out="$dir/drain.out"
+  id=$(write_captain_note "$dir" "clean up the leftover branches") \
+    || fail "the fixture could not write a captain note"
+  [ -n "$id" ] || fail "fm-inbox.sh printed no note id"
+
+  watch_bg "$state" "$dir/fakebin" "$out"
+  pid=$!
+  wait_for_exit "$pid" 100 \
+    || fail "a healthy watcher never surfaced a waiting captain note: $(cat "$out")"
+  grep -F "check:" "$out" >/dev/null \
+    || fail "the captain note was not reported as an actionable check: $(cat "$out")"
+  grep -F "$id" "$out" >/dev/null \
+    || fail "the actionable reason did not name the waiting note: $(cat "$out")"
+  beacon_age=$(FM_STATE_OVERRIDE="$state" bash -c \
+    '. "$1/bin/fm-wake-lib.sh"; fm_path_age "$2"' _ "$ROOT" "$state/.last-watcher-beat")
+  [ "$beacon_age" -lt 60 ] || fail "the surfacing watcher was not a healthy one (beacon age ${beacon_age}s)"
+
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" 2>/dev/null \
+    || fail "drain after the captain-note wake failed"
+  grep -F "$id" "$drain_out" >/dev/null \
+    || fail "the captain note was not presented by the drain that follows the wake"
+  pass "a waiting captain inbox note wakes a healthy parked watcher, with no captain turn"
+}
+
+test_captain_note_rings_once() {
+  local dir state out id pid
+  dir=$(make_case captain-note-once); state="$dir/state"; out="$dir/watch.out"
+  id=$(write_captain_note "$dir" "one more thing") \
+    || fail "the fixture could not write a captain note"
+
+  watch_bg "$state" "$dir/fakebin" "$out"
+  pid=$!
+  wait_for_exit "$pid" 100 || fail "the first proactive wake never happened: $(cat "$out")"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the captain-note wake"
+
+  # The note is deliberately left waiting. Its durable row survives any wake
+  # acknowledgement (bin/fm-wake-drain.sh keeps it) and every drain presents it,
+  # so recovery still re-surfaces it - but the proactive ring is spent, which is
+  # the bound that keeps an unhandled note from re-waking main on every poll.
+  [ -e "$state/inbox/$id.note" ] || fail "the wake drain acknowledged the note itself"
+  : > "$out"
+  watch_bg "$state" "$dir/fakebin" "$out"
+  pid=$!
+  wait_for_exit "$pid" 100 \
+    || fail "an unacknowledged captain note stopped being re-surfaced: $(cat "$out")"
+  if grep -F "captain inbox note waiting" "$out" >/dev/null; then
+    fail "the same captain note was rung a second time: $(cat "$out")"
+  fi
+  ack_stopped_cycle "$state" || fail "could not acknowledge the recovery wake"
+
+  FM_HOME="$dir" "$ROOT/bin/fm-inbox.sh" drain --ack "$id" >/dev/null \
+    || fail "could not acknowledge the captain note itself"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the post-handling drain"
+  [ ! -s "$state/.wake-queue" ] || fail "a handled captain note left its row durable"
+
+  : > "$out"
+  watch_bg "$state" "$dir/fakebin" "$out"
+  pid=$!
+  if ! wait_poll_cycle "$state" "$pid"; then
+    fail "a handled captain note woke the watcher: $(cat "$out")"
+  fi
+  reap "$pid"
+  pass "a captain inbox note rings once, and a handled note never wakes the watcher again"
+}
+
 test_procevent_captured_result_surfaces_proactively() {
   local dir state out drain_out pid beacon_age
   dir=$(make_case procevent-delivery); state="$dir/state"
@@ -6893,6 +6973,8 @@ test_secondmate_home_supervision_churn_is_not_write_evidence
 test_timer_repair_drops_a_finished_write_deferral_chain
 test_terminal_first_sight_drops_a_finished_write_deferral_chain
 test_triage_log_size_cap_accepts_spaced_wc_counts
+test_captain_note_wakes_a_parked_watcher
+test_captain_note_rings_once
 test_procevent_captured_result_surfaces_proactively
 test_procevent_unacknowledged_result_redrains_until_handled
 test_procevent_marker_keys_are_injective
