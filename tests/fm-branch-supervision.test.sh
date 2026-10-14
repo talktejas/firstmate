@@ -145,11 +145,20 @@ test_requested_result_cannot_be_recorded_routine() {
     --summary 'task-1 presented no new status lines.' >/dev/null \
     || fail "silent append failed"
 
-  # Work the captain asked for by note: that ask is what makes it the captain's result.
-  printf 'window=x\n' > "$home/state/task-2.meta"
-  printf 'working [at=1]: still scanning\n' > "$home/state/task-2.status"
+  # A blocked task is waiting, not finished: its routine recovery actions are
+  # exactly what the captain asked not to hear about, so the verdict holds.
+  printf 'window=x\n' > "$home/state/task-3.meta"
+  printf 'blocked [key=token]: firstmate can refresh the token\n' > "$home/state/task-3.status"
   FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" append \
-    --task task-2 --verdict routine --silent false \
+    --task task-3 --verdict routine --silent false \
+    --summary 'resent the steer; worker resumed.' >/dev/null \
+    || fail "blocked-task append failed"
+
+  # Work the captain asked for by note: that ask is what makes it the captain's result.
+  printf 'window=x\n' > "$home/state/task-4.meta"
+  printf 'working [at=1]: still scanning\n' > "$home/state/task-4.status"
+  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" append \
+    --task task-4 --verdict routine --silent false \
     --wake 'check: captain inbox note 1791971507-hB8LdG - clean up the leftover branches' \
     --summary 'The branch cleanup the captain asked for is done.' >/dev/null 2>&1 \
     || fail "captain-note append failed"
@@ -162,7 +171,8 @@ assert got == [
     (1, "routine", False),
     (2, "captain", False),
     (3, "routine", True),
-    (4, "captain", False),
+    (4, "routine", False),
+    (5, "captain", False),
 ], got
 VERDICTS
   pass "a result of work the captain asked for cannot be recorded as routine"

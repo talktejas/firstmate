@@ -5970,19 +5970,14 @@ procevent_watch_bg() {  # <dir> <out>
 # durable and queues its check row, but it cannot end a watcher cycle that is
 # already parked, so before this sweep existed the note waited for an unrelated
 # close - which on an idle home meant waiting for the captain to come back and
-# type. The note is written through the real bin/fm-inbox.sh so these cases bind
-# to the shipped record rather than a hand-written imitation of it.
-write_captain_note() {  # <dir> <text> -> note id
-  local dir=$1 text=$2 out
-  out=$(FM_HOME="$dir" "$ROOT/bin/fm-inbox.sh" note "$text") || return 1
-  printf '%s\n' "$out" | sed -n '1s/^queued //p'
-}
+# type. queue_note (tests/wake-helpers.sh) writes it through the real
+# bin/fm-inbox.sh, the same note these cases' drain-side siblings use.
 
 test_captain_note_wakes_a_parked_watcher() {
   local dir state out drain_out id pid beacon_age
   dir=$(make_case captain-note-delivery); state="$dir/state"
   out="$dir/watch.out"; drain_out="$dir/drain.out"
-  id=$(write_captain_note "$dir" "clean up the leftover branches") \
+  id=$(queue_note "$state" "clean up the leftover branches") \
     || fail "the fixture could not write a captain note"
   [ -n "$id" ] || fail "fm-inbox.sh printed no note id"
 
@@ -6008,7 +6003,7 @@ test_captain_note_wakes_a_parked_watcher() {
 test_captain_note_rings_once() {
   local dir state out id pid
   dir=$(make_case captain-note-once); state="$dir/state"; out="$dir/watch.out"
-  id=$(write_captain_note "$dir" "one more thing") \
+  id=$(queue_note "$state" "one more thing") \
     || fail "the fixture could not write a captain note"
 
   watch_bg "$state" "$dir/fakebin" "$out"
@@ -6031,7 +6026,7 @@ test_captain_note_rings_once() {
   fi
   ack_stopped_cycle "$state" || fail "could not acknowledge the recovery wake"
 
-  FM_HOME="$dir" "$ROOT/bin/fm-inbox.sh" drain --ack "$id" >/dev/null \
+  FM_STATE_OVERRIDE="$state" "$ROOT/bin/fm-inbox.sh" drain --ack "$id" >/dev/null \
     || fail "could not acknowledge the captain note itself"
   ack_stopped_cycle "$state" || fail "could not acknowledge the post-handling drain"
   [ ! -s "$state/.wake-queue" ] || fail "a handled captain note left its row durable"

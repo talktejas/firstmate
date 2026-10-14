@@ -84,7 +84,7 @@
 #     branch prompt already carries that rule, and the store enforces it so one
 #     misclassified turn cannot swallow the captain's own result. The two durable facts
 #     that say so are the wake naming a captain inbox note and the task's own
-#     status log reaching a terminal declaration.
+#     status log declaring the work done or failed.
 #     A stored `captain` row is also posted to the captain's command center as a
 #     captain-facing message (bin/fm-captain-message.sh) right after the lock is
 #     released, so the outcome no longer depends on a MAIN turn running to
@@ -511,15 +511,20 @@ held_lock_owned_by_ancestor() {
 # A RESULT OF WORK THE CAPTAIN ASKED FOR IS NEVER ROUTINE (the branch prompt's
 # own classification rule, enforced here so one misclassified turn cannot
 # swallow it). Two durable facts say the row reports such a result:
-#   - its wake was a captain inbox note, so the captain asked for this himself;
-#   - the named task's own status log reached a terminal declaration, so the
-#     requested work produced a result or stopped needing an answer (the
-#     terminal verbs: done, failed, blocked, needs-decision).
-# A silent row is a no-change observation and stays routine; a start or
-# still-working update on unfinished work keeps its routine verdict too.
+#   - its wake was a captain inbox note, so the captain asked for this directly;
+#   - the named task's own status log declares the work done or failed, which is
+#     the result itself.
+# Only those two verbs, deliberately. A `blocked:` or `needs-decision:` task is
+# waiting, not finished, and its routine rows are the automatic recovery the
+# captain asked not to hear about; the away brief and the decision records own
+# those waits. A silent row is a no-change observation and stays routine, and so
+# does a start or still-working update on unfinished work.
 outcome_reports_requested_result() {  # <task> <wake>
   case "$2" in *'captain inbox note'*) return 0 ;; esac
-  status_is_terminal_verb "$(last_status_line "$STATE/$1.status")"
+  case "$(status_line_verb "$(last_status_line "$STATE/$1.status")")" in
+    done|failed) return 0 ;;
+  esac
+  return 1
 }
 
 # POST A CAPTAIN OUTCOME THE MOMENT IT IS RECORDED. Main relaying the drain's
