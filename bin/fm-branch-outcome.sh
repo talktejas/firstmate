@@ -92,6 +92,13 @@
 #     for the drain.
 #     Nothing is posted while an away record exists, because the away contract
 #     holds every outcome back for the return brief.
+#   fm-branch-outcome.sh verdict-for --task <id> --verdict routine|captain \
+#       [--wake <text>] [--silent true|false]
+#     Print the verdict an append with those values would record, reading
+#     nothing but the task's durable records. It is how a caller that must agree
+#     with the stored row - bin/fm-branch-report.sh, whose receipt tells the
+#     supervision host which rows are the captain's - settles the verdict before
+#     it appends, without a second copy of the rule above.
 #   fm-branch-outcome.sh unread
 #     Print every unread record (raw JSONL). Exit 0 with no output when none.
 #   fm-branch-outcome.sh mark-read --through <seq>
@@ -178,7 +185,7 @@ RECORDED_AGO_JQ='def recorded_ago: ([$now - .epoch, 0] | max) as $s
     else "\($s / 86400 | floor)d" end;'
 
 usage() {
-  echo "usage: fm-branch-outcome.sh append --task <id> --verdict routine|captain --summary <text> [--wake <text>] [--silent true|false] | unread | mark-read --through <seq> | unprocessed | mark-processed --through <seq> | present | processed-init [--held-lock] | list [--recent <n>] | lookup --seqs <n,...> | startup-replay | seed-tail" >&2
+  echo "usage: fm-branch-outcome.sh append --task <id> --verdict routine|captain --summary <text> [--wake <text>] [--silent true|false] | verdict-for --task <id> --verdict routine|captain [--wake <text>] [--silent true|false] | unread | mark-read --through <seq> | unprocessed | mark-processed --through <seq> | present | processed-init [--held-lock] | list [--recent <n>] | lookup --seqs <n,...> | startup-replay | seed-tail" >&2
   exit 2
 }
 
@@ -623,6 +630,30 @@ case "$CMD" in
       echo "warning: captain outcome $SEQ was stored but could not be posted to the command center" >&2
     fi
     printf '%s\n' "$SEQ"
+    ;;
+  verdict-for)
+    TASK=''
+    VERDICT=''
+    WAKE=''
+    SILENT=false
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --task) TASK=${2:-}; shift 2 || usage ;;
+        --verdict) VERDICT=${2:-}; shift 2 || usage ;;
+        --wake) WAKE=${2:-}; shift 2 || usage ;;
+        --silent) SILENT=${2:-}; shift 2 || usage ;;
+        *) usage ;;
+      esac
+    done
+    [ -n "$TASK" ] || usage
+    outcome_index_path "$TASK" >/dev/null || usage
+    case "$VERDICT" in routine|captain) ;; *) usage ;; esac
+    case "$SILENT" in true|false) ;; *) usage ;; esac
+    if [ "$VERDICT" = routine ] && [ "$SILENT" = false ] \
+      && outcome_reports_requested_result "$TASK" "$WAKE"; then
+      VERDICT=captain
+    fi
+    printf '%s\n' "$VERDICT"
     ;;
   unread)
     [ "$#" -eq 0 ] || usage

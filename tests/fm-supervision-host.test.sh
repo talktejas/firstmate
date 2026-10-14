@@ -353,6 +353,29 @@ test_report_surface_enforces_actor_turn_and_scope() {
   pass "report surface: only the branch actor's current turn may report, and only on the tasks its wake names"
 }
 
+# The store records a reported routine outcome as the captain's when it is the
+# result of work the captain asked for (bin/fm-branch-outcome.sh's header owns
+# that rule). The receipt is how the host finds this turn's captain rows, so it
+# has to say what was stored, not what the branch reported.
+test_report_surface_receipt_agrees_with_the_stored_verdict() {
+  local home state out rc
+  home="$TMP_ROOT/report-verdict"
+  state="$home/state"
+  mkdir -p "$state"
+  printf 'turn=t1\nrows=4\ntasks=alpha\nunscoped=0\nwake=signal: alpha.status\n' > "$state/.supervision-host-turn"
+  printf 'window=x\n' > "$state/alpha.meta"
+  printf 'working [at=1]: building\ndone [at=2]: the cleanup the captain asked for finished\n' > "$state/alpha.status"
+
+  out=$(FM_HOME="$home" FM_SUPERVISION_ACTOR=branch FM_BRANCH_REPORT_TURN=t1 "$REPORT" \
+    --task alpha --verdict routine --summary 'the leftover branches are cleaned up' 2>&1); rc=$?
+  expect_code 0 "$rc" "an in-scope report must be recorded"
+  assert_contains "$out" "recorded seq 1 [captain]" "the report told the branch a verdict the store did not record"
+  assert_grep '"verdict":"captain"' "$state/branch-outcomes.jsonl" "the store did not record the result as the captain's"
+  [ "$(cat "$state/.supervision-host-receipts")" = "$(printf 't1\t1\tcaptain\talpha')" ] \
+    || fail "the host receipt disagrees with the stored verdict: $(cat "$state/.supervision-host-receipts")"
+  pass "report surface: the receipt and the branch are told the verdict the store recorded"
+}
+
 # The return brief is rendered after the record is archived, so a non-silent
 # report made after that may be missing from it: the report queues its relay
 # for main, while a report made during the away window only waits for the brief.
@@ -2903,6 +2926,7 @@ test_claude_stop_hook_notifies_when_closed_successor_downtime_restore_fails
 test_claude_stop_hook_notifies_when_closed_announced_successor_downtime_restore_fails
 test_park_exit_probe_uses_half_second_child_sleeps
 test_report_surface_enforces_actor_turn_and_scope
+test_report_surface_receipt_agrees_with_the_stored_verdict
 test_report_after_the_return_is_queued_for_main
 test_dispatch_entry_scopes_rows_and_renders_the_away_tail
 test_branch_outcomes_only_on_a_host_home_off_pi

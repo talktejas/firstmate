@@ -117,6 +117,17 @@ fi
 
 [ "$WAKE_SET" -eq 1 ] || WAKE=$(turn_field wake)
 
+# The store may record a reported routine outcome as the captain's (its header
+# owns that rule). Settle the verdict with the store's own answer first, so the
+# receipt the supervision host reads to find this turn's captain rows, and what
+# this command tells the branch, both say what was actually stored.
+set -- verdict-for --task "$TASK" --verdict "$VERDICT" --silent "$SILENT"
+[ -z "$WAKE" ] || set -- "$@" --wake "$WAKE"
+if ! VERDICT=$("$SCRIPT_DIR/fm-branch-outcome.sh" "$@"); then
+  echo "outcome store could not settle the verdict (nothing recorded)" >&2
+  exit 1
+fi
+
 set -- append --task "$TASK" --verdict "$VERDICT" --summary "$SUMMARY" --silent "$SILENT"
 [ -z "$WAKE" ] || set -- "$@" --wake "$WAKE"
 if ! SEQ=$("$SCRIPT_DIR/fm-branch-outcome.sh" "$@"); then
