@@ -2905,15 +2905,19 @@ resurface_after_downtime() {
   if [ "${FM_WATCH_HANDLING_SUCCESSOR:-0}" = 1 ]; then
     return 0
   fi
-  # Nothing queued but captain notes that already rang: see above. The episode
-  # marker is deliberately left as it is, so the next genuinely new row still
-  # re-surfaces from this same path. Once those notes are acknowledged the
-  # queue is empty, and an empty queue is nothing to re-surface unless a stale
-  # lock was recovered.
+  # Nothing queued but captain notes that already rang: see above. A pending
+  # episode is consumed here as main's acknowledgement would consume it, so it
+  # never fires later against an empty queue, while the next genuinely new row
+  # still opens a fresh episode from this same path.
   if queued_rows_are_all_rung_notes; then
-    return 0
-  fi
-  if [ ! -s "$FM_WAKE_QUEUE" ] && [ -z "${FM_LOCK_RECOVERED_PID:-}" ]; then
+    if [ "$WATCHER_RECOVERY_PENDING" -eq 1 ]; then
+      if fm_recovery_marker_read "$WATCHER_DOWNTIME_MARKER" \
+        && ! fm_recovery_marker_ack "$WATCHER_DOWNTIME_MARKER" "${FM_RECOVERY_MARKER_TOKEN##*:}"; then
+        echo "watcher: recovery state could not be consumed safely" >&2
+        exit 1
+      fi
+      WATCHER_RECOVERY_PENDING=0
+    fi
     return 0
   fi
   if [ "$WATCHER_RECOVERY_PENDING" -ne 1 ]; then

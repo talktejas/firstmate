@@ -6043,6 +6043,9 @@ test_captain_note_rings_once() {
     fail "the parked watcher re-surfaced for an empty queue: $(cat "$out")"
   fi
   reap "$pid"
+  # Stopping that watcher is real downtime of its own; acknowledge it so the
+  # fresh watcher below is asked only about the handled note.
+  ack_stopped_cycle "$state" || fail "could not acknowledge the stopped watcher's downtime"
 
   : > "$out"
   watch_bg "$state" "$dir/fakebin" "$out"
@@ -6081,7 +6084,6 @@ test_a_new_note_rings_while_an_older_one_waits() {
   pass "a new captain note rings even while an older rung note is still waiting"
 }
 
- 
 # Main acknowledges the note while handling it and the queue only afterwards,
 # so the handling successor sees the check row with the note and its marker
 # already gone. A note no longer waiting is nothing to ring for.
