@@ -2870,11 +2870,42 @@ inbox_surface_queued() {
   wake "check: captain inbox note waiting:$INBOX_SURFACED"
 }
 
+# True when every row still queued is a captain note that already rang, and
+# there is at least one. bin/fm-wake-drain.sh keeps such a row through any wake
+# acknowledgement - only `fm-inbox.sh drain --ack <id>` clears it - while the
+# recovery re-surface below fires whenever the queue is not empty and the
+# episode marker is absent, which main's own acknowledgement removes. Together
+# they re-woke main every turn until it acknowledged the note: measured live at
+# a rewake every few seconds for over two minutes. Those notes are listed on
+# every drain under CAPTAIN NOTES WAITING and each already rang once here, so
+# re-surfacing for them tells main nothing it is not already being told.
+queued_rows_are_all_rung_notes() {
+  local kind key id rows=0 verdict=0
+  [ -s "$FM_WAKE_QUEUE" ] || return 1
+  fm_lock_acquire_wait "$FM_WAKE_QUEUE_LOCK" || return 1
+  while IFS=$'\t' read -r _ _ kind key _; do
+    rows=$((rows + 1))
+    if [ "$kind" != check ]; then verdict=1; break; fi
+    case "$key" in inbox:?*) ;; *) verdict=1; break ;; esac
+    id=${key#inbox:}
+    case "$id" in *[!A-Za-z0-9._-]*|*..*) verdict=1; break ;; esac
+    if [ ! -e "$(inbox_note_rung_marker "$id")" ]; then verdict=1; break; fi
+  done < "$FM_WAKE_QUEUE"
+  fm_lock_release "$FM_WAKE_QUEUE_LOCK"
+  [ "$verdict" -eq 0 ] && [ "$rows" -gt 0 ]
+}
+
 resurface_after_downtime() {
   # Handling successors already have a predecessor-delivered wake on the way.
   # Re-announcing from this cycle is what turned a lost handshake into an
   # unbounded recovery loop; stay in the poll loop and supervise instead.
   if [ "${FM_WATCH_HANDLING_SUCCESSOR:-0}" = 1 ]; then
+    return 0
+  fi
+  # Nothing queued but captain notes that already rang: see above. The episode
+  # marker is deliberately left as it is, so the next genuinely new row still
+  # re-surfaces from this same path.
+  if queued_rows_are_all_rung_notes; then
     return 0
   fi
   if [ "$WATCHER_RECOVERY_PENDING" -ne 1 ]; then

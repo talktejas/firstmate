@@ -6015,20 +6015,19 @@ test_captain_note_rings_once() {
   wait_for_exit "$pid" 100 || fail "the first proactive wake never happened: $(cat "$out")"
   ack_stopped_cycle "$state" || fail "could not acknowledge the captain-note wake"
 
-  # The note is deliberately left waiting. Its durable row survives any wake
-  # acknowledgement (bin/fm-wake-drain.sh keeps it) and every drain presents it,
-  # so recovery still re-surfaces it - but the proactive ring is spent, which is
-  # the bound that keeps an unhandled note from re-waking main on every poll.
+  # Main acknowledged the wake but not the note, which is the ordinary order:
+  # the note's row survives that acknowledgement by design, and the episode
+  # marker it removed used to make every later cycle re-surface. Measured live
+  # as a rewake every few seconds for over two minutes.
   [ -e "$state/inbox/$id.note" ] || fail "the wake drain acknowledged the note itself"
+  [ -s "$state/.wake-queue" ] || fail "the note's row did not survive the wake acknowledgement"
   : > "$out"
   watch_bg "$state" "$dir/fakebin" "$out"
   pid=$!
-  wait_for_exit "$pid" 100 \
-    || fail "an unacknowledged captain note stopped being re-surfaced: $(cat "$out")"
-  if grep -F "captain inbox note waiting" "$out" >/dev/null; then
-    fail "the same captain note was rung a second time: $(cat "$out")"
+  if ! wait_poll_cycle "$state" "$pid"; then
+    fail "a rung note still waiting woke the watcher again: $(cat "$out")"
   fi
-  ack_stopped_cycle "$state" || fail "could not acknowledge the recovery wake"
+  reap "$pid"
 
   FM_STATE_OVERRIDE="$state" "$ROOT/bin/fm-inbox.sh" drain --ack "$id" >/dev/null \
     || fail "could not acknowledge the captain note itself"
@@ -6044,36 +6043,34 @@ test_captain_note_rings_once() {
     fail "a handled captain note woke the watcher: $(cat "$out")"
   fi
   reap "$pid"
-  pass "a captain inbox note rings once, and a handled note never wakes the watcher again"
+  pass "a captain note rings once and then stays quiet, whether it is still waiting or handled"
 }
 
-# Main acknowledges the note while handling it and the queue only afterwards,
-# so the handling successor sees the check row with the note and its marker
-# already gone. A note no longer waiting is nothing to ring for.
-test_captain_note_handled_before_queue_ack_does_not_ring() {
-  local dir state out id pid
-  dir=$(make_case captain-note-handled); state="$dir/state"; out="$dir/watch.out"
-  id=$(queue_note "$state" "merge it") \
-    || fail "the fixture could not write a captain note"
+# Going quiet for a rung note must not go quiet for the next one: the captain
+# writing a second note while the first is still unacknowledged is exactly the
+# case the whole change exists for.
+test_a_new_note_rings_while_an_older_one_waits() {
+  local dir state out first second pid
+  dir=$(make_case captain-note-second); state="$dir/state"; out="$dir/watch.out"
+  first=$(queue_note "$state" "the first thing") \
+    || fail "the fixture could not write the first captain note"
+
   watch_bg "$state" "$dir/fakebin" "$out"
   pid=$!
-  wait_for_exit "$pid" 100 || fail "the first proactive wake never happened: $(cat "$out")"
-  FM_STATE_OVERRIDE="$state" "$ROOT/bin/fm-inbox.sh" drain --ack "$id" >/dev/null \
-    || fail "could not acknowledge the captain note itself"
-  grep -F "inbox:$id" "$state/.wake-queue" >/dev/null \
-    || fail "the fixture lost the queued check row before the queue acknowledgement"
+  wait_for_exit "$pid" 100 || fail "the first note never rang: $(cat "$out")"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the first note's wake"
 
+  second=$(queue_note "$state" "and another thing") \
+    || fail "the fixture could not write the second captain note"
   : > "$out"
-  watch_bg "$state" "$dir/fakebin" "$out" env FM_WATCH_HANDLING_SUCCESSOR=1
+  watch_bg "$state" "$dir/fakebin" "$out"
   pid=$!
-  wait_poll_cycle "$state" "$pid" || true
-  reap "$pid"
-  if grep -F "captain inbox note waiting" "$out" >/dev/null; then
-    fail "a note main already acknowledged was rung again: $(cat "$out")"
-  fi
-  [ ! -e "$state/.rang-inbox-note-$id" ] \
-    || fail "a handled note's ring marker was written again"
-  pass "a captain note acknowledged before its queue row never rings again"
+  wait_for_exit "$pid" 100 \
+    || fail "a new captain note did not ring while an older one waited: $(cat "$out")"
+  grep -F "$second" "$out" >/dev/null \
+    || fail "the wake did not name the new note: $(cat "$out")"
+  [ -e "$state/inbox/$first.note" ] || fail "the older note was acknowledged by the fixture"
+  pass "a new captain note rings even while an older rung note is still waiting"
 }
 
 test_procevent_captured_result_surfaces_proactively() {
@@ -7005,6 +7002,7 @@ test_terminal_first_sight_drops_a_finished_write_deferral_chain
 test_triage_log_size_cap_accepts_spaced_wc_counts
 test_captain_note_wakes_a_parked_watcher
 test_captain_note_rings_once
+test_a_new_note_rings_while_an_older_one_waits
 test_captain_note_handled_before_queue_ack_does_not_ring
 test_procevent_captured_result_surfaces_proactively
 test_procevent_unacknowledged_result_redrains_until_handled
