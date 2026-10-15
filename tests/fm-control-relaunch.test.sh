@@ -1085,6 +1085,31 @@ test_spawn_relaunch_without_a_harness_reuses_the_recorded_one() {
   pass "fm-spawn --relaunch: with no explicit harness it reuses the task's recorded one, never the crew default"
 }
 
+# A relaunch replaces the agent, not the task, so whether the work is the
+# captain's stays whatever the task record already said, in both directions.
+test_spawn_relaunch_keeps_the_recorded_captain_request() {
+  local dir off out
+  dir=$(new_case captainreq rl43)
+  add_ship_task "$dir" rl43 claude
+  printf 'captain_request=1\n' >> "$dir/home/state/rl43.meta"
+  printf 'zsh' > "$dir/fake/command"
+  out=$(run_spawn "$dir" rl43 --relaunch)
+  assert_contains "$out" "spawned rl43" "the captain-requested relaunch should complete"
+  [ "$(grep -c '^captain_request=1$' "$dir/home/state/rl43.meta")" = 1 ] \
+    || fail "a captain-requested task must stay captain-requested across a relaunch"
+  off=$(new_case captainreq-off rl44)
+  add_ship_task "$off" rl44 claude
+  printf 'zsh' > "$off/fake/command"
+  out=$(run_spawn "$off" rl44 --relaunch)
+  assert_contains "$out" "spawned rl44" "the opted-out relaunch should complete"
+  [ -z "$(meta_field "$off" rl44 captain_request)" ] \
+    || fail "an opted-out task became captain-requested on relaunch"
+  out=$(run_spawn "$dir" rl43 --relaunch --not-captain-request)
+  assert_contains "$out" "--not-captain-request cannot override it" \
+    "a relaunch must refuse to rewrite the recorded captain request"
+  pass "fm-spawn --relaunch: the task's recorded captain request carries forward unchanged"
+}
+
 # A promoted scout records kind=ship and a custom ship branch in its meta, but
 # its brief is the scout scaffold: it never gained a Ship branch line, and a
 # relaunch cannot regenerate the brief (--branch-prefix is refused there). The
@@ -2474,6 +2499,7 @@ test_explicit_secondmate_harness_ignores_configured_profile_axes
 test_ship_relaunch_ignores_the_crew_harness_config
 test_spawn_relaunch_without_a_harness_reuses_the_recorded_one
 test_spawn_relaunch_of_promoted_scout_uses_the_recorded_branch
+test_spawn_relaunch_keeps_the_recorded_captain_request
 test_promoted_scout_relaunch_receives_the_current_delivery_contract
 test_prefixed_prior_harness_wiring_is_still_retired
 test_muse_session_binding_is_retired_on_a_harness_switch

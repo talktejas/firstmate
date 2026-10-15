@@ -2878,7 +2878,9 @@ inbox_surface_queued() {
 # they re-woke main every turn until it acknowledged the note: measured live at
 # a rewake every few seconds for over two minutes. Those notes are listed on
 # every drain under CAPTAIN NOTES WAITING and each already rang once here, so
-# re-surfacing for them tells main nothing it is not already being told.
+# re-surfacing for them tells main nothing it is not already being told. A row
+# whose note main already acknowledged is waiting only for the queue
+# acknowledgement, and is nothing to re-surface either.
 queued_rows_are_all_rung_notes() {
   local kind key id rows=0 verdict=0
   [ -s "$FM_WAKE_QUEUE" ] || return 1
@@ -2889,6 +2891,7 @@ queued_rows_are_all_rung_notes() {
     case "$key" in inbox:?*) ;; *) verdict=1; break ;; esac
     id=${key#inbox:}
     case "$id" in *[!A-Za-z0-9._-]*|*..*) verdict=1; break ;; esac
+    [ -f "$STATE/inbox/$id.note" ] || continue
     if [ ! -e "$(inbox_note_rung_marker "$id")" ]; then verdict=1; break; fi
   done < "$FM_WAKE_QUEUE"
   fm_lock_release "$FM_WAKE_QUEUE_LOCK"
@@ -2904,8 +2907,13 @@ resurface_after_downtime() {
   fi
   # Nothing queued but captain notes that already rang: see above. The episode
   # marker is deliberately left as it is, so the next genuinely new row still
-  # re-surfaces from this same path.
+  # re-surfaces from this same path. Once those notes are acknowledged the
+  # queue is empty, and an empty queue is nothing to re-surface unless a stale
+  # lock was recovered.
   if queued_rows_are_all_rung_notes; then
+    return 0
+  fi
+  if [ ! -s "$FM_WAKE_QUEUE" ] && [ -z "${FM_LOCK_RECOVERED_PID:-}" ]; then
     return 0
   fi
   if [ "$WATCHER_RECOVERY_PENDING" -ne 1 ]; then
