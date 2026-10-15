@@ -551,9 +551,10 @@ held_lock_owned_by_ancestor() {
 # because the prompt's other rule is just as real: an unsolicited routine
 # outcome stays routine, however healthy its result. Two records carry that ask:
 #   - the wake names a captain inbox note, which is the ask itself;
-#   - the task's `captain_request=1` metadata, written by whoever dispatched it
-#     from something the captain asked for, together with that task's own status
-#     log declaring the work done or failed - the result of the ask.
+#   - the task's `captain_request=1` metadata, which bin/fm-spawn.sh records on
+#     every launch unless the dispatcher opts out with --not-captain-request,
+#     together with that task's own status log declaring the work done or
+#     failed - the result of the ask.
 # A terminal status verb alone is not enough and never was: it says the work
 # finished, not that the captain wanted to hear about it.
 # Only done and failed count as that result. A `blocked:` or `needs-decision:`

@@ -27,7 +27,13 @@
 #     idle one, so a watcher cycle is always there to end for a captain note
 #     written while nothing else needs supervision. Whether a close WAKES the
 #     model still asks bin/fm-supervision-lib.sh, so a cycle that ends with
-#     nothing left to supervise closes quietly as before.
+#     nothing left to supervise closes quietly as before - except at a
+#     supervision-host park boundary, which wakes the model once so that turn's
+#     Stop re-arms the park rather than leaving an idle home unwatched from the
+#     boundary onward. A home without the host cannot be renewed that way: its
+#     park ends when Claude kills this hook at the configured timeout, and
+#     Claude drops a killed hook's exit 2 (docs/verification/supervision.md), so
+#     there is nothing left to deliver.
 #   - Single-flight: Claude does not dedupe async hooks, so exactly one
 #     GENERATION owner arms per event epoch: the epoch ledger's monotonic
 #     sequence is the claim generation, every firing defers (exit 0) to a live
@@ -497,7 +503,20 @@ done
 
 # The need may have vanished mid-cycle (fleet torn down, X opted out): nothing
 # left to supervise, so close quietly instead of waking the model.
-if ! need_supervision; then
+#
+# One exception, and it is the whole point of the idle park: the park has a time
+# limit. The supervision host ends its own park at
+# FM_SUPERVISION_HOST_PARK_SECONDS with a "cycle boundary" line, and the quiet
+# exit here would wake no model, so no Stop would follow and nothing would arm
+# the next park - an idle home would be unwatched from that boundary until the
+# captain typed, which is the failure the park exists to stop. So a boundary
+# close wakes the model once; that turn's Stop re-arms the park. One rewake per
+# boundary, roughly one cheap turn every few hours, and no detached successor.
+park_boundary_close() {
+  [ -n "$OUT" ] || return 1
+  grep -q '^supervision-host: cycle boundary' "$OUT" 2>/dev/null
+}
+if ! need_supervision && ! park_boundary_close; then
   autoarm_record clean
   [ -z "$OUT" ] || rm -f "$OUT" 2>/dev/null || true
   exit 0

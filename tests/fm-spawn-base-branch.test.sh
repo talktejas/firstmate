@@ -156,6 +156,35 @@ test_recorded_base_is_checked_out() {
   pass "a cold slot for a develop-based project starts the worker on develop and records it"
 }
 
+# Nearly all dispatched work is something the captain asked for, so a launch
+# records that on the task by default and bin/fm-branch-outcome.sh reports the
+# result of it as his rather than as a routine outcome nobody relays.
+# --not-captain-request is the opt-out for firstmate's own housekeeping.
+test_captain_request_is_recorded_by_default_and_opted_out() {
+  local rec id out status
+  id="base-captain-b9"
+  rec=$(make_base_case base-captain "$id" main \
+    '- base-captain [no-mistakes base=develop] - develop-based (added 2026-07-28)' develop)
+  read_base_record "$rec"
+
+  out=$(run_base_spawn "$id")
+  status=$?
+  expect_code 0 "$status" "spawn should succeed: $out"
+  assert_grep "captain_request=1" "$HOME_DIR/state/$id.meta" \
+    "a launch did not record the work as the captain's by default"
+
+  id="base-captain-b10"
+  rec=$(make_base_case base-captain-off "$id" main \
+    '- base-captain-off [no-mistakes base=develop] - develop-based (added 2026-07-28)' develop)
+  read_base_record "$rec"
+  out=$(run_base_spawn "$id" no-mistakes ship --not-captain-request)
+  status=$?
+  expect_code 0 "$status" "spawn should succeed with the opt-out: $out"
+  assert_no_grep "captain_request=" "$HOME_DIR/state/$id.meta" \
+    "--not-captain-request still recorded the work as the captain's"
+  pass "a launch records captain-requested work by default, and --not-captain-request opts out"
+}
+
 # With no base record the repo default branch is the base, exactly as before:
 # the recorded-base lookup is additive and never changes the unrecorded case.
 test_unconfirmable_base_is_refused() {
@@ -520,5 +549,6 @@ test_declaration_beats_the_private_registry
 test_registry_is_the_fallback_when_nothing_is_declared
 test_malformed_declaration_never_reaches_git
 test_declaration_resolves_under_stock_bash
+test_captain_request_is_recorded_by_default_and_opted_out
 
 echo "# all fm-spawn-base-branch tests passed"

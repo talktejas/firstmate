@@ -1237,6 +1237,28 @@ test_claude_stop_hook_delivers_a_main_only_pass_through() {
   pass "host+hook: an attended main-only pass-through rewakes main and keeps its successor watcher"
 }
 
+# The idle park has a time limit. The host ends its own park at
+# FM_SUPERVISION_HOST_PARK_SECONDS with a cycle-boundary line, and an idle home
+# has nothing bin/fm-supervision-lib.sh counts as supervision need, so the hook
+# would once have taken its quiet exit: no model woken, no Stop to follow, and
+# nothing to arm the next park. An idle home would then be unwatched from that
+# boundary until the captain typed, which is the failure the park exists to
+# stop. The boundary wakes the model once instead, and that turn's Stop arms the
+# next park.
+test_idle_park_boundary_rewakes_main_so_its_stop_re_arms() {
+  local home
+  home=$(make_primary_home hook-idle-boundary)
+  FM_SUPERVISION_HOST_PARK_SECONDS=1 start_hook_session "$home"
+  turn_end "$home"
+  wait_until 400 hook_exited "$home" \
+    || fail "idle boundary: the Stop hook never finished: $(cat "$home/state/.supervision-host.log" 2>/dev/null)"
+  assert_re '^supervision-host: cycle boundary' "$home/hook.err" \
+    "the rewake must carry the boundary the host reported"
+  expect_code 2 "$(cat "$home/hook.rc")" \
+    "an idle home's park boundary must wake main so its Stop arms the next park: $(cat "$home/hook.err")"
+  pass "host+hook: an idle home's park boundary wakes main once so its Stop arms the next park"
+}
+
 # Close the confirmed handling watcher after the engine has acknowledged its
 # wake but before its captain outcome returns to the host.
 test_claude_stop_hook_restores_handoff_when_successor_closed_before_exit_to_main() {
@@ -2959,6 +2981,7 @@ test_attended_close_with_unidentified_main_session_passes_to_main
 test_close_accepted_away_that_turns_attended_passes_to_main
 test_attended_close_that_turns_main_only_before_its_turn_passes_to_main
 test_claude_stop_hook_delivers_a_main_only_pass_through
+test_idle_park_boundary_rewakes_main_so_its_stop_re_arms
 test_claude_stop_hook_rewakes_a_present_captain_beside_a_quiet_record
 test_claude_stop_hook_runs_the_host_without_the_file_and_off_opts_out
 test_claude_stop_hook_delivers_a_close_that_turns_main_only_at_its_turn

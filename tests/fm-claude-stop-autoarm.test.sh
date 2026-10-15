@@ -417,6 +417,20 @@ test_idle_home_is_parked_but_stays_quiet() {
   pass "auto-arm: an idle home is parked for a captain note and its close stays quiet"
 }
 
+# An ordinary close on an idle home stays quiet: parking is unconditional, but
+# waking the model is not. The one exception, a supervision-host park boundary,
+# only ever happens on a home that runs the host, so it is covered beside the
+# other host+hook cases in tests/fm-supervision-host.test.sh.
+test_idle_home_close_without_a_boundary_stays_quiet() {
+  local dir out status
+  dir=$(make_primary_dir "$TMP_ROOT/idle-quiet")
+  write_arm_fixture "$dir" actionable
+  out=$(run_autoarm "$dir" 2>/dev/null); status=$?
+  expect_code 0 "$status" "an ordinary idle close must not wake the model"
+  [ -e "$dir/state/arm-ran" ] || fail "the quiet case never armed"
+  pass "auto-arm: an idle close that is not a park boundary stays quiet"
+}
+
 # The same idle home once a note is waiting: now there IS something to
 # supervise, so the close reaches the model as a rewake.
 test_idle_home_with_a_waiting_note_rewakes() {
@@ -1732,6 +1746,7 @@ test_inert_when_afk
 test_stale_lock_recovery_preserves_afk_and_need_gates
 test_resolves_outermost_claude_pid_in_nested_bgspare_chain
 test_idle_home_is_parked_but_stays_quiet
+test_idle_home_close_without_a_boundary_stays_quiet
 test_idle_home_with_a_waiting_note_rewakes
 test_actionable_close_rewakes_with_reason
 test_actionable_close_with_live_successor_rewakes_once
