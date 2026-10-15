@@ -2860,6 +2860,7 @@ inbox_surface_queued() {
     # The note id is a filename component here, so reject anything the note
     # writer would not have accepted rather than touching a path it names.
     case "$id" in *[!A-Za-z0-9._-]*|*..*) continue ;; esac
+    [ -f "$STATE/inbox/$id.note" ] || continue
     [ -e "$(inbox_note_rung_marker "$id")" ] && continue
     INBOX_SURFACED="$INBOX_SURFACED $id"
   done < <(fm_wake_queued_keys check)

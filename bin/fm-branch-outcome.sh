@@ -82,9 +82,13 @@
 #     A non-silent `routine` row that reports the result of work the captain
 #     asked for is recorded as `captain` instead, with a note on stderr: the
 #     branch prompt already carries that rule, and the store enforces it so one
-#     misclassified turn cannot swallow the captain's own result. The two durable facts
-#     that say so are the wake naming a captain inbox note and the task's own
-#     status log declaring the work done or failed.
+#     misclassified turn cannot swallow the captain's own result. The captain's
+#     ask has to be on the record: either the wake names a captain inbox note, or
+#     the task's meta carries `captain_request=1` and its own status log declares
+#     the work done or failed. A terminal status verb alone never upgrades a row.
+#     The upgrade happens once per unchanged situation: any non-silent captain
+#     row stored for such a task, reported or upgraded, records the task's status
+#     position, and a later routine row at that same position stays routine.
 #     A stored `captain` row is also posted to the captain's command center as a
 #     captain-facing message (bin/fm-captain-message.sh) right after the lock is
 #     released, so the outcome no longer depends on a MAIN turn running to
@@ -663,8 +667,11 @@ case "$CMD" in
     SEQ=$(( LAST_SEQ + 1 ))
     capture_status_position "$TASK"
     UPGRADED=0
-    if [ "$VERDICT" = routine ] && [ "$SILENT" = false ] \
-      && outcome_reports_requested_result "$TASK" "$WAKE" \
+    REQUESTED_RESULT=0
+    if [ "$SILENT" = false ] && outcome_reports_requested_result "$TASK" "$WAKE"; then
+      REQUESTED_RESULT=1
+    fi
+    if [ "$VERDICT" = routine ] && [ "$REQUESTED_RESULT" -eq 1 ] \
       && ! captain_upgrade_already_made "$TASK" "$CAPTURED_STATUS_ENDPOINT" "$CAPTURED_STATUS_IDENT"; then
       VERDICT=captain
       UPGRADED=1
@@ -677,6 +684,8 @@ case "$CMD" in
     write_outcome_tail || echo "warning: outcome $SEQ was stored but its display tail copy could not be refreshed" >&2
     if [ "$UPGRADED" -eq 1 ]; then
       echo "note: outcome $SEQ was recorded as a captain outcome because it reports the result of work the captain asked for" >&2
+    fi
+    if [ "$VERDICT" = captain ] && [ "$REQUESTED_RESULT" -eq 1 ]; then
       record_captain_upgrade "$TASK" "$CAPTURED_STATUS_ENDPOINT" "$CAPTURED_STATUS_IDENT" \
         || echo "warning: outcome $SEQ was recorded as the captain's, but the once-per-situation record could not be written, so an unchanged repeat may be recorded as the captain's too" >&2
     fi

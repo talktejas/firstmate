@@ -6047,6 +6047,35 @@ test_captain_note_rings_once() {
   pass "a captain inbox note rings once, and a handled note never wakes the watcher again"
 }
 
+# Main acknowledges the note while handling it and the queue only afterwards,
+# so the handling successor sees the check row with the note and its marker
+# already gone. A note no longer waiting is nothing to ring for.
+test_captain_note_handled_before_queue_ack_does_not_ring() {
+  local dir state out id pid
+  dir=$(make_case captain-note-handled); state="$dir/state"; out="$dir/watch.out"
+  id=$(queue_note "$state" "merge it") \
+    || fail "the fixture could not write a captain note"
+  watch_bg "$state" "$dir/fakebin" "$out"
+  pid=$!
+  wait_for_exit "$pid" 100 || fail "the first proactive wake never happened: $(cat "$out")"
+  FM_STATE_OVERRIDE="$state" "$ROOT/bin/fm-inbox.sh" drain --ack "$id" >/dev/null \
+    || fail "could not acknowledge the captain note itself"
+  grep -F "inbox:$id" "$state/.wake-queue" >/dev/null \
+    || fail "the fixture lost the queued check row before the queue acknowledgement"
+
+  : > "$out"
+  watch_bg "$state" "$dir/fakebin" "$out" env FM_WATCH_HANDLING_SUCCESSOR=1
+  pid=$!
+  wait_poll_cycle "$state" "$pid" || true
+  reap "$pid"
+  if grep -F "captain inbox note waiting" "$out" >/dev/null; then
+    fail "a note main already acknowledged was rung again: $(cat "$out")"
+  fi
+  [ ! -e "$state/.rang-inbox-note-$id" ] \
+    || fail "a handled note's ring marker was written again"
+  pass "a captain note acknowledged before its queue row never rings again"
+}
+
 test_procevent_captured_result_surfaces_proactively() {
   local dir state out drain_out pid beacon_age
   dir=$(make_case procevent-delivery); state="$dir/state"
@@ -6976,6 +7005,7 @@ test_terminal_first_sight_drops_a_finished_write_deferral_chain
 test_triage_log_size_cap_accepts_spaced_wc_counts
 test_captain_note_wakes_a_parked_watcher
 test_captain_note_rings_once
+test_captain_note_handled_before_queue_ack_does_not_ring
 test_procevent_captured_result_surfaces_proactively
 test_procevent_unacknowledged_result_redrains_until_handled
 test_procevent_marker_keys_are_injective

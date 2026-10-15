@@ -203,6 +203,19 @@ test_requested_result_cannot_be_recorded_routine() {
     --summary 'The branch cleanup the captain asked for is done.' >/dev/null 2>&1 \
     || fail "captain-note append failed"
 
+  # The branch itself reported the requested result as the captain's: that row
+  # bounds the situation just as an upgrade does.
+  printf 'window=x\ncaptain_request=1\n' > "$home/state/task-5.meta"
+  printf 'done [at=2]: PR ready to merge\n' > "$home/state/task-5.status"
+  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" append \
+    --task task-5 --verdict captain --silent false \
+    --summary 'task-5 PR is ready to merge.' >/dev/null 2>&1 \
+    || fail "native captain append failed"
+  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" append \
+    --task task-5 --verdict routine --silent false \
+    --summary 'task-5 checks re-ran green.' >/dev/null \
+    || fail "post-captain unchanged append failed"
+
   python3 - "$store" <<'VERDICTS' || fail "the store swallowed a result of work the captain asked for, or invented one he did not ask for"
 import json, sys
 rows = [json.loads(line) for line in open(sys.argv[1])]
@@ -216,6 +229,8 @@ assert got == [
     (6, "routine", False),
     (7, "routine", False),
     (8, "captain", False),
+    (9, "captain", False),
+    (10, "routine", False),
 ], got
 VERDICTS
   pass "only a result of work the captain asked for becomes a captain outcome, once per situation"
