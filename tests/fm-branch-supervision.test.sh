@@ -76,8 +76,10 @@ test_branch_prompt_is_byte_stable_and_above_cache_floor() {
 
 # A captain outcome used to reach the captain only if a MAIN turn happened to
 # run, drain it and relay it, so one recorded while main sat idle reached nobody
-# until the captain came back and asked. It now goes to the captain's own surface
-# (bin/fm-captain-message.sh, docs/command-center.md) the moment it is recorded.
+# until the captain came back and asked. It now goes to his own reading surface
+# (bin/fm-captain-message.sh, docs/command-center.md) the moment it is recorded,
+# and the row records that it got there so main acts on it without saying it
+# again.
 test_captain_outcome_posts_to_the_command_center_when_recorded() {
   local home log
   home="$TMP_ROOT/outcome-post-home"
@@ -102,9 +104,17 @@ assert rows[0]["task"] == "task-2", rows[0]
 assert rows[0]["text"].startswith("Outreach CRM PR 77 is merged into develop."), rows[0]
 assert rows[0]["title"] == "Outreach CRM PR 77 is merged into develop.", rows[0]
 POSTED
+  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" present \
+    | python3 -c 'import json, sys
+rows = [json.loads(line) for line in sys.stdin]
+captain = [r for r in rows if r["verdict"] == "captain"]
+assert len(captain) == 1, rows
+assert captain[0]["delivered"] is True, captain[0]' \
+    || fail "a posted captain outcome was not recorded as delivered to the captain"
 
   # Away, the away contract holds every outcome back for the return brief, so
-  # nothing may be put in front of the captain at record time.
+  # nothing may be put in front of the captain at record time - and nothing may
+  # read as delivered, because main still has to relay it at the return.
   FM_HOME="$home" "$ROOT/bin/fm-afk-contract.sh" enter --spend 2 >/dev/null \
     || fail "away entry failed"
   FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" append \
@@ -112,20 +122,28 @@ POSTED
     || fail "away captain append failed"
   [ "$(wc -l < "$log")" -eq 1 ] \
     || fail "an away captain outcome was put in front of the captain: $(cat "$log")"
-  pass "a captain outcome reaches the command center when recorded, and never while away"
+  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" present \
+    | python3 -c 'import json, sys
+rows = {r["seq"]: r for r in (json.loads(line) for line in sys.stdin)}
+assert rows[2]["delivered"] is True, rows[2]
+assert rows[3]["delivered"] is False, rows[3]' \
+    || fail "the away captain outcome was marked delivered to the captain"
+  pass "a captain outcome reaches the command center when recorded, is recorded as delivered, and neither happens while away"
 }
 
-# The branch prompt already says a finished result of requested work is never
-# routine; one misclassified turn swallowed a captain-requested cleanup result
-# anyway. The store now enforces the rule from the task's own durable records.
+# The branch prompt holds two rules at once: the finished result of work the
+# captain requested is never routine, and an unsolicited routine outcome stays
+# routine however healthy its result. One misclassified turn swallowed a
+# requested cleanup result, so the store enforces the first; the task's own
+# captain-request record is what keeps it from breaking the second.
 test_requested_result_cannot_be_recorded_routine() {
   local home store
   home="$TMP_ROOT/outcome-verdict-home"
   mkdir -p "$home/state"
   store="$home/state/branch-outcomes.jsonl"
 
-  # Still-working requested work: a progress note stays routine.
-  printf 'window=x\n' > "$home/state/task-1.meta"
+  # Requested work, still working: a progress note stays routine.
+  printf 'window=x\ncaptain_request=1\n' > "$home/state/task-1.meta"
   printf 'working [at=1]: building the picker\n' > "$home/state/task-1.status"
   FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" append \
     --task task-1 --verdict routine --silent false \
@@ -139,22 +157,44 @@ test_requested_result_cannot_be_recorded_routine() {
     --summary 'INTERACT cleanup finished: one leftover branch deleted, one refused.' >/dev/null 2>&1 \
     || fail "finished-result append failed"
 
+  # Nothing happened since: a finished task keeps declaring done until teardown,
+  # so a later routine row about it must not become a second captain outcome.
+  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" append \
+    --task task-1 --verdict routine --silent false \
+    --summary 'task-1 checks re-ran green.' >/dev/null \
+    || fail "unchanged-situation append failed"
+
   # A no-change observation on finished work is still a no-change observation.
   FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" append \
     --task task-1 --verdict routine --silent true \
     --summary 'task-1 presented no new status lines.' >/dev/null \
     || fail "silent append failed"
 
+  # The situation changed: new work finished, so its result is the captain's too.
+  printf 'working [at=3]: the follow-up\ndone [at=4]: the follow-up landed\n' >> "$home/state/task-1.status"
+  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" append \
+    --task task-1 --verdict routine --silent false \
+    --summary 'task-1 follow-up landed.' >/dev/null 2>&1 \
+    || fail "changed-situation append failed"
+
+  # Work nobody asked for: a healthy finished result stays routine.
+  printf 'window=x\n' > "$home/state/task-2.meta"
+  printf 'done [at=2]: tidied up on its own\n' > "$home/state/task-2.status"
+  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" append \
+    --task task-2 --verdict routine --silent false \
+    --summary 'task-2 tidied something up by itself.' >/dev/null \
+    || fail "unsolicited append failed"
+
   # A blocked task is waiting, not finished: its routine recovery actions are
   # exactly what the captain asked not to hear about, so the verdict holds.
-  printf 'window=x\n' > "$home/state/task-3.meta"
+  printf 'window=x\ncaptain_request=1\n' > "$home/state/task-3.meta"
   printf 'blocked [key=token]: firstmate can refresh the token\n' > "$home/state/task-3.status"
   FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" append \
     --task task-3 --verdict routine --silent false \
     --summary 'resent the steer; worker resumed.' >/dev/null \
     || fail "blocked-task append failed"
 
-  # Work the captain asked for by note: that ask is what makes it the captain's result.
+  # The captain's own note is the ask itself, whatever the task's records say.
   printf 'window=x\n' > "$home/state/task-4.meta"
   printf 'working [at=1]: still scanning\n' > "$home/state/task-4.status"
   FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" append \
@@ -163,19 +203,22 @@ test_requested_result_cannot_be_recorded_routine() {
     --summary 'The branch cleanup the captain asked for is done.' >/dev/null 2>&1 \
     || fail "captain-note append failed"
 
-  python3 - "$store" <<'VERDICTS' || fail "the store swallowed a result of work the captain asked for"
+  python3 - "$store" <<'VERDICTS' || fail "the store swallowed a result of work the captain asked for, or invented one he did not ask for"
 import json, sys
 rows = [json.loads(line) for line in open(sys.argv[1])]
 got = [(row["seq"], row["verdict"], row["silent"]) for row in rows]
 assert got == [
     (1, "routine", False),
     (2, "captain", False),
-    (3, "routine", True),
-    (4, "routine", False),
+    (3, "routine", False),
+    (4, "routine", True),
     (5, "captain", False),
+    (6, "routine", False),
+    (7, "routine", False),
+    (8, "captain", False),
 ], got
 VERDICTS
-  pass "a result of work the captain asked for cannot be recorded as routine"
+  pass "only a result of work the captain asked for becomes a captain outcome, once per situation"
 }
 
 test_outcome_store_is_append_only_with_cursor_reads() {

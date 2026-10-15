@@ -118,22 +118,30 @@ fi
 [ "$WAKE_SET" -eq 1 ] || WAKE=$(turn_field wake)
 
 # The store may record a reported routine outcome as the captain's (its header
-# owns that rule). Settle the verdict with the store's own answer first, so the
-# receipt the supervision host reads to find this turn's captain rows, and what
-# this command tells the branch, both say what was actually stored.
-set -- verdict-for --task "$TASK" --verdict "$VERDICT" --silent "$SILENT"
-[ -z "$WAKE" ] || set -- "$@" --wake "$WAKE"
-if ! VERDICT=$("$SCRIPT_DIR/fm-branch-outcome.sh" "$@"); then
-  echo "outcome store could not settle the verdict (nothing recorded)" >&2
+# owns that rule), and it is the only place that rule is evaluated. Read the
+# verdict back from the append rather than working it out here too, so the
+# stored row, the receipt the supervision host reads to find this turn's
+# captain rows, and what this command tells the branch cannot disagree.
+VERDICT_OUT=$(mktemp "${TMPDIR:-/tmp}/fm-branch-report.verdict.XXXXXX") || {
+  echo "outcome store append not attempted (no temporary file for its verdict)" >&2
   exit 1
-fi
-
-set -- append --task "$TASK" --verdict "$VERDICT" --summary "$SUMMARY" --silent "$SILENT"
+}
+trap 'rm -f -- "$VERDICT_OUT"' EXIT
+set -- append --task "$TASK" --verdict "$VERDICT" --summary "$SUMMARY" --silent "$SILENT" \
+  --verdict-out "$VERDICT_OUT"
 [ -z "$WAKE" ] || set -- "$@" --wake "$WAKE"
 if ! SEQ=$("$SCRIPT_DIR/fm-branch-outcome.sh" "$@"); then
   echo "outcome store append failed (nothing recorded)" >&2
   exit 1
 fi
+STORED_VERDICT=$(cat "$VERDICT_OUT" 2>/dev/null) || STORED_VERDICT=''
+case "$STORED_VERDICT" in
+  routine|captain) VERDICT=$STORED_VERDICT ;;
+  *)
+    echo "recorded seq $SEQ, but the store did not report the verdict it stored; the host will hand this wake to MAIN" >&2
+    exit 1
+    ;;
+esac
 printf '%s\t%s\t%s\t%s\n' "$TURN" "$SEQ" "$VERDICT" "$TASK" >> "$RECEIPTS" || {
   echo "recorded seq $SEQ, but the host receipt could not be written; the host will hand this wake to MAIN" >&2
   exit 1

@@ -5989,6 +5989,10 @@ test_captain_note_wakes_a_parked_watcher() {
     || fail "the captain note was not reported as an actionable check: $(cat "$out")"
   grep -F "$id" "$out" >/dev/null \
     || fail "the actionable reason did not name the waiting note: $(cat "$out")"
+  # The ring is spent only once the close was actually printed: a marker
+  # written ahead of a lost close would bury the note for good.
+  [ -e "$state/.rang-inbox-note-$id" ] \
+    || fail "the delivered ring was not recorded, so the note would ring on every poll"
   beacon_age=$(FM_STATE_OVERRIDE="$state" bash -c \
     '. "$1/bin/fm-wake-lib.sh"; fm_path_age "$2"' _ "$ROOT" "$state/.last-watcher-beat")
   [ "$beacon_age" -lt 60 ] || fail "the surfacing watcher was not a healthy one (beacon age ${beacon_age}s)"
@@ -6028,6 +6032,8 @@ test_captain_note_rings_once() {
 
   FM_STATE_OVERRIDE="$state" "$ROOT/bin/fm-inbox.sh" drain --ack "$id" >/dev/null \
     || fail "could not acknowledge the captain note itself"
+  [ ! -e "$state/.rang-inbox-note-$id" ] \
+    || fail "acknowledging the note left its one-ring marker behind in state/"
   ack_stopped_cycle "$state" || fail "could not acknowledge the post-handling drain"
   [ ! -s "$state/.wake-queue" ] || fail "a handled captain note left its row durable"
 

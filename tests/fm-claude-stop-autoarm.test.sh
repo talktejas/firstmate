@@ -402,18 +402,34 @@ test_resolves_outermost_claude_pid_in_nested_bgspare_chain() {
   pass "auto-arm: resolves the outermost pid of a nested contiguous claude ancestry (bg-spare chain)"
 }
 
-test_inert_when_fleet_idle() {
+# An idle home used to arm nothing, so a captain note written into it had no
+# watcher cycle to end and waited for the captain to come back and type. The
+# hook now parks a cycle on every Stop of an in-scope primary, and waking the
+# model stays the separate question: with nothing left to supervise, the close
+# is still the quiet one.
+test_idle_home_is_parked_but_stays_quiet() {
   local dir out status
   dir=$(make_primary_dir "$TMP_ROOT/idle")
-  : > "$dir/state/.claude-autoarm-failure-notified"
-  : > "$dir/state/.claude-autoarm-failure-alarmed"
   write_arm_fixture "$dir" actionable
   out=$(run_autoarm "$dir" 2>/dev/null); status=$?
-  expect_code 0 "$status" "hook must exit 0 in an idle home with no X-mode poll"
-  [ ! -e "$dir/state/arm-ran" ] || fail "hook armed an idle home"
-  assert_present "$dir/state/.claude-autoarm-failure-notified" "idle state without positive recovery reset the failure notice"
-  assert_present "$dir/state/.claude-autoarm-failure-alarmed" "idle state without positive recovery reset the attended alarm"
-  pass "auto-arm: inert with nothing in flight and no X-mode need"
+  expect_code 0 "$status" "an idle home's close must not wake the model"
+  [ -e "$dir/state/arm-ran" ] || fail "hook left an idle home with no watcher cycle to ring for a captain note"
+  pass "auto-arm: an idle home is parked for a captain note and its close stays quiet"
+}
+
+# The same idle home once a note is waiting: now there IS something to
+# supervise, so the close reaches the model as a rewake.
+test_idle_home_with_a_waiting_note_rewakes() {
+  local dir out status
+  dir=$(make_primary_dir "$TMP_ROOT/idle-note")
+  write_arm_fixture "$dir" actionable
+  FM_HOME="$dir" "$ROOT/bin/fm-inbox.sh" note "clean up the leftover branches" >/dev/null \
+    || fail "fixture could not write a captain note"
+  out=$(run_autoarm "$dir" 2>/dev/null); status=$?
+  expect_code 2 "$status" "a waiting captain note must make the close rewake the model"
+  [ -e "$dir/state/arm-ran" ] || fail "hook did not arm with a captain note waiting"
+  [ "$(epoch_outcome "$dir")" = rewake ] || fail "a captain note's close must record outcome=rewake"
+  pass "auto-arm: a captain note waiting in an otherwise idle home rewakes the model"
 }
 
 # --- the armed cycle ----------------------------------------------------------
@@ -1715,7 +1731,8 @@ test_inert_when_lock_held_by_other_harness
 test_inert_when_afk
 test_stale_lock_recovery_preserves_afk_and_need_gates
 test_resolves_outermost_claude_pid_in_nested_bgspare_chain
-test_inert_when_fleet_idle
+test_idle_home_is_parked_but_stays_quiet
+test_idle_home_with_a_waiting_note_rewakes
 test_actionable_close_rewakes_with_reason
 test_actionable_close_with_live_successor_rewakes_once
 test_attached_cycle_end_starts_handling_successor

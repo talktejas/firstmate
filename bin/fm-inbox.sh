@@ -7,6 +7,9 @@
 #   note    Queue an idea for firstmate while firstmate is mid-turn and cannot
 #           answer. Writes a durable record and appends ONE `check` wake, so the
 #           note survives a crash and is presented at firstmate's next drain.
+#           A running watcher cycle ends for that row within one poll, which is
+#           what reaches an idle primary; bin/fm-watch.sh owns that ring and
+#           `drain --ack` retires its marker with the note.
 #           `announce` may append that same wake for an already-saved note.
 #           These two are the only subcommands that touch firstmate's wake queue.
 #   say     Same as `note`, but the body comes from spoken audio on stdin.
@@ -1163,6 +1166,12 @@ cmd_drain() {
       else
         printf 'already-acked %s\n' "$id"
       fi
+      # The watcher's one-ring marker for this note (bin/fm-watch.sh
+      # inbox_note_rung_marker) has nothing left to bound once the note is
+      # acknowledged, and leaving one empty file per note behind is exactly the
+      # dead-marker growth every drain works to prevent. Best effort: a marker
+      # that cannot be removed costs nothing but the file.
+      valid_note_id "$id" && rm -f "$STATE/.rang-inbox-note-$id" 2>/dev/null || true
     done
     return 0
   fi

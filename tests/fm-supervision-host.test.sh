@@ -363,7 +363,7 @@ test_report_surface_receipt_agrees_with_the_stored_verdict() {
   state="$home/state"
   mkdir -p "$state"
   printf 'turn=t1\nrows=4\ntasks=alpha\nunscoped=0\nwake=signal: alpha.status\n' > "$state/.supervision-host-turn"
-  printf 'window=x\n' > "$state/alpha.meta"
+  printf 'window=x\ncaptain_request=1\n' > "$state/alpha.meta"
   printf 'working [at=1]: building\ndone [at=2]: the cleanup the captain asked for finished\n' > "$state/alpha.status"
 
   out=$(FM_HOME="$home" FM_SUPERVISION_ACTOR=branch FM_BRANCH_REPORT_TURN=t1 "$REPORT" \
@@ -498,8 +498,13 @@ test_branch_outcomes_only_on_a_host_home_off_pi() {
   assert_not_contains "$drained" "BRANCH OUTCOMES" "a Pi primary's drain must leave captain outcomes to the branch extension"
   assert_absent "$home/state/.branch-outcomes-cursor" "a Pi primary's drain must not advance the store's read cursor"
 
+  # The fixture recorded this row through the real append, so it also reached
+  # the captain's command center: main still has to act on it, and the section
+  # names it as one the captain has already seen so it is not said twice.
   drained=$(FM_HOME="$home" "$FAKE_CLAUDE" -c '"$0" 2>&1' "$ROOT/bin/fm-wake-drain.sh")
   assert_contains "$drained" "[seq 1, recorded 0m ago] demo: PR ready for review" "a Claude home without config/supervision-host must present the captain outcome"
+  assert_contains "$drained" "BRANCH OUTCOMES, ALREADY DELIVERED: seq 1 reached the captain's command center when they were recorded" "the section must name the row the captain has already seen"
+  assert_contains "$drained" "leave them out of your reply so the captain is not told twice" "the delivered line must say what to do about it"
 
   : > "$home/config/supervision-host"
   drained=$(FM_HOME="$home" "$fakes/codex" -c '"$0" 2>&1' "$ROOT/bin/fm-wake-drain.sh")

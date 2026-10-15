@@ -697,7 +697,7 @@ print_branch_outcomes_section() {
       map(select(.verdict == "captain")) | sort_by(.seq)
       | reduce .[] as $r ({count: {}, lines: []};
           .count[$r.task] += 1
-          | .lines += ["\($r.seq)\t\($r.task)\t[seq \($r.seq)\(if .count[$r.task] > 1 then ", newest of \(.count[$r.task]) for this task" else "" end), recorded \($r.recordedAgo) ago] \($r.task): \($r.summary | gsub("[\t\n\r]"; " "))"])
+          | .lines += ["\($r.seq)\t\($r.task)\t\(if $r.delivered then 1 else 0 end)\t[seq \($r.seq)\(if .count[$r.task] > 1 then ", newest of \(.count[$r.task]) for this task" else "" end), recorded \($r.recordedAgo) ago] \($r.task): \($r.summary | gsub("[\t\n\r]"; " "))"])
       | .lines[]' 2>/dev/null) \
     || ! routine=$(printf '%s\n' "$rows" | jq -rs 'map(select(.unread and .verdict == "routine" and .silent != true)) | sort_by(.seq) | reverse | .[]
       | "[seq \(.seq)] \(.task): \(.summary | gsub("[\t\n\r]"; " "))"' 2>/dev/null) \
@@ -707,7 +707,8 @@ print_branch_outcomes_section() {
   fi
 
   target=0
-  while IFS=$(printf '\t') read -r seq task task_line; do
+  delivered_seqs=
+  while IFS=$(printf '\t') read -r seq task delivered task_line; do
     case "$seq" in ''|*[!0-9]*) continue ;; esac
     if [ "$held" -gt 0 ]; then
       held=$((held + 1))
@@ -728,11 +729,18 @@ print_branch_outcomes_section() {
     [ "$i" -lt "$shown" ] || shown=$((shown + 1))
     used=$bytes
     target=$seq
+    if [ "$delivered" = 1 ]; then
+      if [ -z "$delivered_seqs" ]; then
+        delivered_seqs=$seq
+      else
+        delivered_seqs="$delivered_seqs, $seq"
+      fi
+    fi
   done <<ROWS
 $captain
 ROWS
   if [ "$shown" -gt 0 ]; then
-    text="BRANCH OUTCOMES (captain outcomes the supervision session recorded for you, one line per task, oldest first; each says what was true when it was recorded, so check the task's current state first, including its still-open decisions listed above under OPEN DECISIONS, and sort them into still open and already settled, such as a decision since answered, a PR since merged, or a task since finished - process the still-open ones as firstmate: tell the captain, land or merge what is ready, answer or escalate a decision, or act on a blocker; your reply to the captain covers only those, as if the settled ones had never been listed, and a settled one needs only the acknowledgement):
+    text="BRANCH OUTCOMES (captain outcomes the supervision session recorded for you, one line per task, oldest first; each says what was true when it was recorded, so check the task's current state first, including its still-open decisions listed above under OPEN DECISIONS, and sort them into still open and already settled, such as a decision since answered, a PR since merged, or a task since finished - process the still-open ones as firstmate: tell the captain, land or merge what is ready, answer or escalate a decision, or act on a blocker; your reply to the captain covers only those, as if the settled ones had never been listed, and a settled one needs only the acknowledgement; the ALREADY DELIVERED line below the block, when there is one, names the rows the captain has already seen):
 "
     for line in "${captain_lines[@]}"; do
       text="$text$line
@@ -741,6 +749,8 @@ ROWS
     [ "$held" -eq 0 ] || text="${text}BRANCH OUTCOMES: $held newer captain outcome(s) are held back (byte cap); they follow on the next drain once these are acknowledged
 "
     text="${text}BRANCH OUTCOMES: after processing them run bin/fm-branch-outcome.sh mark-processed --through $target; until then every drain presents them again
+"
+    [ -z "$delivered_seqs" ] || text="${text}BRANCH OUTCOMES, ALREADY DELIVERED: seq $delivered_seqs reached the captain's command center when they were recorded; act on them exactly as you would otherwise, and leave them out of your reply so the captain is not told twice
 "
   fi
 

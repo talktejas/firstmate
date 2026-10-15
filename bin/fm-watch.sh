@@ -2829,13 +2829,30 @@ rerecord_device_shifted_pr_poll() {  # <id>
 # note here, the same way a captured process-event result is surfaced above.
 # One ring is the whole bound: the note and its row are both durable and every
 # drain presents them (bin/fm-wake-drain.sh), so a note main does not
-# acknowledge cannot re-wake it on every poll.
+# acknowledge cannot re-wake it on every poll. The marker is written only AFTER
+# the close is printed, the same way a surfaced process-event result records
+# itself: a marker written first and an output that then failed, or a watcher
+# killed in that window, would leave the note marked rung and never delivered -
+# the idle-main miss, back again and now invisible.
+# bin/fm-inbox.sh retires the marker with the note it acknowledges.
 inbox_note_rung_marker() {  # <note-id>
   printf '%s/.rang-inbox-note-%s' "$STATE" "$1"
 }
 
+inbox_surface_after_output() {
+  local output_status=$1 id status=0
+  if [ "$output_status" -eq 0 ]; then
+    for id in $INBOX_SURFACED; do
+      : > "$(inbox_note_rung_marker "$id")" || status=1
+    done
+  fi
+  return "$status"
+}
+
+INBOX_SURFACED=
 inbox_surface_queued() {
-  local key id ids=""
+  local key id
+  INBOX_SURFACED=
   [ -s "$FM_WAKE_QUEUE" ] || return 0
   while IFS= read -r key; do
     case "$key" in inbox:?*) ;; *) continue ;; esac
@@ -2844,11 +2861,12 @@ inbox_surface_queued() {
     # writer would not have accepted rather than touching a path it names.
     case "$id" in *[!A-Za-z0-9._-]*|*..*) continue ;; esac
     [ -e "$(inbox_note_rung_marker "$id")" ] && continue
-    : > "$(inbox_note_rung_marker "$id")" || return 1
-    ids="$ids $id"
+    INBOX_SURFACED="$INBOX_SURFACED $id"
   done < <(fm_wake_queued_keys check)
-  [ -n "$ids" ] || return 0
-  wake "check: captain inbox note waiting:$ids"
+  [ -n "$INBOX_SURFACED" ] || return 0
+  # shellcheck disable=SC2034 # Consumed by wake() in the separately linted transition owner.
+  FM_WAKE_POST_OUTPUT_ACTION=inbox_surface_after_output
+  wake "check: captain inbox note waiting:$INBOX_SURFACED"
 }
 
 resurface_after_downtime() {

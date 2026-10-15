@@ -48,6 +48,10 @@
 #   base_branch= in state/<id>.meta, which a relaunch reuses and later review and
 #   cleanup read; it is refused on secondmates and relaunches, and without it
 #   nothing changes.
+#   --captain-request records captain_request=1 in state/<id>.meta: this task is
+#   work the captain asked for, so bin/fm-branch-outcome.sh records the result
+#   of it as a captain outcome instead of a routine one nobody tells him about.
+#   Its header owns that rule; without the flag nothing changes.
 #   Ship/scout launches always put fm-dod-lib.sh's current worker role scope
 #   first in the private launch-brief overlay, including the exact task-owned
 #   steering inbox. This never rewrites a project's instruction files or a
@@ -688,6 +692,7 @@ BASE_BRANCH=
 BASE_BRANCH_SET=0
 TRACEPARENT_SET=0
 RELAUNCH=0
+CAPTAIN_REQUEST=0
 POS=()
 want_value=
 for a in "$@"; do
@@ -753,6 +758,10 @@ for a in "$@"; do
     KIND_SET=1
     ;;
   --relaunch) RELAUNCH=1 ;;
+  # The captain-origin record bin/fm-branch-outcome.sh reads: this task is work
+  # the captain asked for, so the result of it is his and never a routine
+  # outcome nobody tells him about. Its own header owns that rule.
+  --captain-request) CAPTAIN_REQUEST=1 ;;
   --harness) want_value=harness ;;
   --harness=*)
     HARNESS_ARG=${a#--harness=}
@@ -5096,6 +5105,7 @@ preserve_relaunch_meta() {
   echo "kind=$KIND"
   [ -z "$MODE" ] || echo "mode=$MODE"
   [ -z "$YOLO" ] || echo "yolo=$YOLO"
+  [ "$CAPTAIN_REQUEST" -eq 0 ] || echo "captain_request=1"
   [ -z "${BRANCH:-}" ] || echo "branch=$BRANCH"
   echo "tasktmp=$TASK_TMP"
   [ -z "$BASE_BRANCH" ] || echo "base_branch=$BASE_BRANCH"
