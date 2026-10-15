@@ -2911,10 +2911,15 @@ resurface_after_downtime() {
   # still opens a fresh episode from this same path.
   if queued_rows_are_all_rung_notes; then
     if [ "$WATCHER_RECOVERY_PENDING" -eq 1 ]; then
-      if fm_recovery_marker_read "$WATCHER_DOWNTIME_MARKER" \
-        && ! fm_recovery_marker_ack "$WATCHER_DOWNTIME_MARKER" "${FM_RECOVERY_MARKER_TOKEN##*:}"; then
-        echo "watcher: recovery state could not be consumed safely" >&2
-        exit 1
+      if fm_recovery_marker_read "$WATCHER_DOWNTIME_MARKER"; then
+        fm_recovery_marker_ack "$WATCHER_DOWNTIME_MARKER" "${FM_RECOVERY_MARKER_TOKEN##*:}"
+        case $? in
+          0|3) ;;
+          *)
+            echo "watcher: recovery state could not be consumed safely" >&2
+            exit 1
+            ;;
+        esac
       fi
       WATCHER_RECOVERY_PENDING=0
     fi
