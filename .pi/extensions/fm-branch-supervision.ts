@@ -211,7 +211,7 @@ type OutcomeRow = {
 type VisibleOutcomeRecord = OutcomeRow & { version: 1 };
 // An unprocessed captain row with the store's "recordedAgo" (bin/fm-branch-outcome.sh
 // owns its wording).
-type UnprocessedOutcome = OutcomeRow & { recordedAgo: string };
+type UnprocessedOutcome = OutcomeRow & { recordedAgo: string; delivered: boolean };
 type ProviderRecovery = {
   cooldownMs: number;
   retryNotBefore: number;
@@ -1025,7 +1025,9 @@ export default function (pi: ExtensionAPI) {
         const parsed = JSON.parse(line);
         const outcome = parseOutcomeRow(parsed);
         const recordedAgo = outcome?.verdict === "captain" ? (parsed as { recordedAgo?: unknown }).recordedAgo : undefined;
-        if (outcome && typeof recordedAgo === "string" && /^[0-9]+[mhd]$/.test(recordedAgo)) row = { ...outcome, recordedAgo };
+        if (outcome && typeof recordedAgo === "string" && /^[0-9]+[mhd]$/.test(recordedAgo)) {
+          row = { ...outcome, recordedAgo, delivered: (parsed as { delivered?: unknown }).delivered === true };
+        }
       } catch {
         row = null;
       }
@@ -1049,7 +1051,11 @@ export default function (pi: ExtensionAPI) {
     const listed = rows
       .map((row) => `[seq ${row.seq}, recorded ${row.recordedAgo} ago] ${row.task}: ${row.summary}`)
       .join("\n");
-    const body = `${PROCESSING_INSTRUCTION.replace("{N}", String(through))}\n\n${listed}`;
+    const delivered = rows.filter((row) => row.delivered).map((row) => row.seq);
+    const deliveredNote = delivered.length
+      ? `\n\nALREADY DELIVERED: seq ${delivered.join(", ")} reached the captain's command center when they were recorded; act on them exactly as you would otherwise, and leave them out of your reply so the captain is not told twice.`
+      : "";
+    const body = `${PROCESSING_INSTRUCTION.replace("{N}", String(through))}\n\n${listed}${deliveredNote}`;
     try {
       return await encodeFirstmateOperationalInputWith(runCommandAsync, "branch-outcome", body);
     } catch {

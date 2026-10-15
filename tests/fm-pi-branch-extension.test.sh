@@ -745,6 +745,9 @@ if (sentToMain[1].options.deliverAs !== "nextTurn" || sentToMain[1].options.trig
   throw new Error(`routine busy merge must defer to nextTurn without a turn: ${JSON.stringify(sentToMain[1].options)}`);
 }
 await fire("agent_end", {});
+// The store records seq 3 as already posted to the captain's command center,
+// so the request still asks main to act on it but not to relay it again.
+writeFileSync(`${home}/state/.branch-outcomes-delivered`, "3\n");
 await report.execute("call-3", { task: "task-9", verdict: "captain", summary: "PR https://example.com/pr/9 checks green, ready for review" }, undefined, undefined, {});
 // A captain outcome opens exactly ONE sequence-keyed processing turn: a
 // hidden, typed request that names the sequence and carries the exact stored
@@ -758,6 +761,9 @@ if (processingRequest.options.triggerTurn !== true || processingRequest.options.
 if (processingRequest.message.display !== false) throw new Error("the processing request must stay hidden: the visible entry is the display");
 if (!processingRequest.message.content.includes("[seq 3, recorded 0m ago] task-9: PR https://example.com/pr/9 checks green, ready for review")) {
   throw new Error(`the processing request lost its sequence key, recorded age, or exact summary: ${processingRequest.message.content}`);
+}
+if (!processingRequest.message.content.includes("ALREADY DELIVERED: seq 3 reached the captain's command center")) {
+  throw new Error(`the processing request did not tell main that seq 3 already reached the captain: ${processingRequest.message.content}`);
 }
 if (sentToMain.some((sent) => sent.options.triggerTurn && sent.message.customType !== "fm-branch-process")) {
   throw new Error("an unkeyed turn opened on main");
