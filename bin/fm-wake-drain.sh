@@ -750,7 +750,7 @@ ROWS
 "
     text="${text}BRANCH OUTCOMES: after processing them run bin/fm-branch-outcome.sh mark-processed --through $target; until then every drain presents them again
 "
-    [ -z "$delivered_seqs" ] || text="${text}BRANCH OUTCOMES, ALREADY DELIVERED: seq $delivered_seqs reached the captain's command center when they were recorded; act on them exactly as you would otherwise, and leave them out of your reply so the captain is not told twice
+    [ -z "$delivered_seqs" ] || text="${text}BRANCH OUTCOMES, ALREADY DELIVERED: seq $delivered_seqs reached the captain's command center when they were recorded; act on them exactly as you would otherwise, including putting any decision the row leaves open - a merge, a test run, anything needing his word - to the captain now; only its already-posted summary text is yours to leave out of your reply, never the decision itself, so he is not told the same thing twice but is still asked
 "
   fi
 

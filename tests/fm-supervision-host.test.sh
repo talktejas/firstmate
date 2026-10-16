@@ -504,12 +504,65 @@ test_branch_outcomes_only_on_a_host_home_off_pi() {
   drained=$(FM_HOME="$home" "$FAKE_CLAUDE" -c '"$0" 2>&1' "$ROOT/bin/fm-wake-drain.sh")
   assert_contains "$drained" "[seq 1, recorded 0m ago] demo: PR ready for review" "a Claude home without config/supervision-host must present the captain outcome"
   assert_contains "$drained" "BRANCH OUTCOMES, ALREADY DELIVERED: seq 1 reached the captain's command center when they were recorded" "the section must name the row the captain has already seen"
-  assert_contains "$drained" "leave them out of your reply so the captain is not told twice" "the delivered line must say what to do about it"
+  assert_contains "$drained" "including putting any decision the row leaves open - a merge, a test run, anything needing his word - to the captain now" "the delivered line must say the pending decision still has to be asked, not just the summary skipped"
 
   : > "$home/config/supervision-host"
   drained=$(FM_HOME="$home" "$fakes/codex" -c '"$0" 2>&1' "$ROOT/bin/fm-wake-drain.sh")
   assert_contains "$drained" "[seq 1, recorded 0m ago] demo: PR ready for review" "a Codex home with config/supervision-host must present the captain outcome"
   pass "drain: BRANCH OUTCOMES runs on a Claude home by default and on another primary with the file, never with off, and never on Pi"
+}
+
+# 2026-10-16 seq 459: a captain verdict recorded by the supervision host while
+# main sat idle reached the command center and woke main exactly as designed,
+# but main's own drain text let it read the row as fully discharged, so it
+# never put the pending merge/test decision to the captain, who only found out
+# 40 minutes later by asking. The post and the wake were never the broken
+# links; the ALREADY DELIVERED line's wording was, because "act on them...
+# and leave them out of your reply" reads as "say nothing more about this" as
+# easily as it reads as "only skip repeating the summary". This replays that
+# exact row shape - built and combined, ready for review, not merged, merging
+# only on the captain's word - and pins both real links plus the line's own
+# wording so the gap cannot reopen silently.
+test_branch_outcomes_already_delivered_still_puts_the_open_decision_to_the_captain() {
+  local home log seq drained
+  home="$TMP_ROOT/seq-459-replay"
+  mkdir -p "$home/state"
+  log="$home/data/captain-messages.jsonl"
+
+  seq=$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" append --task crm --verdict captain \
+    --summary 'Outreach CRM contact form: all 10 items are built and combined into one PR into develop, ready for review and NOT merged: https://github.com/talktejas/outreach-crm/pull/90. Tests have not been run, as instructed; it merges only on the captain'"'"'s word.') \
+    || fail "fixture: could not record the seq-459-shaped captain outcome"
+
+  # Link 1: the command-center post at record time - must not depend on a
+  # later main turn.
+  [ -s "$log" ] || fail "seq $seq reached nobody: no post landed in the command center at record time"
+  python3 - "$log" "$seq" <<'POSTED' || fail "the posted message does not carry this row's own task and PR"
+import json, sys
+rows = [json.loads(line) for line in open(sys.argv[1])]
+assert len(rows) == 1, rows
+assert rows[0]["task"] == "crm", rows[0]
+assert "outreach-crm/pull/90" in rows[0]["text"], rows[0]
+POSTED
+
+  # Link 2: the wake into idle main - the host's own exit line that arms the
+  # next cycle names this as a branch-outcome wake (bin/fm-claude-stop-autoarm.sh
+  # and tests/fm-claude-stop-autoarm.test.sh pin the arming mechanics
+  # end-to-end); here it is the drain itself idle main's turn would run.
+  drained=$(FM_HOME="$home" "$FAKE_CLAUDE" -c '"$0" 2>&1' "$ROOT/bin/fm-wake-drain.sh") \
+    || fail "the drain idle main would run on this wake failed"
+  assert_contains "$drained" "pull/90" "idle main's drain must present the open PR, not just an acknowledgement"
+  assert_contains "$drained" "BRANCH OUTCOMES, ALREADY DELIVERED: seq $seq reached the captain's command center when they were recorded" \
+    "the delivered line must name this exact row"
+
+  # The actual 2026-10-16 gap: the delivered line must not read as "already
+  # handled, say nothing more" - it must say the still-open decision (merge,
+  # test run, anything needing his word) still has to reach the captain, and
+  # only the repeated summary text may be left out.
+  assert_contains "$drained" "including putting any decision the row leaves open - a merge, a test run, anything needing his word - to the captain now" \
+    "the delivered line must require asking any decision the row leaves open, not merely tolerate skipping it"
+  assert_not_contains "$drained" "and leave them out of your reply so the captain is not told twice" \
+    "the old ambiguous wording - readable as omit the row entirely - must be gone"
+  pass "seq 459 replay: a captain verdict recorded while main is idle reaches the command center and wakes main, and the delivered line still demands the open decision reach the captain"
 }
 
 # A fresh captain outcome is never hidden behind older routine outcomes: the
@@ -2957,6 +3010,7 @@ test_report_surface_receipt_agrees_with_the_stored_verdict
 test_report_after_the_return_is_queued_for_main
 test_dispatch_entry_scopes_rows_and_renders_the_away_tail
 test_branch_outcomes_only_on_a_host_home_off_pi
+test_branch_outcomes_already_delivered_still_puts_the_open_decision_to_the_captain
 test_branch_outcomes_put_captain_first_and_collapse_routine_overflow
 test_branch_outcomes_collapse_repeated_captain_outcomes_per_task
 test_branch_outcomes_present_a_long_away_window_once
