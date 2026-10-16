@@ -610,24 +610,17 @@ record_captain_upgrade() {  # <task> <endpoint> <identity>
 # Store-first durability is kept intact: the row is already on disk, so a
 # failed post warns and leaves the row unprocessed for the drain's backstop
 # rather than losing the outcome.
-# A row whose own summary or wake records a merge, approval or decision still
-# waiting on the captain's word is posted as a question, so it lands on the
-# command center's Action surface instead of reading as plain information.
 # 0 posted, 1 could not post, 2 deliberately not posted (away).
-post_captain_outcome() {  # <task> <summary> <wake>
-  local task=$1 body=$2 title question=
+post_captain_outcome() {  # <task> <summary>
+  local task=$1 body=$2 title
   if fm_afk_contract_away_present "$STATE"; then
     return 2
   fi
   title=${body%%$'\n'*}
   case "$title" in *'. '*) title="${title%%'. '*}." ;; esac
   [ "${#title}" -le 100 ] || title="$(printf '%.97s...' "$title")"
-  if printf '%s\n%s\n' "$body" "${3:-}" | grep -Eiq \
-      "(^|[^[:alnum:]])(captain('s|’s)?|his|your) (word|approval|decision|go-ahead|call)|not merged|waiting on (him|you|the captain)"; then
-    question=--question
-  fi
   FM_HOME="$FM_HOME" "$SCRIPT_DIR/fm-captain-message.sh" \
-    --title "$title" --task "$task" ${question:+"$question"} -- "$body" >/dev/null
+    --title "$title" --task "$task" -- "$body" >/dev/null
 }
 
 CMD=${1:-}
@@ -720,7 +713,7 @@ case "$CMD" in
     fm_lock_release "$LOCK"
     if [ "$VERDICT" = captain ]; then
       POST_RC=0
-      post_captain_outcome "$TASK" "$SUMMARY" "$WAKE" || POST_RC=$?
+      post_captain_outcome "$TASK" "$SUMMARY" || POST_RC=$?
       case "$POST_RC" in
         0)
           mark_delivered "$SEQ" \
