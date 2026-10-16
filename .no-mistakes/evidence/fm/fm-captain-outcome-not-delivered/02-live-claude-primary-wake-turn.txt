@@ -1,0 +1,48 @@
+  ⎿  Allowed by auto mode classifier
+  ⎿  1 PostToolUse hook ran
+● Bash(grep -l "outreach-crm/pull/90" state/*.meta 2>/dev/null; ls state/*.meta 2>/dev/null | head)
+  ⎿  (No output)
+  ⎿  Allowed by auto mode classifier
+  ⎿  1 PostToolUse hook ran
+● Bash(bin/fm-captain-message.sh --help 2>&1 | head -30)
+  ⎿  fm-captain-message.sh - the durable record of what firstmate SAID to the captain.
+     Firstmate's records hold the work: a held task, a stopped worker, a merged PR.
+     None of them hold the MESSAGE - the sentence firstmate actually put in front of
+     the captain. Until this file existed the terminal was the only copy of that, and
+     a terminal scrolls, so everything firstmate said while he was away was gone.
+     This appends one line per message to an append-only log so the command center
+     can show him every one of them (bin/command-center.py, docs/command-center.md).
+     THE BY-HAND WRITER. On a Claude primary the log is filled automatically by
+     bin/fm-captain-message-sweep.py reading the conversation record, which never
+     marks a message as a question. This script is the ROUTING path: a question
+     tied to a decision is recorded here with --question, and an answer to one of
+     his notes with --answers; the capture keeps this row instead of adding a copy
+     when the same turn's final message says the same thing. It is also the only
+     writer for what that record cannot see: another primary harness, or something
+     said outside the recorded conversation. AGENTS.md section 9 carries that split.
+     Usage:
+       fm-captain-message.sh --title <title> [options] <text>...
+       fm-captain-message.sh --title <title> [options] -        (body from stdin)
+       --title <t>     the short line the captain sees in the list; when left out,
+                       the message's first line stands in for it.
+       --task <id>     a task in this home; fills project, worktree and branch from
+                       its own record (state/<id>.meta), else its project from its
+                       backlog line's (repo: r), unless the flags below override
+                       them. An id nothing resolves is still recorded (see below).
+       --general       this message is about no task. Optional: a message naming
+                       no task is recorded the same way, and --task wins over it.
+  ⎿  Allowed by auto mode classifier
+  ⎿  1 PostToolUse hook ran
+● Bash(MSG='Captain, the Outreach CRM contact-form PR is still waiting on your word: https://github.com/talktejas/outreach-crm/pull/90 (all 10 items combined into one PR into develop; tests not yet
+      run, per your instruction). Do you want me to run the test suite first, merge it as-is, or hold it?'
+      bin/fm-captain-message.sh --question --title "Outreach CRM PR #90: test, merge, or hold?" --general "$MSG" && bin/fm-branch-outcome.sh mark-processed --through 1)
+  ⎿  m20261016T114412Z-65272
+  ⎿  Allowed by auto mode classifier
+  ⎿  1 PostToolUse hook ran
+                                                                                                                                                                        06:44 PM claude-opus-5-5
+● Captain, the Outreach CRM contact-form PR is still waiting on your word: https://github.com/talktejas/outreach-crm/pull/90
+  All 10 items are combined into one PR into develop. It isn't merged, and the tests haven't been run yet because you asked to hold them until the end.
+  Should I run the test suite first, merge it as-is, or hold it? I'd run the tests first, so we don't merge 10 items that have never been tested.
+✻ Worked for 24s · done 6:44 PM
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Showing detailed transcript · ctrl+o to toggle · ↑↓ scroll · v to open in vi · ? for shortcuts                                                                                                verbose

@@ -1,0 +1,22 @@
+$ FM_HOME=$LAB bin/fm-branch-outcome.sh append --task crm --verdict captain --summary '<seq-459 text>'
+fm-captain-message: --task crm resolved to no project; recorded with its project unknown
+1
+exit=0
+
+--- state/branch-outcomes.jsonl
+{"seq":1,"epoch":1792151003,"task":"crm","wake":"","verdict":"captain","summary":"Outreach CRM contact form: all 10 items are built and combined into one PR into develop, ready for review and NOT merged: https://github.com/talktejas/outreach-crm/pull/90. Tests have not been run, as instructed; it merges only on the captain's word.","silent":false,"statusEndpoint":0,"statusIdent":"-"}
+
+--- state/.branch-outcomes-delivered
+1
+
+--- data/captain-messages.jsonl (command-center post)
+{"id":"m20261016T114323Z-97794","at":"2026-10-16T11:43:23Z","title":"Outreach CRM contact form: all 10 items are built and combined into one PR into develop, ready fo...","text":"Outreach CRM contact form: all 10 items are built and combined into one PR into develop, ready for review and NOT merged: https://github.com/talktejas/outreach-crm/pull/90. Tests have not been run, as instructed; it merges only on the captain's word.","task":"crm","project":null,"worktree":null,"branch":null,"question":false,"question_key":null,"resolution":"failed"}
+
+total 16
+drwxrwxr-x 2 tds tds 140 Oct 16 18:43 .
+drwxrwxr-x 7 tds tds 160 Oct 16 18:43 ..
+-rw------- 1 tds tds   2 Oct 16 18:43 .branch-outcome-index-ready
+-rw-rw-r-- 1 tds tds   2 Oct 16 18:43 .branch-outcomes-delivered
+-rw------- 1 tds tds 387 Oct 16 18:43 .branch-outcomes-tail.jsonl
+-rw-rw-r-- 1 tds tds   0 Oct 16 18:43 .captain-message-sweep.lock
+-rw-rw-r-- 1 tds tds 387 Oct 16 18:43 branch-outcomes.jsonl
