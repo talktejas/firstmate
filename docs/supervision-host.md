@@ -87,6 +87,8 @@ The other owners read the file at every arm.
 A non-silent row an away turn records after the captain returned is also queued for main as a durable check wake.
 Silent outcomes remain in the store but are not queued or relayed as notes.
 An attended turn queues nothing: its captain rows reach main through the host's `branch-outcome` exit and the drain, and its routine rows stay in the store.
+Every stored captain row is also posted to the captain's command center when it is recorded, so an outcome no longer waits on a main turn to reach the captain.
+A row that reached the captain that way is still presented to main, which has to act on it, and an ALREADY DELIVERED line in the drain, or in the Pi processing request, names it so main acts without saying it to the captain a second time; `bin/fm-branch-outcome.sh`'s header owns the post, the delivered set, and the away exception.
 
 ### Leases and authority
 

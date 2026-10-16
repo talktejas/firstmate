@@ -78,8 +78,12 @@ These sources also count toward supervision need:
 - Registered `state/procevent/*.source` records require supervision even though they have no task metadata.
 - Every mode treats `state/x-watch.check.sh` as supervision need, so Relay polling remains guarded without an in-flight task.
 - A custom check registered with `bin/fm-check-register.sh` counts the same way, so an operator's home-level poll keeps running after the last task is torn down.
+- A captain inbox note still waiting for firstmate counts too, so a turn cannot end blind on a note nobody has handled.
 
 The default cross-harness mode exits silently with no supervision need.
+
+Supervision need is not what decides whether Claude's Stop auto-arm starts a watcher.
+That hook arms on every Stop of an in-scope primary checkout, idle or not, because only a running watcher cycle can end for a captain note written while the home had nothing else to supervise; `bin/fm-claude-stop-autoarm.sh`'s header owns that split and the quiet close an idle cycle still gets.
 
 ### Strict watcher check at the turn boundary
 

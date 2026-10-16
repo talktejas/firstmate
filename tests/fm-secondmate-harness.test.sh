@@ -809,6 +809,8 @@ test_spawn_bare_harness_no_model_effort_flag() {
   meta="$w/home/state/sm.meta"
   [ "$(meta_field "$meta" model)" = default ] || fail "bare-tokens: meta model not default (got '$(meta_field "$meta" model)')"
   [ "$(meta_field "$meta" effort)" = default ] || fail "bare-tokens: meta effort not default (got '$(meta_field "$meta" effort)')"
+  [ -z "$(meta_field "$meta" captain_request)" ] \
+    || fail "bare-tokens: a secondmate is infrastructure, not captain-requested work, yet its meta records captain_request"
   launch=$(cat "$launchlog")
   assert_contains "$launch" "CLAUDE_CODE_SEND_FEEDBACK=0 claude" \
     "bare-tokens: Claude secondmate launch did not disable feedback drafts"

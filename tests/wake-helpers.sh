@@ -55,6 +55,14 @@ append_wake() {
   ' _ "$lib" "$kind" "$key" "$payload"
 }
 
+# queue_note <state> <text>: write one captain inbox note through the real
+# bin/fm-inbox.sh, which also appends its durable check wake, and print the new
+# note id. Cases bind to the shipped record rather than a hand-written imitation
+# of it.
+queue_note() {
+  FM_STATE_OVERRIDE="$1" "$ROOT/bin/fm-inbox.sh" note "$2" | sed -n 's/^queued //p'
+}
+
 make_case() {
   local name=$1 dir fakebin
   dir="$TMP_ROOT/$name"

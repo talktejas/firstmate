@@ -2820,11 +2820,109 @@ rerecord_device_shifted_pr_poll() {  # <id>
   return 0
 }
 
+# Captain inbox notes (bin/fm-inbox.sh). That script appends the durable
+# `check` row the moment the captain writes a note, but it has no way to end a
+# watcher cycle that is already parked, and nothing else observes an `inbox:`
+# row: the recovery resurface below fires only after watcher downtime. So a
+# note written while supervision was perfectly healthy waited for an unrelated
+# close - the captain's own words unread while main sat idle. Ring once per
+# note here, the same way a captured process-event result is surfaced above.
+# One ring is the whole bound: the note and its row are both durable and every
+# drain presents them (bin/fm-wake-drain.sh), so a note main does not
+# acknowledge cannot re-wake it on every poll. The marker is written only AFTER
+# the close is printed, the same way a surfaced process-event result records
+# itself: a marker written first and an output that then failed, or a watcher
+# killed in that window, would leave the note marked rung and never delivered -
+# the idle-main miss, back again and now invisible.
+# bin/fm-inbox.sh retires the marker with the note it acknowledges.
+inbox_note_rung_marker() {  # <note-id>
+  printf '%s/.rang-inbox-note-%s' "$STATE" "$1"
+}
+
+inbox_surface_after_output() {
+  local output_status=$1 id status=0
+  if [ "$output_status" -eq 0 ]; then
+    for id in $INBOX_SURFACED; do
+      : > "$(inbox_note_rung_marker "$id")" || status=1
+    done
+  fi
+  return "$status"
+}
+
+INBOX_SURFACED=
+inbox_surface_queued() {
+  local key id
+  INBOX_SURFACED=
+  [ -s "$FM_WAKE_QUEUE" ] || return 0
+  while IFS= read -r key; do
+    case "$key" in inbox:?*) ;; *) continue ;; esac
+    id=${key#inbox:}
+    # The note id is a filename component here, so reject anything the note
+    # writer would not have accepted rather than touching a path it names.
+    case "$id" in *[!A-Za-z0-9._-]*|*..*) continue ;; esac
+    [ -f "$STATE/inbox/$id.note" ] || continue
+    [ -e "$(inbox_note_rung_marker "$id")" ] && continue
+    INBOX_SURFACED="$INBOX_SURFACED $id"
+  done < <(fm_wake_queued_keys check)
+  [ -n "$INBOX_SURFACED" ] || return 0
+  # shellcheck disable=SC2034 # Consumed by wake() in the separately linted transition owner.
+  FM_WAKE_POST_OUTPUT_ACTION=inbox_surface_after_output
+  wake "check: captain inbox note waiting:$INBOX_SURFACED"
+}
+
+# True when every row still queued is a captain note that already rang, and
+# there is at least one. bin/fm-wake-drain.sh keeps such a row through any wake
+# acknowledgement - only `fm-inbox.sh drain --ack <id>` clears it - while the
+# recovery re-surface below fires whenever the queue is not empty and the
+# episode marker is absent, which main's own acknowledgement removes. Together
+# they re-woke main every turn until it acknowledged the note: measured live at
+# a rewake every few seconds for over two minutes. Those notes are listed on
+# every drain under CAPTAIN NOTES WAITING and each already rang once here, so
+# re-surfacing for them tells main nothing it is not already being told. A row
+# whose note main already acknowledged is waiting only for the queue
+# acknowledgement, and is nothing to re-surface either.
+queued_rows_are_all_rung_notes() {
+  local kind key id rows=0 verdict=0
+  [ -s "$FM_WAKE_QUEUE" ] || return 1
+  fm_lock_acquire_wait "$FM_WAKE_QUEUE_LOCK" || return 1
+  while IFS=$'\t' read -r _ _ kind key _; do
+    rows=$((rows + 1))
+    if [ "$kind" != check ]; then verdict=1; break; fi
+    case "$key" in inbox:?*) ;; *) verdict=1; break ;; esac
+    id=${key#inbox:}
+    case "$id" in *[!A-Za-z0-9._-]*|*..*) verdict=1; break ;; esac
+    [ -f "$STATE/inbox/$id.note" ] || continue
+    if [ ! -e "$(inbox_note_rung_marker "$id")" ]; then verdict=1; break; fi
+  done < "$FM_WAKE_QUEUE"
+  fm_lock_release "$FM_WAKE_QUEUE_LOCK"
+  [ "$verdict" -eq 0 ] && [ "$rows" -gt 0 ]
+}
+
 resurface_after_downtime() {
   # Handling successors already have a predecessor-delivered wake on the way.
   # Re-announcing from this cycle is what turned a lost handshake into an
   # unbounded recovery loop; stay in the poll loop and supervise instead.
   if [ "${FM_WATCH_HANDLING_SUCCESSOR:-0}" = 1 ]; then
+    return 0
+  fi
+  # Nothing queued but captain notes that already rang: see above. A pending
+  # episode is consumed here as main's acknowledgement would consume it, so it
+  # never fires later against an empty queue, while the next genuinely new row
+  # still opens a fresh episode from this same path.
+  if queued_rows_are_all_rung_notes; then
+    if [ "$WATCHER_RECOVERY_PENDING" -eq 1 ]; then
+      if fm_recovery_marker_read "$WATCHER_DOWNTIME_MARKER"; then
+        fm_recovery_marker_ack "$WATCHER_DOWNTIME_MARKER" "${FM_RECOVERY_MARKER_TOKEN##*:}"
+        case $? in
+          0|3) ;;
+          *)
+            echo "watcher: recovery state could not be consumed safely" >&2
+            exit 1
+            ;;
+        esac
+      fi
+      WATCHER_RECOVERY_PENDING=0
+    fi
     return 0
   fi
   if [ "$WATCHER_RECOVERY_PENDING" -ne 1 ]; then
@@ -2924,6 +3022,12 @@ while :; do
   # Then deliver any queued-but-unsurfaced result, including one a runner
   # published while this watcher was between cycles.
   procevent_surface_queued
+
+  # The captain's own words outrank the generic recovery reason below.
+  inbox_surface_queued || {
+    echo "watcher: captain inbox note could not be surfaced" >&2
+    exit 1
+  }
 
   # A process-event result carries richer adapter-owned wake context than the
   # generic recovery reason, so give that owner first refusal.

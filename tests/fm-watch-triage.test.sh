@@ -5966,6 +5966,153 @@ procevent_watch_bg() {  # <dir> <out>
     FM_POLL=0.2 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
 }
 
+# A captain inbox note is the captain's own words. bin/fm-inbox.sh makes it
+# durable and queues its check row, but it cannot end a watcher cycle that is
+# already parked, so before this sweep existed the note waited for an unrelated
+# close - which on an idle home meant waiting for the captain to come back and
+# type. queue_note (tests/wake-helpers.sh) writes it through the real
+# bin/fm-inbox.sh, the same note these cases' drain-side siblings use.
+
+test_captain_note_wakes_a_parked_watcher() {
+  local dir state out drain_out id pid beacon_age
+  dir=$(make_case captain-note-delivery); state="$dir/state"
+  out="$dir/watch.out"; drain_out="$dir/drain.out"
+  id=$(queue_note "$state" "clean up the leftover branches") \
+    || fail "the fixture could not write a captain note"
+  [ -n "$id" ] || fail "fm-inbox.sh printed no note id"
+
+  watch_bg "$state" "$dir/fakebin" "$out"
+  pid=$!
+  wait_for_exit "$pid" 100 \
+    || fail "a healthy watcher never surfaced a waiting captain note: $(cat "$out")"
+  grep -F "check:" "$out" >/dev/null \
+    || fail "the captain note was not reported as an actionable check: $(cat "$out")"
+  grep -F "$id" "$out" >/dev/null \
+    || fail "the actionable reason did not name the waiting note: $(cat "$out")"
+  # The ring is spent only once the close was actually printed: a marker
+  # written ahead of a lost close would bury the note for good.
+  [ -e "$state/.rang-inbox-note-$id" ] \
+    || fail "the delivered ring was not recorded, so the note would ring on every poll"
+  beacon_age=$(FM_STATE_OVERRIDE="$state" bash -c \
+    '. "$1/bin/fm-wake-lib.sh"; fm_path_age "$2"' _ "$ROOT" "$state/.last-watcher-beat")
+  [ "$beacon_age" -lt 60 ] || fail "the surfacing watcher was not a healthy one (beacon age ${beacon_age}s)"
+
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" 2>/dev/null \
+    || fail "drain after the captain-note wake failed"
+  grep -F "$id" "$drain_out" >/dev/null \
+    || fail "the captain note was not presented by the drain that follows the wake"
+  pass "a waiting captain inbox note wakes a healthy parked watcher, with no captain turn"
+}
+
+test_captain_note_rings_once() {
+  local dir state out id pid
+  dir=$(make_case captain-note-once); state="$dir/state"; out="$dir/watch.out"
+  id=$(queue_note "$state" "one more thing") \
+    || fail "the fixture could not write a captain note"
+
+  watch_bg "$state" "$dir/fakebin" "$out"
+  pid=$!
+  wait_for_exit "$pid" 100 || fail "the first proactive wake never happened: $(cat "$out")"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the captain-note wake"
+
+  # Main acknowledged the wake but not the note, which is the ordinary order:
+  # the note's row survives that acknowledgement by design, and the episode
+  # marker it removed used to make every later cycle re-surface. Measured live
+  # as a rewake every few seconds for over two minutes.
+  [ -e "$state/inbox/$id.note" ] || fail "the wake drain acknowledged the note itself"
+  [ -s "$state/.wake-queue" ] || fail "the note's row did not survive the wake acknowledgement"
+  : > "$out"
+  watch_bg "$state" "$dir/fakebin" "$out"
+  pid=$!
+  if ! wait_poll_cycle "$state" "$pid"; then
+    fail "a rung note still waiting woke the watcher again: $(cat "$out")"
+  fi
+
+  # The same watcher must stay quiet once the note is handled and the queue
+  # empties under it.
+  FM_STATE_OVERRIDE="$state" "$ROOT/bin/fm-inbox.sh" drain --ack "$id" >/dev/null \
+    || fail "could not acknowledge the captain note itself"
+  if ! wait_poll_cycle "$state" "$pid"; then
+    fail "the parked watcher re-surfaced once the rung note was acknowledged: $(cat "$out")"
+  fi
+  [ ! -e "$state/.rang-inbox-note-$id" ] \
+    || fail "acknowledging the note left its one-ring marker behind in state/"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the post-handling drain"
+  [ ! -s "$state/.wake-queue" ] || fail "a handled captain note left its row durable"
+  if ! wait_poll_cycle "$state" "$pid"; then
+    fail "the parked watcher re-surfaced for an empty queue: $(cat "$out")"
+  fi
+  reap "$pid"
+  # Stopping that watcher is real downtime of its own; acknowledge it so the
+  # fresh watcher below is asked only about the handled note.
+  ack_stopped_cycle "$state" || fail "could not acknowledge the stopped watcher's downtime"
+
+  : > "$out"
+  watch_bg "$state" "$dir/fakebin" "$out"
+  pid=$!
+  if ! wait_poll_cycle "$state" "$pid"; then
+    fail "a handled captain note woke the watcher: $(cat "$out")"
+  fi
+  reap "$pid"
+  pass "a captain note rings once and then stays quiet, whether it is still waiting or handled"
+}
+
+# Going quiet for a rung note must not go quiet for the next one: the captain
+# writing a second note while the first is still unacknowledged is exactly the
+# case the whole change exists for.
+test_a_new_note_rings_while_an_older_one_waits() {
+  local dir state out first second pid
+  dir=$(make_case captain-note-second); state="$dir/state"; out="$dir/watch.out"
+  first=$(queue_note "$state" "the first thing") \
+    || fail "the fixture could not write the first captain note"
+
+  watch_bg "$state" "$dir/fakebin" "$out"
+  pid=$!
+  wait_for_exit "$pid" 100 || fail "the first note never rang: $(cat "$out")"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the first note's wake"
+
+  second=$(queue_note "$state" "and another thing") \
+    || fail "the fixture could not write the second captain note"
+  : > "$out"
+  watch_bg "$state" "$dir/fakebin" "$out"
+  pid=$!
+  wait_for_exit "$pid" 100 \
+    || fail "a new captain note did not ring while an older one waited: $(cat "$out")"
+  grep -F "$second" "$out" >/dev/null \
+    || fail "the wake did not name the new note: $(cat "$out")"
+  [ -e "$state/inbox/$first.note" ] || fail "the older note was acknowledged by the fixture"
+  pass "a new captain note rings even while an older rung note is still waiting"
+}
+
+# Main acknowledges the note while handling it and the queue only afterwards,
+# so the handling successor sees the check row with the note and its marker
+# already gone. A note no longer waiting is nothing to ring for.
+test_captain_note_handled_before_queue_ack_does_not_ring() {
+  local dir state out id pid
+  dir=$(make_case captain-note-handled); state="$dir/state"; out="$dir/watch.out"
+  id=$(queue_note "$state" "merge it") \
+    || fail "the fixture could not write a captain note"
+  watch_bg "$state" "$dir/fakebin" "$out"
+  pid=$!
+  wait_for_exit "$pid" 100 || fail "the first proactive wake never happened: $(cat "$out")"
+  FM_STATE_OVERRIDE="$state" "$ROOT/bin/fm-inbox.sh" drain --ack "$id" >/dev/null \
+    || fail "could not acknowledge the captain note itself"
+  grep -F "inbox:$id" "$state/.wake-queue" >/dev/null \
+    || fail "the fixture lost the queued check row before the queue acknowledgement"
+
+  : > "$out"
+  watch_bg "$state" "$dir/fakebin" "$out" env FM_WATCH_HANDLING_SUCCESSOR=1
+  pid=$!
+  wait_poll_cycle "$state" "$pid" || true
+  reap "$pid"
+  if grep -F "captain inbox note waiting" "$out" >/dev/null; then
+    fail "a note main already acknowledged was rung again: $(cat "$out")"
+  fi
+  [ ! -e "$state/.rang-inbox-note-$id" ] \
+    || fail "a handled note's ring marker was written again"
+  pass "a captain note acknowledged before its queue row never rings again"
+}
+
 test_procevent_captured_result_surfaces_proactively() {
   local dir state out drain_out pid beacon_age
   dir=$(make_case procevent-delivery); state="$dir/state"
@@ -6893,6 +7040,10 @@ test_secondmate_home_supervision_churn_is_not_write_evidence
 test_timer_repair_drops_a_finished_write_deferral_chain
 test_terminal_first_sight_drops_a_finished_write_deferral_chain
 test_triage_log_size_cap_accepts_spaced_wc_counts
+test_captain_note_wakes_a_parked_watcher
+test_captain_note_rings_once
+test_a_new_note_rings_while_an_older_one_waits
+test_captain_note_handled_before_queue_ack_does_not_ring
 test_procevent_captured_result_surfaces_proactively
 test_procevent_unacknowledged_result_redrains_until_handled
 test_procevent_marker_keys_are_injective

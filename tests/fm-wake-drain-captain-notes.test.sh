@@ -19,10 +19,6 @@ INBOX_CLI="$ROOT/bin/fm-inbox.sh"
 
 TMP_ROOT=$(fm_test_tmproot fm-wake-drain-captain-notes-tests)
 
-queue_note() {  # <state> <text> -> prints the new note id
-  FM_STATE_OVERRIDE="$1" "$INBOX_CLI" note "$2" | sed -n 's/^queued //p'
-}
-
 # A note exactly as fm-inbox.sh writes one, sent <age> seconds ago and with no
 # wake at all: what an older acknowledgement or a failed wake append leaves.
 write_old_note() {  # <state> <age-seconds> <suffix> <body> -> prints the id

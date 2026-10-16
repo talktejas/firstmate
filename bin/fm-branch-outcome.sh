@@ -79,6 +79,33 @@
 #   fm-branch-outcome.sh append --task <id> --verdict routine|captain \
 #       --summary <text> [--wake <text>] [--silent true|false]
 #     Append one outcome record; prints the assigned seq.
+#     A non-silent `routine` row that reports the result of work the captain
+#     asked for is recorded as `captain` instead, with a note on stderr: the
+#     branch prompt already carries that rule, and the store enforces it so one
+#     misclassified turn cannot swallow the captain's own result. The captain's
+#     ask has to be on the record: either the wake names a captain inbox note, or
+#     the task's meta carries `captain_request=1` and its own status log declares
+#     the work done or failed. A terminal status verb alone never upgrades a row.
+#     The upgrade happens once per unchanged situation: any non-silent captain
+#     row stored for such a task, reported or upgraded, records the task's status
+#     position, and a later routine row at that same position stays routine.
+#     A stored `captain` row is also posted to the captain's command center as a
+#     captain-facing message (bin/fm-captain-message.sh) right after the lock is
+#     released, so the outcome no longer depends on a MAIN turn running to
+#     reach the captain. A post that succeeds records the row's seq in
+#     $STATE/.branch-outcomes-delivered, one seq per appended line and never a
+#     high-water mark, because a post can fail for one row and succeed for the
+#     next. `present` and `unprocessed` carry that as a `delivered` boolean, so
+#     the drain shows a delivered row for MAIN to act on (merge, answer,
+#     unblock) while telling it not to relay the row to the captain again. A
+#     failed post warns, records nothing, and leaves the row to MAIN's relay.
+#     Nothing is posted while an away record exists, because the away contract
+#     holds every outcome back for the return brief; such a row is not
+#     delivered and MAIN relays it at the return.
+#     `--verdict-out <path>` writes the verdict actually stored to that file.
+#     A caller whose own records must agree with the row - bin/fm-branch-report.sh,
+#     whose receipt tells the supervision host which rows are the captain's -
+#     reads it back from there instead of evaluating the rule a second time.
 #   fm-branch-outcome.sh unread
 #     Print every unread record (raw JSONL). Exit 0 with no output when none.
 #   fm-branch-outcome.sh mark-read --through <seq>
@@ -141,10 +168,13 @@ SCRIPT_DIR="$(d=${BASH_SOURCE[0]%/*}; [ "$d" != "${BASH_SOURCE[0]}" ] || d=.; cd
 . "$SCRIPT_DIR/fm-wake-lib.sh"
 # shellcheck source=bin/fm-classify-lib.sh
 . "$SCRIPT_DIR/fm-classify-lib.sh"
+# shellcheck source=bin/fm-afk-contract.sh
+. "$SCRIPT_DIR/fm-afk-contract.sh"
 
 STORE="$STATE/branch-outcomes.jsonl"
 CURSOR="$STATE/.branch-outcomes-cursor"
 PROCESSED="$STATE/.branch-outcomes-processed"
+DELIVERED="$STATE/.branch-outcomes-delivered"
 LOCK="$STATE/.branch-outcomes.lock"
 MAX_SAFE_SEQ=9007199254740991
 OUTCOME_INDEX_VERSION=fm-branch-outcome-index-v1
@@ -163,7 +193,7 @@ RECORDED_AGO_JQ='def recorded_ago: ([$now - .epoch, 0] | max) as $s
     else "\($s / 86400 | floor)d" end;'
 
 usage() {
-  echo "usage: fm-branch-outcome.sh append --task <id> --verdict routine|captain --summary <text> [--wake <text>] [--silent true|false] | unread | mark-read --through <seq> | unprocessed | mark-processed --through <seq> | present | processed-init [--held-lock] | list [--recent <n>] | lookup --seqs <n,...> | startup-replay | seed-tail" >&2
+  echo "usage: fm-branch-outcome.sh append --task <id> --verdict routine|captain --summary <text> [--wake <text>] [--silent true|false] [--verdict-out <path>] | unread | mark-read --through <seq> | unprocessed | mark-processed --through <seq> | present | processed-init [--held-lock] | list [--recent <n>] | lookup --seqs <n,...> | startup-replay | seed-tail" >&2
   exit 2
 }
 
@@ -407,6 +437,27 @@ write_processed() { # <seq>
   mv -f -- "$tmp" "$PROCESSED"
 }
 
+# Delivered set: the captain rows that already reached the captain's own
+# surface. One seq per line, appended, never a high-water mark - a post can
+# fail for one row and succeed for the next, and a mark that covered the gap
+# would claim a delivery that never happened.
+mark_delivered() { # <seq>
+  printf '%s\n' "$1" >> "$DELIVERED"
+}
+
+# The delivered set as a JSON array, for the two presenters' jq programs. An
+# absent or unreadable file reads as empty, which labels nothing - the safe
+# direction, since the label only tells main to stop relaying.
+delivered_json() {
+  if [ ! -r "$DELIVERED" ]; then
+    printf '[]\n'
+    return 0
+  fi
+  awk 'BEGIN { printf "[" ; sep = "" }
+    /^[0-9]+$/ { printf "%s%s", sep, $0; sep = "," }
+    END { print "]" }' "$DELIVERED"
+}
+
 # Captain rows above the processed marker and at or below the read cursor.
 print_unprocessed() {
   local cursor processed last
@@ -426,12 +477,13 @@ print_unprocessed() {
   fi
   [ -s "$STORE" ] || return 0
   jq -cn --argjson processed "$processed" --argjson cursor "$cursor" --argjson now "$(date +%s)" \
+    --argjson delivered "$(delivered_json)" \
     "$RECORDED_AGO_JQ"'(reduce inputs as $row ([];
         if length < 32 and $row.verdict == "captain" and $row.seq > $processed and $row.seq <= $cursor
         then . + [$row] else . end))[]
       | ("… [summary abbreviated; read the full outcome with bin/fm-branch-outcome.sh lookup --seqs \(.seq)]") as $note
       | .summary |= (if length > 1024 then .[:(1024 - ($note | length))] + $note else . end)
-      | . + {recordedAgo: recorded_ago}' "$STORE"
+      | . + {recordedAgo: recorded_ago, delivered: ([.seq] | inside($delivered))}' "$STORE"
 }
 
 # Assumes $LOCK is already held. Callers that do not already hold it use the
@@ -493,6 +545,84 @@ held_lock_owned_by_ancestor() {
   return 1
 }
 
+# A RESULT OF WORK THE CAPTAIN ASKED FOR IS NEVER ROUTINE (the branch prompt's
+# own classification rule, enforced here so one misclassified turn cannot
+# swallow it). The captain's own ask has to be on the record for this to fire,
+# because the prompt's other rule is just as real: an unsolicited routine
+# outcome stays routine, however healthy its result. Two records carry that ask:
+#   - the wake names a captain inbox note, which is the ask itself;
+#   - the task's `captain_request=1` metadata, which bin/fm-spawn.sh records on
+#     every launch unless the dispatcher opts out with --not-captain-request,
+#     together with that task's own status log declaring the work done or
+#     failed - the result of the ask.
+# A terminal status verb alone is not enough and never was: it says the work
+# finished, not that the captain wanted to hear about it.
+# Only done and failed count as that result. A `blocked:` or `needs-decision:`
+# task is waiting, not finished, and its routine rows are the automatic recovery
+# the captain asked not to hear about; the away brief and the decision records
+# own those waits. A silent row is a no-change observation and stays routine,
+# and so does a start or still-working update on unfinished work.
+outcome_reports_requested_result() {  # <task> <wake>
+  local meta="$STATE/$1.meta"
+  case "$2" in *'captain inbox note'*) return 0 ;; esac
+  [ -f "$meta" ] && [ ! -L "$meta" ] || return 1
+  [ "$(sed -n 's/^captain_request=//p' "$meta" 2>/dev/null | head -n 1)" = 1 ] || return 1
+  case "$(status_line_verb "$(last_status_line "$STATE/$1.status")")" in
+    done|failed) return 0 ;;
+  esac
+  return 1
+}
+
+# ONCE PER UNCHANGED SITUATION. A finished task's log keeps declaring `done:`
+# until teardown, so without this every later non-silent routine row about it -
+# checks re-ran, worktree cleaned up - would become another captain row and
+# another message to the captain. The status position captured for this very
+# append is the situation: the same endpoint and identity mean nothing has
+# happened since the upgrade, so the verdict stands as reported.
+captain_upgrade_marker() {  # <task>
+  printf '%s/.%s.captain-upgrade' "$STATE" "$1"
+}
+
+captain_upgrade_already_made() {  # <task> <endpoint> <identity>
+  local recorded
+  recorded=$(cat "$(captain_upgrade_marker "$1")" 2>/dev/null) || return 1
+  [ "$recorded" = "$2	$3" ]
+}
+
+record_captain_upgrade() {  # <task> <endpoint> <identity>
+  local tmp marker
+  marker=$(captain_upgrade_marker "$1") || return 1
+  tmp=$(mktemp "$STATE/.captain-upgrade.XXXXXX") || return 1
+  if ! printf '%s\t%s\n' "$2" "$3" > "$tmp" || ! mv -f -- "$tmp" "$marker"; then
+    rm -f -- "$tmp"
+    return 1
+  fi
+}
+
+# POST A CAPTAIN OUTCOME THE MOMENT IT IS RECORDED. Main relaying the drain's
+# BRANCH OUTCOMES section was the only path to the captain, so a captain
+# outcome recorded while main sat idle reached nobody until the captain came
+# back and asked. The command center is the captain's own reading surface, so the row
+# goes there as a captain-facing message at record time and no longer depends
+# on a main turn happening at all.
+# Away is the one exception: the away contract holds every outcome back for the
+# return brief, so nothing is posted while that record exists.
+# Store-first durability is kept intact: the row is already on disk, so a
+# failed post warns and leaves the row unprocessed for the drain's backstop
+# rather than losing the outcome.
+# 0 posted, 1 could not post, 2 deliberately not posted (away).
+post_captain_outcome() {  # <task> <summary>
+  local task=$1 body=$2 title
+  if fm_afk_contract_away_present "$STATE"; then
+    return 2
+  fi
+  title=${body%%$'\n'*}
+  case "$title" in *'. '*) title="${title%%'. '*}." ;; esac
+  [ "${#title}" -le 100 ] || title="$(printf '%.97s...' "$title")"
+  FM_HOME="$FM_HOME" "$SCRIPT_DIR/fm-captain-message.sh" \
+    --title "$title" --task "$task" -- "$body" >/dev/null
+}
+
 CMD=${1:-}
 shift 2>/dev/null || true
 
@@ -503,6 +633,7 @@ case "$CMD" in
     SUMMARY=''
     WAKE=''
     SILENT=false
+    VERDICT_OUT=''
     while [ "$#" -gt 0 ]; do
       case "$1" in
         --task) TASK=${2:-}; shift 2 || usage ;;
@@ -510,6 +641,7 @@ case "$CMD" in
         --summary) SUMMARY=${2:-}; shift 2 || usage ;;
         --wake) WAKE=${2:-}; shift 2 || usage ;;
         --silent) SILENT=${2:-}; shift 2 || usage ;;
+        --verdict-out) VERDICT_OUT=${2:-}; shift 2 || usage ;;
         *) usage ;;
       esac
     done
@@ -535,12 +667,34 @@ case "$CMD" in
     fi
     SEQ=$(( LAST_SEQ + 1 ))
     capture_status_position "$TASK"
+    UPGRADED=0
+    REQUESTED_RESULT=0
+    if [ "$SILENT" = false ] && outcome_reports_requested_result "$TASK" "$WAKE"; then
+      REQUESTED_RESULT=1
+    fi
+    if [ "$VERDICT" = routine ] && [ "$REQUESTED_RESULT" -eq 1 ] \
+      && ! captain_upgrade_already_made "$TASK" "$CAPTURED_STATUS_ENDPOINT" "$CAPTURED_STATUS_IDENT"; then
+      VERDICT=captain
+      UPGRADED=1
+    fi
     rm -f -- "$OUTCOME_INDEX_READY" || { fm_lock_release "$LOCK"; exit 1; }
     printf '{"seq":%s,"epoch":%s,"task":"%s","wake":"%s","verdict":"%s","summary":"%s","silent":%s,"statusEndpoint":%s,"statusIdent":"%s"}\n' \
       "$SEQ" "$(date +%s)" "$(json_escape "$TASK")" "$(json_escape "$WAKE")" \
       "$VERDICT" "$(json_escape "$SUMMARY")" "$SILENT" "$CAPTURED_STATUS_ENDPOINT" \
       "$(json_escape "$CAPTURED_STATUS_IDENT")" >> "$STORE"
     write_outcome_tail || echo "warning: outcome $SEQ was stored but its display tail copy could not be refreshed" >&2
+    if [ "$UPGRADED" -eq 1 ]; then
+      echo "note: outcome $SEQ was recorded as a captain outcome because it reports the result of work the captain asked for" >&2
+    fi
+    if [ "$VERDICT" = captain ] && [ "$REQUESTED_RESULT" -eq 1 ]; then
+      record_captain_upgrade "$TASK" "$CAPTURED_STATUS_ENDPOINT" "$CAPTURED_STATUS_IDENT" \
+        || echo "warning: outcome $SEQ was recorded as the captain's, but the once-per-situation record could not be written, so an unchanged repeat may be recorded as the captain's too" >&2
+    fi
+    if [ -n "$VERDICT_OUT" ] && ! printf '%s\n' "$VERDICT" > "$VERDICT_OUT"; then
+      fm_lock_release "$LOCK"
+      echo "error: outcome $SEQ was stored but its verdict could not be reported to $VERDICT_OUT" >&2
+      exit 1
+    fi
     # A task with neither a live meta nor a status log is retired: the branch
     # reports the teardown it just performed, and writing the index here would
     # recreate the footprint teardown removed. The outcome itself is still
@@ -557,6 +711,20 @@ case "$CMD" in
       exit 1
     fi
     fm_lock_release "$LOCK"
+    if [ "$VERDICT" = captain ]; then
+      POST_RC=0
+      post_captain_outcome "$TASK" "$SUMMARY" || POST_RC=$?
+      case "$POST_RC" in
+        0)
+          mark_delivered "$SEQ" \
+            || echo "warning: captain outcome $SEQ reached the command center but the delivery could not be recorded, so main relays it too" >&2
+          ;;
+        2) ;;
+        *)
+          echo "warning: captain outcome $SEQ was stored but could not be posted to the command center" >&2
+          ;;
+      esac
+    fi
     printf '%s\n' "$SEQ"
     ;;
   unread)
@@ -614,10 +782,12 @@ case "$CMD" in
       exit 1
     fi
     if [ -s "$STORE" ] && ! jq -c --argjson cursor "$CURSOR_SEQ" --argjson processed "$PROCESSED_SEQ" \
-        --argjson now "$(date +%s)" "$RECORDED_AGO_JQ"'
+        --argjson now "$(date +%s)" --argjson delivered "$(delivered_json)" "$RECORDED_AGO_JQ"'
         select(.seq > $cursor or (.verdict == "captain" and .seq > $processed))
         | . + {unread: (.seq > $cursor)}
-        | if .verdict == "captain" then . + {recordedAgo: recorded_ago} else . end' "$STORE"; then
+        | if .verdict == "captain"
+          then . + {recordedAgo: recorded_ago, delivered: ([.seq] | inside($delivered))}
+          else . end' "$STORE"; then
       fm_lock_release "$LOCK"
       exit 1
     fi

@@ -933,13 +933,13 @@ test_append_wakes_live_announced_watcher() {
   start_rearm_arm "$home" "$state" "$fakebin" "$idle_out"
   is_live_non_zombie "$ARM_PID" \
     || fail "the announced empty recovery did not leave a live watcher"
-  append_wake "$state" check inbox:fixture 'check: captain inbox note fixture' \
+  append_wake "$state" check append:fixture 'check: appended work fixture' \
     || fail "the generic producer could not append its wake"
   wait_for_exit "$ARM_PID" 80 \
     || fail "the live watcher stranded work appended after an empty recovery"
   grep -F 'check: rearm-resurface' "$idle_out" >/dev/null \
     || fail "the appended wake did not reopen recovery: $(cat "$idle_out")"
-  grep "$(printf '\tcheck\tinbox:fixture\t')" "$state/.wake-queue" >/dev/null \
+  grep "$(printf '\tcheck\tappend:fixture\t')" "$state/.wake-queue" >/dev/null \
     || fail "the appended wake was not durable when recovery surfaced"
   pass "watch-arm: appending work reopens an announced empty recovery"
 }

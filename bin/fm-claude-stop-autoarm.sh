@@ -17,13 +17,23 @@
 #     transient helper chain is recycled).
 #     When an existing numeric owner fails the shared harness-liveness predicate,
 #     the hook delegates guarded recovery to bin/fm-lock.sh and then re-verifies
-#     ownership. A live owner, missing lock, malformed lock, or unresolved
+#     ownership, but only while the home has real supervision need: the idle
+#     park below never reclaims a dead owner's lock. A live owner, missing lock, malformed lock, or unresolved
 #     ancestry remains inert, so a competing session never arms or rewakes.
 #   - AFK: while state/.afk exists the away daemon owns the watcher and triage;
 #     this hook exits 0 and NEVER rewakes the primary (checked again at
 #     translation time so a mid-cycle AFK transition is honored).
-#   - Need: arms only while the home needs supervision, as
-#     bin/fm-supervision-lib.sh defines it; an idle home exits 0.
+#   - Need: arms on every Stop of an in-scope primary checkout, including an
+#     idle one, so a watcher cycle is always there to end for a captain note
+#     written while nothing else needs supervision. Whether a close WAKES the
+#     model still asks bin/fm-supervision-lib.sh, so a cycle that ends with
+#     nothing left to supervise closes quietly as before - except at a
+#     supervision-host park boundary, which wakes the model once so that turn's
+#     Stop re-arms the park rather than leaving an idle home unwatched from the
+#     boundary onward. A home without the host cannot be renewed that way: its
+#     park ends when Claude kills this hook at the configured timeout, and
+#     Claude drops a killed hook's exit 2 (docs/verification/supervision.md), so
+#     there is nothing left to deliver.
 #   - Single-flight: Claude does not dedupe async hooks, so exactly one
 #     GENERATION owner arms per event epoch: the epoch ledger's monotonic
 #     sequence is the claim generation, every firing defers (exit 0) to a live
@@ -216,17 +226,37 @@ fi
 # --- AFK: the away daemon owns the watcher and triage; never rewake ----------
 [ -e "$STATE/.afk" ] && exit 0
 
-# --- need: whatever bin/fm-supervision-lib.sh counts as supervision need ------
+# --- need: what to arm for, and what to wake the model for -------------------
+# Arming and waking are different questions, so this hook stopped asking one
+# predicate for both.
+#
+# ARMING is unconditional on an in-scope primary checkout. A captain note is
+# written straight into state/inbox/ by whoever the captain is talking to, and
+# only a running watcher cycle ends for it (inbox_surface_queued in
+# bin/fm-watch.sh). An idle home that armed nothing had no cycle to end, so a
+# note written there waited for the captain to come back and type - the failure
+# this exists to stop. The park costs one poll loop that absorbs its own
+# no-change heartbeats attended, so an idle home stays quiet until something
+# real is queued.
+#
+# WAKING the model still asks bin/fm-supervision-lib.sh, so the close of a
+# cycle with nothing left to supervise stays the quiet close it has always
+# been: the idle park wakes main for a queued wake, never for its own
+# existence. So there is deliberately no arm gate here.
 need_supervision() {
   fm_supervision_needed "$STATE" "$GRACE"
 }
-need_supervision || exit 0
 
 # --- stale session-lock recovery ---------------------------------------------
 # Delegate the claim to fm-lock.sh so its live-owner refusal and write semantics
 # remain the single acquisition owner, then re-verify current-session identity
 # before touching any auto-arm state.
+# Reclaiming a dead owner's lock is a mutation, and the idle park is not worth
+# one: an idle home whose lock names a dead session stays byte-for-byte inert,
+# exactly as it did when supervision need gated every arm. Real supervision
+# need is still worth the claim.
 if [ "$RECOVER_SESSION_LOCK" -eq 1 ]; then
+  need_supervision || exit 0
   "$SCRIPT_DIR/fm-lock.sh" >/dev/null 2>&1 || exit 0
   fm_session_lock_owned_by_self "$STATE" || exit 0
 fi
@@ -473,7 +503,20 @@ done
 
 # The need may have vanished mid-cycle (fleet torn down, X opted out): nothing
 # left to supervise, so close quietly instead of waking the model.
-if ! need_supervision; then
+#
+# One exception, and it is the whole point of the idle park: the park has a time
+# limit. The supervision host ends its own park at
+# FM_SUPERVISION_HOST_PARK_SECONDS with a "cycle boundary" line, and the quiet
+# exit here would wake no model, so no Stop would follow and nothing would arm
+# the next park - an idle home would be unwatched from that boundary until the
+# captain typed, which is the failure the park exists to stop. So a boundary
+# close wakes the model once; that turn's Stop re-arms the park. One rewake per
+# boundary, roughly one cheap turn every few hours, and no detached successor.
+park_boundary_close() {
+  [ -n "$OUT" ] || return 1
+  grep -q '^supervision-host: cycle boundary' "$OUT" 2>/dev/null
+}
+if ! need_supervision && ! park_boundary_close; then
   autoarm_record clean
   [ -z "$OUT" ] || rm -f "$OUT" 2>/dev/null || true
   exit 0

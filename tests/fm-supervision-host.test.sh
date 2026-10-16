@@ -353,6 +353,29 @@ test_report_surface_enforces_actor_turn_and_scope() {
   pass "report surface: only the branch actor's current turn may report, and only on the tasks its wake names"
 }
 
+# The store records a reported routine outcome as the captain's when it is the
+# result of work the captain asked for (bin/fm-branch-outcome.sh's header owns
+# that rule). The receipt is how the host finds this turn's captain rows, so it
+# has to say what was stored, not what the branch reported.
+test_report_surface_receipt_agrees_with_the_stored_verdict() {
+  local home state out rc
+  home="$TMP_ROOT/report-verdict"
+  state="$home/state"
+  mkdir -p "$state"
+  printf 'turn=t1\nrows=4\ntasks=alpha\nunscoped=0\nwake=signal: alpha.status\n' > "$state/.supervision-host-turn"
+  printf 'window=x\ncaptain_request=1\n' > "$state/alpha.meta"
+  printf 'working [at=1]: building\ndone [at=2]: the cleanup the captain asked for finished\n' > "$state/alpha.status"
+
+  out=$(FM_HOME="$home" FM_SUPERVISION_ACTOR=branch FM_BRANCH_REPORT_TURN=t1 "$REPORT" \
+    --task alpha --verdict routine --summary 'the leftover branches are cleaned up' 2>&1); rc=$?
+  expect_code 0 "$rc" "an in-scope report must be recorded"
+  assert_contains "$out" "recorded seq 1 [captain]" "the report told the branch a verdict the store did not record"
+  assert_grep '"verdict":"captain"' "$state/branch-outcomes.jsonl" "the store did not record the result as the captain's"
+  [ "$(cat "$state/.supervision-host-receipts")" = "$(printf 't1\t1\tcaptain\talpha')" ] \
+    || fail "the host receipt disagrees with the stored verdict: $(cat "$state/.supervision-host-receipts")"
+  pass "report surface: the receipt and the branch are told the verdict the store recorded"
+}
+
 # The return brief is rendered after the record is archived, so a non-silent
 # report made after that may be missing from it: the report queues its relay
 # for main, while a report made during the away window only waits for the brief.
@@ -475,8 +498,13 @@ test_branch_outcomes_only_on_a_host_home_off_pi() {
   assert_not_contains "$drained" "BRANCH OUTCOMES" "a Pi primary's drain must leave captain outcomes to the branch extension"
   assert_absent "$home/state/.branch-outcomes-cursor" "a Pi primary's drain must not advance the store's read cursor"
 
+  # The fixture recorded this row through the real append, so it also reached
+  # the captain's command center: main still has to act on it, and the section
+  # names it as one the captain has already seen so it is not said twice.
   drained=$(FM_HOME="$home" "$FAKE_CLAUDE" -c '"$0" 2>&1' "$ROOT/bin/fm-wake-drain.sh")
   assert_contains "$drained" "[seq 1, recorded 0m ago] demo: PR ready for review" "a Claude home without config/supervision-host must present the captain outcome"
+  assert_contains "$drained" "BRANCH OUTCOMES, ALREADY DELIVERED: seq 1 reached the captain's command center when they were recorded" "the section must name the row the captain has already seen"
+  assert_contains "$drained" "leave them out of your reply so the captain is not told twice" "the delivered line must say what to do about it"
 
   : > "$home/config/supervision-host"
   drained=$(FM_HOME="$home" "$fakes/codex" -c '"$0" 2>&1' "$ROOT/bin/fm-wake-drain.sh")
@@ -1207,6 +1235,28 @@ test_claude_stop_hook_delivers_a_main_only_pass_through() {
   assert_re '^signal: .*demo.status' "$home/hook.err" "the rewake must carry the close"
   watcher_live "$home" || fail "hook main-only: the pass-through left no successor watcher"
   pass "host+hook: an attended main-only pass-through rewakes main and keeps its successor watcher"
+}
+
+# The idle park has a time limit. The host ends its own park at
+# FM_SUPERVISION_HOST_PARK_SECONDS with a cycle-boundary line, and an idle home
+# has nothing bin/fm-supervision-lib.sh counts as supervision need, so the hook
+# would once have taken its quiet exit: no model woken, no Stop to follow, and
+# nothing to arm the next park. An idle home would then be unwatched from that
+# boundary until the captain typed, which is the failure the park exists to
+# stop. The boundary wakes the model once instead, and that turn's Stop arms the
+# next park.
+test_idle_park_boundary_rewakes_main_so_its_stop_re_arms() {
+  local home
+  home=$(make_primary_home hook-idle-boundary)
+  FM_SUPERVISION_HOST_PARK_SECONDS=1 start_hook_session "$home"
+  turn_end "$home"
+  wait_until 400 hook_exited "$home" \
+    || fail "idle boundary: the Stop hook never finished: $(cat "$home/state/.supervision-host.log" 2>/dev/null)"
+  assert_re '^supervision-host: cycle boundary' "$home/hook.err" \
+    "the rewake must carry the boundary the host reported"
+  expect_code 2 "$(cat "$home/hook.rc")" \
+    "an idle home's park boundary must wake main so its Stop arms the next park: $(cat "$home/hook.err")"
+  pass "host+hook: an idle home's park boundary wakes main once so its Stop arms the next park"
 }
 
 # Close the confirmed handling watcher after the engine has acknowledged its
@@ -2903,6 +2953,7 @@ test_claude_stop_hook_notifies_when_closed_successor_downtime_restore_fails
 test_claude_stop_hook_notifies_when_closed_announced_successor_downtime_restore_fails
 test_park_exit_probe_uses_half_second_child_sleeps
 test_report_surface_enforces_actor_turn_and_scope
+test_report_surface_receipt_agrees_with_the_stored_verdict
 test_report_after_the_return_is_queued_for_main
 test_dispatch_entry_scopes_rows_and_renders_the_away_tail
 test_branch_outcomes_only_on_a_host_home_off_pi
@@ -2930,6 +2981,7 @@ test_attended_close_with_unidentified_main_session_passes_to_main
 test_close_accepted_away_that_turns_attended_passes_to_main
 test_attended_close_that_turns_main_only_before_its_turn_passes_to_main
 test_claude_stop_hook_delivers_a_main_only_pass_through
+test_idle_park_boundary_rewakes_main_so_its_stop_re_arms
 test_claude_stop_hook_rewakes_a_present_captain_beside_a_quiet_record
 test_claude_stop_hook_runs_the_host_without_the_file_and_off_opts_out
 test_claude_stop_hook_delivers_a_close_that_turns_main_only_at_its_turn

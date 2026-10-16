@@ -48,6 +48,15 @@
 #   base_branch= in state/<id>.meta, which a relaunch reuses and later review and
 #   cleanup read; it is refused on secondmates and relaunches, and without it
 #   nothing changes.
+#   Every fresh ship or scout launch records captain_request=1 in state/<id>.meta, because nearly all
+#   dispatched work is something the captain asked for: bin/fm-branch-outcome.sh
+#   then records the result of that work as a captain outcome instead of a
+#   routine one nobody tells him about, once per unchanged situation. Its header
+#   owns that rule. --not-captain-request leaves the record out for
+#   firstmate-initiated work whose result is not the captain's, such as
+#   supervision housekeeping. A secondmate is infrastructure, so its launch,
+#   including a liveness auto-relaunch, never records it. A relaunch carries
+#   the task's recorded value forward unchanged and refuses the flag.
 #   Ship/scout launches always put fm-dod-lib.sh's current worker role scope
 #   first in the private launch-brief overlay, including the exact task-owned
 #   steering inbox. This never rewrites a project's instruction files or a
@@ -688,6 +697,7 @@ BASE_BRANCH=
 BASE_BRANCH_SET=0
 TRACEPARENT_SET=0
 RELAUNCH=0
+CAPTAIN_REQUEST=1
 POS=()
 want_value=
 for a in "$@"; do
@@ -753,6 +763,11 @@ for a in "$@"; do
     KIND_SET=1
     ;;
   --relaunch) RELAUNCH=1 ;;
+  # The captain-origin record bin/fm-branch-outcome.sh reads is on by default,
+  # because nearly all dispatched work is something the captain asked for. This
+  # opts a task out of it: firstmate-initiated work such as a recovery relaunch
+  # or supervision housekeeping, whose result is not his to hear about.
+  --not-captain-request) CAPTAIN_REQUEST=0 ;;
   --harness) want_value=harness ;;
   --harness=*)
     HARNESS_ARG=${a#--harness=}
@@ -881,6 +896,10 @@ if [ "$RELAUNCH" -eq 1 ]; then
   }
   [ "$BASE_BRANCH_SET" -eq 0 ] || {
     echo "error: --relaunch reuses the task's recorded base branch; --base-branch cannot override it" >&2
+    exit 1
+  }
+  [ "$CAPTAIN_REQUEST" -eq 1 ] || {
+    echo "error: --relaunch reuses the task's recorded captain request; --not-captain-request cannot override it" >&2
     exit 1
   }
 else
@@ -5096,6 +5115,7 @@ preserve_relaunch_meta() {
   echo "kind=$KIND"
   [ -z "$MODE" ] || echo "mode=$MODE"
   [ -z "$YOLO" ] || echo "yolo=$YOLO"
+  [ "$RELAUNCH" -eq 1 ] || [ "$CAPTAIN_REQUEST" -eq 0 ] || [ "$KIND" = secondmate ] || echo "captain_request=1"
   [ -z "${BRANCH:-}" ] || echo "branch=$BRANCH"
   echo "tasktmp=$TASK_TMP"
   [ -z "$BASE_BRANCH" ] || echo "base_branch=$BASE_BRANCH"
