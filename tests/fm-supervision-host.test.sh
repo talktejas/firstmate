@@ -536,12 +536,26 @@ test_branch_outcomes_already_delivered_still_puts_the_open_decision_to_the_capta
   # Link 1: the command-center post at record time - must not depend on a
   # later main turn.
   [ -s "$log" ] || fail "seq $seq reached nobody: no post landed in the command center at record time"
-  python3 - "$log" "$seq" <<'POSTED' || fail "the posted message does not carry this row's own task and PR"
+  # The merge waits on the captain's word, so the post is a question on his
+  # Action surface, not plain information main may leave out of its reply.
+  python3 - "$log" "$seq" <<'POSTED' || fail "the posted message does not carry this row's own task and PR as a question waiting on the captain"
 import json, sys
 rows = [json.loads(line) for line in open(sys.argv[1])]
 assert len(rows) == 1, rows
 assert rows[0]["task"] == "crm", rows[0]
 assert "outreach-crm/pull/90" in rows[0]["text"], rows[0]
+assert rows[0]["question"] is True, rows[0]
+POSTED
+
+  mkdir -p "$home-closed/state"
+  FM_HOME="$home-closed" "$ROOT/bin/fm-branch-outcome.sh" append --task crm --verdict captain \
+    --summary 'Outreach CRM PR 77 merged into develop and this task is closed.' >/dev/null \
+    || fail "fixture: could not record a finished captain outcome"
+  python3 - "$home-closed/data/captain-messages.jsonl" <<'POSTED' || fail "a captain outcome waiting on nothing must stay plain information, not a question"
+import json, sys
+rows = [json.loads(line) for line in open(sys.argv[1])]
+assert len(rows) == 1, rows
+assert rows[0]["question"] is False, rows[0]
 POSTED
 
   # Link 2: the wake into idle main - the host's own exit line that arms the
