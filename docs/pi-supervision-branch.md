@@ -418,7 +418,7 @@ The other half is processing, because a blocker, a decision, or a ready PR needs
    Main must read the full outcome for any abbreviated line before acting on, relaying, or acknowledging it.
    It says each outcome was recorded earlier and may already have been seen or handled, rather than claiming a visible entry in this transcript, because an outcome carried over from before a restart or a switch of primary has none here.
    Main sorts the outcomes by that state, and its reply to the captain covers only the still-open ones, as if the settled ones had never been listed; a settled one needs only the acknowledgement below.
-   A row the store reports as `delivered` already reached the captain's command center when it was recorded, so the request names it on an ALREADY DELIVERED line: main acts on it as usual but leaves it out of its reply, so the captain is not told twice.
+   A row the store reports as `delivered` already reached the captain's command center when it was recorded, so the request names it on an ALREADY DELIVERED line: main still acts on it as usual, including putting any decision it leaves open to the captain - only its already-posted summary text is left out of the reply, never the decision itself, so he is not told the same thing twice but is still asked.
    A listed row without a valid age breaks the store's contract, so the extension reports it to main as a visible note and sends no request; every row stays unprocessed and is presented once the store is healthy.
 2. That request opens exactly one main turn.
 3. Main closes it only by calling `fm_branch_processed` with the highest sequence the request listed.
