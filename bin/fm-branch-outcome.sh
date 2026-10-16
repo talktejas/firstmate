@@ -97,7 +97,8 @@
 #     high-water mark, because a post can fail for one row and succeed for the
 #     next. `present` and `unprocessed` carry that as a `delivered` boolean, so
 #     the drain shows a delivered row for MAIN to act on (merge, answer,
-#     unblock) while telling it not to relay the row to the captain again. A
+#     unblock) while telling it not to repeat the posted summary - though it
+#     still puts any decision the row leaves open to the captain. A
 #     failed post warns, records nothing, and leaves the row to MAIN's relay.
 #     Nothing is posted while an away record exists, because the away contract
 #     holds every outcome back for the return brief; such a row is not
